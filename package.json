@@ -1,0 +1,21 @@
+{
+  "name": "noteapp",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@9.15.9",
+  "scripts": {
+    "dev:web": "pnpm --filter @noteapp/web dev",
+    "dev:api": "pnpm --filter @noteapp/api dev",
+    "build:web": "pnpm --filter @noteapp/web build",
+    "deploy:api": "pnpm --filter @noteapp/api deploy",
+    "deploy:api:prod": "pnpm --filter @noteapp/api run deploy:prod",
+    "db:local": "wrangler d1 execute noteapp-db --local --file=apps/api/schema.sql",
+    "db:remote": "wrangler d1 execute noteapp-db --remote --file=apps/api/schema.sql",
+    "typecheck": "pnpm -r typecheck"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3",
+    "wrangler": "^4.149.0"
+  }
+}

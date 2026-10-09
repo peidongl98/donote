@@ -1,0 +1,33 @@
+# dependencies
+node_modules/
+.pnpm-store/
+
+# build output
+dist/
+dist-ssr/
+*.local
+
+# cloudflare
+.wrangler/
+.dev.vars
+.dev.vars.*
+
+# env & secrets
+.env
+.env.*
+!.env.example
+
+# editor / os
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
+
+# logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# scratch
+.workbuddy/tmp/

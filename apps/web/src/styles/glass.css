@@ -1,0 +1,43 @@
+/* ==========================================================================
+   毛玻璃层
+   设计来源：mianbeishiwole/Liquid-Glass-Vue 的 glass.css
+   （.glass 双层结构 = 半透明底 + ::before 高光层，高光层不参与交互）
+   约束：每屏毛玻璃浮层 ≤ 3 个；低端设备由 --glass-blur:0 自动降级。
+   ========================================================================== */
+
+.glass {
+  position: relative;
+  background: var(--glass-bg);
+  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturation));
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturation));
+  border: 1px solid var(--glass-border);
+  border-radius: var(--r-lg);
+  box-shadow: var(--glass-shadow), var(--glass-inner-shadow);
+  overflow: hidden;
+  transition:
+    background var(--dur) var(--ease-smooth),
+    border-color var(--dur) var(--ease-smooth),
+    box-shadow var(--dur) var(--ease-smooth),
+    transform var(--dur) var(--ease-spring);
+}
+
+/* 对角高光：只在视觉层，永不拦截点击 */
+.glass::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: var(--glass-highlight-top);
+  border-radius: inherit;
+  z-index: 1;
+}
+
+.glass > * {
+  position: relative;
+  z-index: 2;
+}
+
+/* 上浮：卡片 hover */
+.lift:hover {
+  transform: translateY(-2px);
+}

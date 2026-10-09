@@ -1,0 +1,25 @@
+{
+  "name": "@noteapp/web",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --port 5173",
+    "build": "vite build",
+    "preview": "vite preview --port 4173",
+    "typecheck": "vue-tsc --noEmit"
+  },
+  "dependencies": {
+    "@noteapp/shared": "workspace:*",
+    "pinia": "^4.0.3",
+    "vue": "^3.5.43",
+    "vue-router": "^5.4.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.3",
+    "@vitejs/plugin-vue": "^6.0.9",
+    "typescript": "^5.9.3",
+    "vite": "^8.3.4",
+    "vue-tsc": "^3.3.12"
+  }
+}
