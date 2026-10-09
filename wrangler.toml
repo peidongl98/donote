@@ -33,8 +33,8 @@ name = "noteapp-api"
 
 [env.production.vars]
 ENVIRONMENT = "production"
-# 部署前端后替换为实际 Pages 域名
-ALLOWED_ORIGINS = "https://noteapp.pages.dev"
+# 前端 Pages 域名（wrangler pages project create 分配）
+ALLOWED_ORIGINS = "https://noteapp-4h0.pages.dev"
 
 [[env.production.d1_databases]]
 binding = "DB"

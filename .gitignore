@@ -12,10 +12,11 @@ dist-ssr/
 .dev.vars
 .dev.vars.*
 
-# env & secrets
+# env & secrets（.env.production 只放非敏感构建常量，需要入库）
 .env
 .env.*
 !.env.example
+!.env.production
 
 # editor / os
 .DS_Store
