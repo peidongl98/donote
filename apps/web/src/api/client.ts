@@ -22,9 +22,9 @@ export function setAuthToken(token: string | null): void {
 }
 
 export interface RequestOptions {
-  method?: 'GET' | 'POST';
+  method?: 'GET' | 'POST' | 'PATCH' | 'DELETE';
   body?: unknown;
-  /** 明确要求不带 Authorization（登录前接口） */
+  /** 明确要求不带 Authorization（登录前接口 / 公开接口） */
   anonymous?: boolean;
 }
 

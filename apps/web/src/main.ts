@@ -8,6 +8,7 @@ import { useThemeStore } from './stores/theme';
 import './styles/tokens.css';
 import './styles/base.css';
 import './styles/glass.css';
+import './styles/app.css';
 
 const app = createApp(App);
 const pinia = createPinia();

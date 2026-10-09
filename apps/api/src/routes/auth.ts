@@ -7,6 +7,7 @@ import { requireSession } from '../middleware/session';
 import { newId, randomCode, randomHex } from '../utils/id';
 import { ApiException, ok } from '../utils/response';
 import { sendSmsCode } from '../utils/tencent-sms';
+import { isTestLoginPhone } from '../utils/test-login';
 
 interface PhoneCodeRow {
   phone: string;
@@ -36,20 +37,26 @@ authRoutes.post('/send-code', smsRateLimit, async (c) => {
     .bind(phone, code, now + RATE_LIMITS.codeTtlMs, now)
     .run();
 
+  const ip = c.req.header('CF-Connecting-IP') ?? null;
+
+  // 测试账号：跳过短信通道。验证码依旧随机、入库、5 分钟过期、一码一用。
+  if (isTestLoginPhone(c.env, phone)) {
+    await c.env.DB.prepare(
+      `INSERT INTO sms_logs (id, phone, ip, success, error_code, created_at)
+       VALUES (?, ?, ?, 1, 'test_channel', ?)`,
+    )
+      .bind(newId('sms'), phone, ip, now)
+      .run();
+    return ok(c, { devCode: code, testChannel: true });
+  }
+
   const outcome = await sendSmsCode(c.env, phone, code);
 
   await c.env.DB.prepare(
     `INSERT INTO sms_logs (id, phone, ip, success, error_code, created_at)
      VALUES (?, ?, ?, ?, ?, ?)`,
   )
-    .bind(
-      newId('sms'),
-      phone,
-      c.req.header('CF-Connecting-IP') ?? null,
-      outcome.delivered ? 1 : 0,
-      outcome.errorCode ?? null,
-      now,
-    )
+    .bind(newId('sms'), phone, ip, outcome.delivered ? 1 : 0, outcome.errorCode ?? null, now)
     .run();
 
   if (!outcome.configured && !outcome.devMode) {
@@ -59,7 +66,6 @@ authRoutes.post('/send-code', smsRateLimit, async (c) => {
     throw new ApiException('sms_send_failed', '验证码发送失败，请稍后重试', 502);
   }
 
-  // dev 模式把验证码回传，前端仅在开发环境展示
   return ok(c, outcome.devMode ? { devCode: code } : {});
 });
 

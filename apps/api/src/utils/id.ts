@@ -26,3 +26,13 @@ export function randomCode(): string {
   } while (value >= limit);
   return String(value % 1000000).padStart(6, '0');
 }
+
+/** 分享密码等一次性凭证的哈希：不存明文，比对时现算 */
+export async function sha256Hex(input: string): Promise<string> {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(input));
+  let out = '';
+  for (const byte of new Uint8Array(digest)) {
+    out += HEX[byte >> 4] + HEX[byte & 15];
+  }
+  return out;
+}

@@ -1,5 +1,14 @@
 <script setup lang="ts">
-import { RouterView } from 'vue-router';
+import { computed } from 'vue';
+import { RouterView, useRoute } from 'vue-router';
+import BottomTabs from '@/components/BottomTabs.vue';
+import { useUiStore } from '@/stores/ui';
+
+const route = useRoute();
+const ui = useUiStore();
+
+/** 底部导航只在主页面出现，编辑页、公开页保持全屏专注 */
+const showTabs = computed(() => route.meta.tabs === true);
 </script>
 
 <template>
@@ -8,6 +17,12 @@ import { RouterView } from 'vue-router';
       <component :is="Component" />
     </Transition>
   </RouterView>
+
+  <BottomTabs v-if="showTabs" />
+
+  <Transition name="toast">
+    <div v-if="ui.message" class="toast glass">{{ ui.message }}</div>
+  </Transition>
 </template>
 
 <style>

@@ -56,8 +56,8 @@ async function sendCode(): Promise<void> {
   sending.value = true;
   try {
     const returned = await auth.sendCode(value);
-    // devCode 仅开发构建展示：生产构建即使服务端误配也不会把它渲染出来
-    devCode.value = import.meta.env.DEV ? (returned ?? '') : '';
+    // 服务端只在 dev 降级或测试账号白名单命中时回传 devCode，前端照单展示即可
+    devCode.value = returned ?? '';
     startCountdown();
   } catch (err) {
     banner.value = err instanceof ApiError ? err.message : '验证码发送失败';
