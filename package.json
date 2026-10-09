@@ -6,16 +6,12 @@
   "packageManager": "pnpm@9.15.9",
   "scripts": {
     "dev:web": "pnpm --filter @donote/web dev",
-    "dev:api": "pnpm --filter @donote/api dev",
     "build:web": "pnpm --filter @donote/web build",
-    "deploy:api": "pnpm --filter @donote/api deploy",
-    "deploy:api:prod": "pnpm --filter @donote/api run deploy:prod",
-    "db:local": "wrangler d1 execute donote-db --local --file=apps/api/schema.sql",
-    "db:remote": "wrangler d1 execute donote-db --remote --file=apps/api/schema.sql",
+    "dev:desktop": "pnpm --filter @donote/desktop dev",
+    "build:desktop": "pnpm --filter @donote/desktop build",
     "typecheck": "pnpm -r typecheck"
   },
   "devDependencies": {
-    "typescript": "^5.9.3",
-    "wrangler": "^4.149.0"
+    "typescript": "^5.9.3"
   }
 }

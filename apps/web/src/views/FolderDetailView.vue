@@ -2,7 +2,7 @@
 import { computed, onMounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import type { NoteSummaryDTO } from '@donote/shared';
-import { foldersApi, notesApi } from '@/api/resources';
+import { foldersApi, notesApi } from '@/storage/notes';
 import { useUiStore } from '@/stores/ui';
 import AppHeader from '@/components/AppHeader.vue';
 import NoteCard from '@/components/NoteCard.vue';

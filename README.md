@@ -1,198 +1,145 @@
 # DoNote
 
-DoNote —— 多端 Markdown 笔记工具（未来商业化 SaaS）。初期单人使用，架构从第一天按多租户设计。
+本地优先的 Markdown 笔记客户端。**没有后端** —— 笔记以 `.md` 文件直接读写用户自己的坚果云（WebDAV），
+DoNote 看不到、也存不下任何内容。完全免费，不做会员、不做付费存储、不接广告。
 
-线上：**https://donote.pages.dev**
+下载站：**https://donote.pages.dev**（只是下载页，不是一个网页版笔记应用）
 
-## 功能
+## 为什么是网页下载页而不是网页应用
 
-| 模块 | 状态 |
-|---|---|
-| 手机号验证码登录 / 注册（一码一用、错 3 次锁 10 分钟、三条防刷阈值） | 已上线 |
-| 多租户数据隔离（一人一租户，预留 tenant_members 与 plan） | 已上线 |
-| 笔记：新建 / 编辑（自动保存）/ 删除 / 回收站 / 恢复 / 彻底删除 | 已上线 |
-| Markdown 渲染（markdown-it，禁用原始 HTML） | 已上线 |
-| 文件夹：树形归类 / 重命名 / 删除时内容上移不丢 | 已上线 |
-| 分享：公开链接 / 访问密码 / 有效期 / 撤销；软删除后统一 410 Gone | 已上线 |
-| PWA（可添加到主屏，service worker 不缓存 `/api/*`） | 已上线 |
-| 腾讯云短信真实发送 | **待配凭证**（未配置时仅测试账号与 dev 可用） |
+坚果云 WebDAV 不返回 CORS 响应头，浏览器里任何直连都会被跨域拦掉；
+而且 Chromium 对带 `WWW-Authenticate` 的 401 会挂起等凭据，`fetch` 永远不 resolve。
+只有原生壳（Tauri 的 reqwest / 鸿蒙 `@ohos.net.http` / iOS URLSession）能绕开这个限制。
+所以：**桌面端与手机端是产品形态，网页只是一个下载页。**
 
-## 技术栈
+## 架构
 
-| 层 | 选型 |
-|---|---|
-| 前端 | Vite 8 + Vue 3.5 + TypeScript + Vue Router 5 + Pinia 4 + markdown-it |
-| 后端 | Cloudflare Workers + Hono 4 |
-| 数据库 | Cloudflare D1（SQLite） |
-| 短信 | 腾讯云短信（TC3-HMAC-SHA256 签名） |
-| 部署 | GitHub + Cloudflare Pages（前端）+ Workers（后端） |
+```
+Tauri 2 (Windows)  ─┐
+鸿蒙 ArkWeb 壳       ├─→ 原生网络栈 ─→ 坚果云 WebDAV (https://dav.jianguoyun.com/dav)
+iOS 壳              ─┘        ↑
+                       凭据只存本机：Windows 凭据管理器 / AssetStoreKit
+```
 
-UI 为自实现纯 CSS 毛玻璃（变量体系参考 `mianbeishiwole/Liquid-Glass-Vue`，该项目 `private: true` 未发布）。
+- 前端：Vite 8 + Vue 3.5 + TypeScript + Vue Router 5 + Pinia 4 + markdown-it
+- 桌面壳：Tauri 2（`tauri-plugin-http` 走 Rust reqwest 发请求、`tauri-plugin-updater` 应用内更新、`keyring` 存凭据）
+- 数据：用户自己的坚果云，**无服务端、无数据库、无账号体系**
+
+## 文件模型
+
+```
+<同步根>/                       默认 /DoNote
+├── 工作/                       文件夹 = 真目录
+│   └── 周报.md                 一篇笔记 = 一个 .md 文件
+└── .trash/                     删除的笔记挪到这里，frontmatter 记下原路径
+    └── 1791567584022-30lr-周报.md
+```
+
+每篇 `.md` 带一段极简 frontmatter（不用 YAML 库，只用 `key: value` 与 `tags: [a, b]`）：
+
+```markdown
+---
+title: "周报"
+created: 1791567584022
+updated: 1791567584022
+tags: []
+---
+正文…
+```
+
+- **标题即文件名**：改标题会把文件一起改名，重名自动补 ` 2`。列表因此不必读正文就能拿到标题。
+- 回收站文件额外带 `deleted_from`（原相对路径）与 `deleted_at`。
+- 笔记/文件夹的 id 是**相对路径的 base64url** —— 路径含 `/`，直接塞进路由会破坏参数匹配。
 
 ## 目录结构
 
 ```
 DoNote/
 ├── apps/
-│   ├── web/                    Vite + Vue 3 前端
-│   │   ├── functions/api/[[path]].ts   Pages Function：/api/* 同源反代到 Worker
-│   │   ├── public/              PWA 图标（脚本生成的 PNG）
-│   │   └── src/{views,components,stores,router,api,styles,utils}
-│   └── api/                    Workers + Hono 后端
-│       ├── schema.sql          D1 schema（幂等，可重复执行）
-│       └── src/{routes,middleware,utils}
-├── packages/shared/            前后端共享类型与常量（直接暴露 TS 源码，不走构建）
-├── scripts/push-to-github.cjs  Git Data API 推送脚本
-├── wrangler.toml               唯一一份配置（含 [env.production]）
+│   ├── web/                      前端（同时也是桌面壳的前端）
+│   │   ├── public/               PWA 图标
+│   │   └── src/
+│   │       ├── storage/          ★ 数据层：transport / webdav / notes / frontmatter / secret-store
+│   │       ├── views/            home / login / note / folders / folder / trash / settings
+│   │       ├── components/       毛玻璃组件
+│   │       ├── stores/           nutstore（连接态）/ theme / ui
+│   │       └── updater.ts        应用内更新
+│   └── desktop/                  Tauri 2 工程（src-tauri）
+├── packages/shared/              数据类型与常量（直接暴露 TS 源码，不走构建）
+├── site/                         ★ Cloudflare Pages 发布目录（下载站）
+│   ├── index.html                下载页
+│   ├── downloads/                安装包
+│   └── updates/latest.json       应用内更新的清单
+├── scripts/
+│   ├── make-release.mjs          打包产物 → site/ 并生成更新清单
+│   └── push-to-github.cjs        Git Data API 推送（本机 git push 不可用）
 └── pnpm-workspace.yaml
 ```
 
 ## 本地开发
 
 ```bash
-# 依赖（本机 esbuild postinstall 会因 spawnSync EBUSY 失败，需 --ignore-scripts）
+# esbuild postinstall 在本机会 spawnSync EBUSY，必须 --ignore-scripts
 pnpm install --ignore-scripts
 
-# 首次：建本地 D1 表
-pnpm db:local
-
-# 两个终端分别启动
-pnpm dev:api     # http://127.0.0.1:8787
-pnpm dev:web     # http://localhost:5173（/api 由 Vite 代理到 8787）
+pnpm dev:web        # http://localhost:5173，/nutdav 由 Vite 代理转发到坚果云
+pnpm dev:desktop    # 起 Tauri 窗口
 ```
 
-本地不需要任何外部凭证：`TENCENT_SECRET_ID` 缺失时后端进入 dev 模式，
-`/auth/send-code` 把验证码以 `devCode` 回传，登录页直接展示并支持一键填入。
+⚠️ `apps/web/vite.config.ts` 的 `/nutdav` 代理里必须剥掉 `WWW-Authenticate` 响应头，
+否则「密码错了」会让请求永远挂起而不是返回 401（见「已知陷阱」）。
 
-## 测试账号（免短信登录）
-
-短信凭证未配置时，用 `TEST_LOGIN_PHONES` 白名单给指定手机号开一条免短信通道：
-
-- 服务端变量：`TEST_LOGIN_PHONES`（逗号分隔的 11 位手机号）
-- **留空 = 完全关闭**，线上默认不配置即不存在这条通道
-- 命中白名单的号码：跳过腾讯云，验证码仍随机生成、写库、5 分钟过期、校验通过即删（一码一用）
-- 响应里多带 `devCode` 与 `testChannel: true`，前端照单展示
+## 打包与发布
 
 ```bash
-# 线上设置（值不入仓库，存在 Cloudflare）
-printf '18617195056' | wrangler secret put TEST_LOGIN_PHONES --env production
+cd apps/desktop
+export TAURI_SIGNING_PRIVATE_KEY=D:/design-website/DoNote/.updater-key/donote.key
+export TAURI_SIGNING_PRIVATE_KEY_PASSWORD=""
+pnpm tauri build --bundles nsis      # 产出 -setup.exe 与 .exe.sig
 
-# 关闭
-wrangler secret delete TEST_LOGIN_PHONES --env production
+# 把产物铺进下载站并生成最新清单
+node scripts/make-release.mjs --version 0.1.0 --notes "更新说明"
+
+# 发布下载站（Pages 项目 donote）
+wrangler pages deploy site --project-name donote --branch main
 ```
 
-## 数据库
+### 应用内更新
 
-D1 库 `donote-db`，id `eca2dcd8-9bab-4f6e-beac-dae4d126e8e0`。
+- 清单在 `https://donote.pages.dev/updates/latest.json`，安装包与手动下载共用同一个文件。
+- 公钥写死在 `src-tauri/tauri.conf.json` 的 `plugins.updater.pubkey`，只有同一个私钥签过的包能装上。
+- 私钥在 `.updater-key/`（**已 gitignore，丢了就没法再发更新**）。
+- 设置页有「检查更新」，启动时也会静默查一次；装的是 NSIS 的 `passive` 模式，不打断用户。
 
-```bash
-pnpm db:local    # 本地
-pnpm db:remote   # 线上
-```
+## 平台限制（坚果云免费版）
 
-10 张业务表：`users` / `tenants` / `tenant_members` / `phone_codes` / `sessions` /
-`notes` / `folders` / `shares` / `sms_logs` / `audit_logs`。
-
-多租户约定：**所有业务表带 `tenant_id`，所有查询恒带 `WHERE tenant_id = ?`**。
-软删除用可空的 `deleted_at` 时间戳。分享行不随笔记软删除而删除（软删除期间分享页统一返回 `410 Gone`），
-只在笔记被**彻底删除**时级联清理。
-
-## API
-
-全部版本化在 `/api/v1` 下。
-
-| 方法 | 路径 | 说明 |
+| 限制 | 值 | 应对 |
 |---|---|---|
-| GET | `/health` | 健康检查，返回当前 `ENVIRONMENT` |
-| POST | `/auth/send-code` | 发送验证码（三条防刷阈值） |
-| POST | `/auth/verify` | 校验并登录/注册，返回 30 天 session token |
-| GET | `/auth/me` | 取当前 user + tenant |
-| POST | `/auth/logout` | 销毁 session |
-| GET | `/notes` | 列表：`folder_id`（缺省=全部 / `root` / id）、`q`、`trash=1`、`limit`、`offset`；只返回 120 字摘要 |
-| POST | `/notes` | 新建 |
-| GET | `/notes/:id` | 详情（含正文，回收站内也可读） |
-| PATCH | `/notes/:id` | 更新 title / content / folder_id，`version` 自增 |
-| DELETE | `/notes/:id` | 软删除；`?hard=1` 彻底删除并级联清理 shares |
-| POST | `/notes/:id/restore` | 从回收站恢复 |
-| GET | `/folders` | 文件夹平铺列表（带直系 `note_count`） |
-| POST | `/folders` | 新建（可指定 `parent_id`） |
-| PATCH | `/folders/:id` | 重命名 / 移动（成环返回 409） |
-| DELETE | `/folders/:id` | 删除文件夹，其内容上移到父级（不删笔记） |
-| POST | `/shares` | 创建分享（可带密码与有效期；重复分享复用同一条，slug 稳定） |
-| GET | `/shares` | 我的分享列表（含笔记标题、查看次数、失效原因） |
-| DELETE | `/shares/:id` | 撤销分享 |
-| GET | `/public/shares/:slug` | 匿名读取；需要密码时 401 `password_required`；已删/过期 410 `gone`；撤销 404 |
-| POST | `/public/shares/:slug` | 提交密码换内容 |
-
-成功响应扁平：`{ "success": true, ... }`；失败统一：`{ "success": false, "error": { "code", "message" } }`。
-所有 API 响应带 `Cache-Control: no-store`（原因见「已知陷阱」）。
-
-## 环境变量
-
-写在根目录 `wrangler.toml` 的 `[vars]` / `[env.production.vars]`；敏感值用
-`wrangler secret put`，**不写进仓库**。
-
-| 变量 | dev | production |
-|---|---|---|
-| `ENVIRONMENT` | `dev` | `production` |
-| `ALLOWED_ORIGINS` | `http://localhost:5173,http://127.0.0.1:5173` | `https://donote.pages.dev` |
-| `TEST_LOGIN_PHONES` | 可缺省 | 需要测试账号时设置（secret） |
-| `TENCENT_SECRET_ID` / `TENCENT_SECRET_KEY` | 可缺省（触发 dev 降级） | **必填** |
-| `TENCENT_SMS_SDK_APP_ID` / `TENCENT_SMS_SIGN_NAME` / `TENCENT_SMS_TEMPLATE_ID` | 可缺省 | **必填** |
-
-环境判断一律用 `env.ENVIRONMENT`，**不要用 `NODE_ENV`**（Workers 运行时不存在）。
-生产环境缺凭证时接口返回 `sms_not_configured`，**不会**退回 dev 模式。
-
-## 部署
-
-```bash
-# 后端（独立 Worker）
-pnpm deploy:api:prod
-
-# 前端（Pages，含 /api 反代 Function + PWA 产物）
-cd apps/web && pnpm build && wrangler pages deploy dist --project-name donote --branch main
-
-# 推送到 GitHub（本机 github.com 直连不可用，走 api.github.com）
-git -c core.quotepath=false ls-files --cached -z > "$TMPF"
-PUSH_FILE_LIST="$TMPF" node scripts/push-to-github.cjs --owner peidongl98 --repo donote --branch main
-```
-
-### 为什么前端要经 Pages Function 反代
-
-本机网络无法访问 `*.workers.dev`（实测该域连接失败，`*.pages.dev` 正常）。
-若前端直接跨域调 Worker，用户侧会整站不可用。经 `functions/api/[[path]].ts` 同源反代后：
-
-- 用户只需能访问 Pages 域名，不依赖 `workers.dev` 可达性
-- 前后端同源，**完全不需要 CORS**
-- 后端仍是独立部署的 Worker，反代层不含任何业务逻辑
+| 请求频率 | 每 30 分钟 ≤ 600 次 | 目录树一次遍历 + 3 秒 TTL 缓存；摘要补齐并发限 2 |
+| 单次列目录 | ≤ 750 条 | 递归按层并发 4，最多 300 个目录 |
+| 单文件 | ≤ 500 MB | 笔记正文上限 20 万字符 |
+| 每月流量 | 上传 1 GB / 下载 3 GB | 只传改动过的文件 |
 
 ## 已知陷阱
 
-1. **`-webkit-backdrop-filter` 陷阱**：Vite 8 默认用 lightningcss 压缩 CSS，会把
-   `backdrop-filter` 改写成只剩 `-webkit-` 前缀版本，Chromium 不认 → **线上毛玻璃整条失效**
-   （dev 不压缩所以测不出来）。已在 `vite.config.ts` 设 `cssMinify: 'esbuild'` 规避。
-   改样式后必须核验**构建产物**，不能只看 dev。
-2. **410 会被浏览器启发式缓存**：410 Gone 属于 RFC 7234 允许启发式缓存的状态码。
-   曾复现「笔记删除后访客看到已删除 → 恢复后访客刷新仍看到已删除」。
-   已对所有 `/api/*` 加 `Cache-Control: no-store` 根治。
-3. **编辑页加载竞态**：笔记详情是异步拉回来的，若输入框在加载完成前可编辑，
-   用户先打的字会被服务端返回值覆盖。已让标题框在 `loading` 期间 `disabled`。
-4. **`pnpm install`**：本机 esbuild/workerd 的 postinstall 会因 `spawnSync EBUSY` 报错，
-   用 `--ignore-scripts`；二进制来自 `@esbuild/win32-x64` 与 `@cloudflare/workerd-windows-64`，实测可直接执行。
-   **移动/重命名仓库目录后**必须删掉各级 `node_modules` 再装，否则会出现
-   `Cannot find module 'undici' / '@volar/typescript'` 这类「装了但没装全」的症状。
-5. **`git push` 不可用**：本机 `github.com:443` 会触发 Git Credential Manager 弹窗并挂起，统一走
-   `scripts/push-to-github.cjs`（Git Data API）。空仓库需先建一次占位提交，否则建 blob 报 409。
-6. **`wrangler.toml` 不写 `account_id`**，由环境变量 `CLOUDFLARE_ACCOUNT_ID` 提供。
-7. **多个 environment 时必须显式 `--env`**，否则 wrangler 会警告可能改错环境。
-8. **Cloudflare 的 Pages 项目与 D1 都不支持改名**，只能新建 + 重放 schema + 重新部署 + 删旧；
-   Worker 删除要带 `?force=true`。
-9. **PWA 的 `runtimeCaching` 必须排除 `/api/*`**（这里用 `NetworkOnly` + `navigateFallbackDenylist`），
-   否则缓存会让认证与「已删除/已恢复」类状态失真。
+1. **带 `WWW-Authenticate` 的 401 会让 Chromium 挂起**：dev 代理必须删掉这个响应头。
+2. **坚果云不返回 CORS 响应头**：浏览器直连必被拦，这是「网页版做不成笔记应用」的根因。
+3. **`-webkit-backdrop-filter` 陷阱**：Vite 8 默认 lightningcss 压缩会把 `backdrop-filter`
+   改写成只剩 `-webkit-` 前缀版本，Chromium 不认 → 线上毛玻璃整条失效（dev 不压缩测不出来）。
+   已设 `cssMinify: 'esbuild'`，改样式后必须核验构建产物。
+4. **`MOVE` 的 `Destination` 必须是绝对 URL**：不能复用 dev 代理前缀，要用真域名拼。
+5. **列表摘要要读正文**：WebDAV 列目录不含内容，所以摘要按「路径 + mtime」缓在 localStorage，
+   首次打开会分批补齐，之后加载几乎零请求。
+6. **`pnpm install` 与移动仓库目录**：移动/改名后必须删掉各级 `node_modules` 再装，
+   否则出现 `Cannot find module 'undici'` 这类「装了但没装全」。
+7. **`git push` 不可用**：本机 `github.com:443` 会弹 Git Credential Manager 并挂起，
+   统一走 `scripts/push-to-github.cjs`（Git Data API）。
+8. **Tauri 的 NSIS 工具链要从 GitHub 下**：本机 `objects.githubusercontent.com` 不可达；
+   走镜像把 `nsis-3.11.zip` 与 `nsis_tauri_utils.dll` 铺到 `%LOCALAPPDATA%\tauri\NSIS` 即可离线复用
+   （两个文件都有 SHA1 校验，见 `docs/PLAN.md`）。
 
-## 下一步
+## 数据与隐私
 
-- 补腾讯云短信 5 项凭证后打开真实短信登录（并删除 `TEST_LOGIN_PHONES`）
-- 笔记版本历史（软删除期间保留的 shares 行可复用）
-- 团队协作（`tenant_members` 与 `plan` 已预埋）
-- 鸿蒙打包（ArkWeb 套壳方案，见 `docs/reference-notes.md`）
+- 账号与应用密码只存在本机（Windows 凭据管理器 / AssetStoreKit），**不上传**。
+- 应用密码不是登录密码，在坚果云网页端「账户信息 → 安全选项 → 第三方应用管理」生成，可随时撤销。
+- 坚果云开了微信二次验证时 WebDAV 用不了，必须先关掉。

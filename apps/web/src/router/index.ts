@@ -1,5 +1,5 @@
 import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router';
-import { useAuthStore } from '@/stores/auth';
+import { useNutstoreStore } from '@/stores/nutstore';
 
 declare module 'vue-router' {
   interface RouteMeta {
@@ -42,12 +42,6 @@ const routes: RouteRecordRaw[] = [
     meta: { requiresAuth: true },
   },
   {
-    path: '/shares',
-    name: 'shares',
-    component: () => import('@/views/SharesView.vue'),
-    meta: { requiresAuth: true },
-  },
-  {
     path: '/trash',
     name: 'trash',
     component: () => import('@/views/TrashView.vue'),
@@ -59,14 +53,6 @@ const routes: RouteRecordRaw[] = [
     component: () => import('@/views/SettingsView.vue'),
     meta: { requiresAuth: true, tabs: true },
   },
-  {
-    path: '/admin',
-    name: 'admin',
-    component: () => import('@/views/PlaceholderView.vue'),
-    meta: { requiresAuth: true },
-  },
-  // 公开分享页：不需要登录
-  { path: '/s/:slug', name: 'share', component: () => import('@/views/PublicShareView.vue') },
   { path: '/:pathMatch(.*)*', redirect: '/' },
 ];
 
@@ -77,12 +63,12 @@ export const router = createRouter({
 });
 
 router.beforeEach((to) => {
-  const auth = useAuthStore();
+  const nutstore = useNutstoreStore();
 
-  if (to.meta.requiresAuth && !auth.isLoggedIn) {
+  if (to.meta.requiresAuth && !nutstore.isConnected) {
     return { name: 'login', query: { redirect: to.fullPath } };
   }
-  if (to.meta.guestOnly && auth.isLoggedIn) {
+  if (to.meta.guestOnly && nutstore.isConnected) {
     return { name: 'home' };
   }
   return true;

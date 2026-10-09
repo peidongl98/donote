@@ -2,7 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import type { FolderDTO, NoteSummaryDTO } from '@donote/shared';
-import { foldersApi, notesApi } from '@/api/resources';
+import { foldersApi, hydrateExcerpts, notesApi } from '@/storage/notes';
 import { useUiStore } from '@/stores/ui';
 import AppHeader from '@/components/AppHeader.vue';
 import NoteCard from '@/components/NoteCard.vue';
@@ -37,6 +37,20 @@ async function load(): Promise<void> {
   }
 }
 
+/** 摘要要先读过正文才有，补齐一轮；补到了就再刷一次列表 */
+let hydrating = false;
+async function hydrate(): Promise<void> {
+  if (hydrating) return;
+  hydrating = true;
+  try {
+    if ((await hydrateExcerpts()) > 0) await load();
+  } catch {
+    // 摘要补齐失败不打扰用户，列表本身已经可用
+  } finally {
+    hydrating = false;
+  }
+}
+
 async function loadFolders(): Promise<void> {
   try {
     folders.value = (await foldersApi.list()).items;
@@ -62,7 +76,7 @@ async function create(): Promise<void> {
 
 onMounted(() => {
   loadFolders();
-  load();
+  load().then(hydrate);
 });
 
 onBeforeUnmount(() => {

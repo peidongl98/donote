@@ -27,13 +27,13 @@ export default defineConfig({
       },
       workbox: {
         globPatterns: ['**/*.{js,css,html,png,svg,woff2}'],
-        // 站内导航一律回退到 index.html（SPA），但 /api/* 除外
+        // 站内导航一律回退到 index.html（SPA），但 dev 代理路径除外
         navigateFallback: 'index.html',
-        navigateFallbackDenylist: [/^\/api\//],
+        navigateFallbackDenylist: [/^\/nutdav\//],
         runtimeCaching: [
           {
-            // 认证与业务接口绝不进缓存：缓存会让「已删除 / 已恢复」这类状态失真
-            urlPattern: ({ url }) => url.pathname.startsWith('/api/'),
+            // 笔记内容绝不进缓存：缓存会让「刚在坚果云改过」的内容失真
+            urlPattern: ({ url }) => url.pathname.startsWith('/nutdav/'),
             handler: 'NetworkOnly',
           },
           {
@@ -54,11 +54,20 @@ export default defineConfig({
   },
   server: {
     port: 5173,
-    // dev 走同源代理，避免本地额外跨域；线上由 Worker 的 CORS 白名单接管
     proxy: {
-      '/api': {
-        target: 'http://127.0.0.1:8787',
+      // 坚果云 WebDAV 不返回 CORS 响应头，浏览器直连必被拦。
+      // dev 用代理转发，让网页端也能开发调试；端上（Tauri / 鸿蒙）走原生网络栈，不需要它。
+      '/nutdav': {
+        target: 'https://dav.jianguoyun.com',
         changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/nutdav/, ''),
+        configure: (proxy) => {
+          // Chromium 收到带 WWW-Authenticate 的 401 会挂起等凭据，fetch 永远不 resolve。
+          // 去掉这个头，让「密码错了」作为一个普通 401 返回，前端才能提示出来。
+          proxy.on('proxyRes', (proxyRes) => {
+            delete proxyRes.headers['www-authenticate'];
+          });
+        },
       },
     },
   },

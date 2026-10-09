@@ -1,43 +1,83 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
-import type { NoteSummaryDTO } from '@donote/shared';
-import { notesApi, sharesApi } from '@/api/resources';
-import { useAuthStore } from '@/stores/auth';
+import { notesApi } from '@/storage/notes';
+import { isTauriRuntime } from '@/storage/transport';
+import { appVersion, checkUpdate, installUpdate, type UpdateState } from '@/updater';
+import { useNutstoreStore } from '@/stores/nutstore';
 import { useUiStore } from '@/stores/ui';
-import { formatTime } from '@/utils/format';
 import AppHeader from '@/components/AppHeader.vue';
 import ThemeToggle from '@/components/ThemeToggle.vue';
 
-const auth = useAuthStore();
+const nutstore = useNutstoreStore();
 const ui = useUiStore();
 const router = useRouter();
 
-const shareCount = ref<number | null>(null);
 const trashCount = ref<number | null>(null);
 const signingOut = ref(false);
 
-const displayName = computed(() => auth.user?.nickname || auth.user?.phone || '未登录');
+const desktop = isTauriRuntime();
+const version = ref('');
+const updateState = ref<UpdateState | null>(null);
+const checking = ref(false);
+
+const displayName = computed(() => nutstore.account || '未连接');
 const initial = computed(() => displayName.value.slice(0, 1).toUpperCase() || 'D');
-const joined = computed(() => formatTime(auth.user?.created_at ?? null));
+
+const updateText = computed(() => {
+  const state = updateState.value;
+  switch (state?.kind) {
+    case 'available':
+      return `有新版本 ${state.version}`;
+    case 'downloading':
+      return `正在下载 ${state.percent}%`;
+    case 'installing':
+      return '正在安装…';
+    case 'latest':
+      return '已是最新版本';
+    case 'error':
+      return '检查更新失败';
+    case 'unsupported':
+      return '网页版不支持应用内更新';
+    default:
+      return '检查是否有新版本';
+  }
+});
+
+async function onCheckUpdate(): Promise<void> {
+  checking.value = true;
+  updateState.value = null;
+  try {
+    const state = await checkUpdate();
+    updateState.value = state;
+    if (state.kind === 'latest') ui.toast('已是最新版本');
+    if (state.kind === 'error') ui.toast(state.message);
+  } finally {
+    checking.value = false;
+  }
+}
+
+async function onInstall(): Promise<void> {
+  try {
+    await installUpdate((state) => (updateState.value = state));
+  } catch (error) {
+    updateState.value = { kind: 'error', message: error instanceof Error ? error.message : String(error) };
+  }
+}
 
 onMounted(async () => {
+  version.value = await appVersion();
   try {
-    const [shares, trash] = await Promise.all([
-      sharesApi.list(),
-      notesApi.list({ trash: true, limit: 1 }),
-    ]);
-    shareCount.value = shares.items.length;
-    trashCount.value = trash.total;
+    trashCount.value = (await notesApi.list({ trash: true, limit: 1 })).total;
   } catch {
     // 统计失败不影响设置项本身
   }
 });
 
-async function onLogout(): Promise<void> {
+async function onDisconnect(): Promise<void> {
   signingOut.value = true;
-  await auth.logout();
-  ui.toast('已退出登录');
+  await nutstore.disconnect();
+  ui.toast('已断开坚果云');
   await router.replace({ name: 'login' });
 }
 </script>
@@ -51,34 +91,12 @@ async function onLogout(): Promise<void> {
         <span class="avatar" aria-hidden="true">{{ initial }}</span>
         <div class="profile-main">
           <p class="name">{{ displayName }}</p>
-          <p class="meta mono">
-            {{ auth.tenant?.name ?? '个人空间' }} · {{ auth.tenant?.plan ?? 'free' }} 套餐
-          </p>
-          <p class="meta">加入于 {{ joined }}</p>
+          <p class="meta mono">同步目录 {{ nutstore.root }}</p>
+          <p class="meta">笔记只存在你自己的坚果云里</p>
         </div>
       </section>
 
       <p class="section-title">内容</p>
-      <button type="button" class="tile" @click="router.push('/shares')">
-        <span class="tile-icon">
-          <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
-            <path
-              d="M12 15V4m0 0L8.5 7.5M12 4l3.5 3.5M5 14v4.5A1.5 1.5 0 0 0 6.5 20h11a1.5 1.5 0 0 0 1.5-1.5V14"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="1.5"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-            />
-          </svg>
-        </span>
-        <span class="tile-main">
-          <span class="tile-name">分享管理</span>
-          <span class="tile-sub">管理已生成的公开链接</span>
-        </span>
-        <span class="tile-tail mono">{{ shareCount ?? '—' }}</span>
-      </button>
-
       <button type="button" class="tile" @click="router.push('/trash')">
         <span class="tile-icon">
           <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
@@ -115,20 +133,48 @@ async function onLogout(): Promise<void> {
         <ThemeToggle />
       </div>
 
-      <p class="section-title">账号</p>
+      <p class="section-title">坚果云</p>
       <div class="card-plain">
         <p class="line">
-          <span class="line-key">手机号</span>
-          <span class="line-val mono">{{ auth.user?.phone ?? '—' }}</span>
+          <span class="line-key">账号</span>
+          <span class="line-val mono">{{ nutstore.account || '—' }}</span>
         </p>
         <p class="line">
-          <span class="line-key">用户 ID</span>
-          <span class="line-val mono">{{ auth.user?.id ?? '—' }}</span>
+          <span class="line-key">同步目录</span>
+          <span class="line-val mono">{{ nutstore.root }}</span>
         </p>
       </div>
 
-      <button class="logout" type="button" :disabled="signingOut" @click="onLogout">
-        {{ signingOut ? '正在退出…' : '退出登录' }}
+      <p class="section-title">关于</p>
+      <div class="card-plain">
+        <p class="line">
+          <span class="line-key">版本</span>
+          <span class="line-val mono">{{ version || '—' }}</span>
+        </p>
+        <p class="line">
+          <span class="line-key">更新</span>
+          <span class="line-val">{{ updateText }}</span>
+        </p>
+      </div>
+
+      <button
+        v-if="desktop"
+        class="secondary"
+        type="button"
+        :disabled="checking || updateState?.kind === 'downloading' || updateState?.kind === 'installing'"
+        @click="updateState?.kind === 'available' ? onInstall() : onCheckUpdate()"
+      >
+        {{
+          checking
+            ? '检查中…'
+            : updateState?.kind === 'available'
+              ? '立即更新并重启'
+              : '检查更新'
+        }}
+      </button>
+
+      <button class="logout" type="button" :disabled="signingOut" @click="onDisconnect">
+        {{ signingOut ? '正在断开…' : '断开连接' }}
       </button>
     </div>
   </div>
@@ -228,8 +274,32 @@ async function onLogout(): Promise<void> {
   white-space: nowrap;
 }
 
+.secondary {
+  margin-top: var(--sp-2);
+  width: 100%;
+  height: 48px;
+  border-radius: var(--r-md);
+  color: var(--accent);
+  background: var(--accent-soft);
+  transition:
+    background-color var(--dur) var(--ease-smooth),
+    transform var(--dur-fast) var(--ease-spring);
+}
+
+.secondary:hover:not(:disabled) {
+  transform: translateY(-1px);
+}
+
+.secondary:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+.secondary:disabled {
+  opacity: 0.6;
+}
+
 .logout {
-  margin-top: var(--sp-4);
+  margin-top: var(--sp-2);
   width: 100%;
   height: 48px;
   border-radius: var(--r-md);

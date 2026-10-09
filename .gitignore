@@ -32,3 +32,9 @@ pnpm-debug.log*
 
 # scratch
 .workbuddy/tmp/
+
+# 更新签名私钥：只在本机保存，绝不入库
+.updater-key/
+
+# 安装包是可再生成的产物（每次发版都变、体积 MB 级），由 scripts/make-release.mjs 铺出来
+site/downloads/*.exe

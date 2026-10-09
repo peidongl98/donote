@@ -1,0 +1,15 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "DoNote 桌面端权限：只放行坚果云 WebDAV 一个远端域名",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    {
+      "identifier": "http:default",
+      "allow": [{ "url": "https://dav.jianguoyun.com/*" }]
+    },
+    "updater:default",
+    "process:default"
+  ]
+}

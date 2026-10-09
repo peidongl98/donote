@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue';
+import { computed, ref, watch } from 'vue';
 
 const props = withDefaults(
   defineProps<{
@@ -7,20 +7,35 @@ const props = withDefaults(
     label: string;
     placeholder?: string;
     type?: string;
-    inputmode?: 'text' | 'numeric' | 'tel';
+    inputmode?: 'text' | 'numeric' | 'tel' | 'email';
     maxlength?: number;
     autocomplete?: string;
     disabled?: boolean;
     /** 非空即视为错误态：红框 + 抖动一次 */
     error?: string;
+    /** 密码类字段：右侧给一个明文/掩码切换按钮 */
+    revealable?: boolean;
   }>(),
-  { type: 'text', placeholder: '', inputmode: 'text', maxlength: undefined, autocomplete: 'off', disabled: false, error: '' },
+  {
+    type: 'text',
+    placeholder: '',
+    inputmode: 'text',
+    maxlength: undefined,
+    autocomplete: 'off',
+    disabled: false,
+    error: '',
+    revealable: false,
+  },
 );
 
 const emit = defineEmits<{ 'update:modelValue': [string] }>();
 
 const shaking = ref(false);
+const revealed = ref(false);
 const inputEl = ref<HTMLInputElement | null>(null);
+
+// 只有 revealable 字段才会把 type 在 password / text 之间切
+const inputType = computed(() => (props.revealable && revealed.value ? 'text' : props.type));
 
 // 错误从无到有时重放抖动：先归位再下一帧开启，保证同一错误连续提交也能看到反馈
 watch(
@@ -42,19 +57,50 @@ function onInput(event: Event): void {
 <template>
   <label class="field" :class="{ 'is-error': !!error, 'is-shaking': shaking }">
     <span class="label">{{ label }}</span>
-    <input
-      ref="inputEl"
-      class="input mono"
-      :value="modelValue"
-      :type="type"
-      :inputmode="inputmode"
-      :maxlength="maxlength"
-      :autocomplete="autocomplete"
-      :disabled="disabled"
-      :placeholder="placeholder"
-      @input="onInput"
-      @animationend="shaking = false"
-    />
+    <span class="control">
+      <input
+        ref="inputEl"
+        class="input mono"
+        :class="{ 'has-reveal': revealable }"
+        :value="modelValue"
+        :type="inputType"
+        :inputmode="inputmode"
+        :maxlength="maxlength"
+        :autocomplete="autocomplete"
+        :disabled="disabled"
+        :placeholder="placeholder"
+        @input="onInput"
+        @animationend="shaking = false"
+      />
+      <button
+        v-if="revealable"
+        type="button"
+        class="reveal"
+        :aria-label="revealed ? '隐藏' : '显示'"
+        :aria-pressed="revealed"
+        tabindex="-1"
+        @click.prevent="revealed = !revealed"
+      >
+        <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+          <path
+            d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12Z"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.5"
+            stroke-linejoin="round"
+          />
+          <circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="1.5" />
+          <path
+            v-if="!revealed"
+            d="m4 20 16-16"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.5"
+            stroke-linecap="round"
+          />
+        </svg>
+      </button>
+    </span>
     <Transition name="hint">
       <span v-if="error" class="hint">{{ error }}</span>
     </Transition>
@@ -65,6 +111,34 @@ function onInput(event: Event): void {
 .field {
   display: block;
   position: relative;
+}
+
+.control {
+  display: block;
+  position: relative;
+}
+
+.reveal {
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: var(--r-sm);
+  color: var(--text-2);
+  transition: color var(--dur-fast) var(--ease-smooth);
+}
+
+.reveal:hover {
+  color: var(--accent);
+}
+
+.input.has-reveal {
+  padding-right: 50px;
 }
 
 .label {

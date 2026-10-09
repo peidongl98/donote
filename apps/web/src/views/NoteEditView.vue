@@ -2,8 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import type { FolderDTO, NoteDTO } from '@donote/shared';
-import { foldersApi, notesApi, sharesApi } from '@/api/resources';
-import { ApiError } from '@/api/client';
+import { DavError, foldersApi, notesApi } from '@/storage/notes';
 import { useUiStore } from '@/stores/ui';
 import AppHeader from '@/components/AppHeader.vue';
 import AppDialog from '@/components/AppDialog.vue';
@@ -15,7 +14,8 @@ const route = useRoute();
 const router = useRouter();
 const ui = useUiStore();
 
-const noteId = String(route.params.id);
+/** 标题即文件名，改名会换 id，所以这里必须是响应式的 */
+const noteId = ref(String(route.params.id));
 const note = ref<NoteDTO | null>(null);
 const title = ref('');
 const content = ref('');
@@ -25,15 +25,10 @@ const mode = ref<'edit' | 'preview'>('edit');
 
 const folders = ref<FolderDTO[]>([]);
 const sheetOpen = ref(false);
-const shareOpen = ref(false);
 const moveOpen = ref(false);
 const deleteOpen = ref(false);
 const hardDeleteOpen = ref(false);
 const busy = ref(false);
-
-const sharePassword = ref('');
-const shareDays = ref<number | null>(null);
-const shareLink = ref('');
 
 let saveTimer: ReturnType<typeof setTimeout> | null = null;
 let saving = false;
@@ -64,14 +59,14 @@ const statusText = computed(() => {
 async function load(): Promise<void> {
   loading.value = true;
   try {
-    const res = await notesApi.get(noteId);
+    const res = await notesApi.get(noteId.value);
     note.value = res.note;
     // loading 期间输入框是 disabled 的，这里赋值不会覆盖用户已输入的内容
     title.value = res.note.title;
     content.value = res.note.content;
     status.value = 'idle';
   } catch (err) {
-    if (err instanceof ApiError && err.status === 404) {
+    if (err instanceof DavError && err.status === 404) {
       ui.toast('笔记不存在');
       await router.replace('/');
       return;
@@ -84,7 +79,7 @@ async function load(): Promise<void> {
 
 /**
  * 保存：同一时刻只允许一个请求在飞；飞行中产生的新改动会排队再存一次，
- * 避免「连打两个字触发两次并发 PATCH，后发的先到 → 内容回退」。
+ * 避免「连打两个字触发两次并发写入，后发的先到 → 内容回退」。
  */
 async function save(): Promise<void> {
   if (isTrashed.value) return;
@@ -96,12 +91,19 @@ async function save(): Promise<void> {
   status.value = 'saving';
   const payload = { title: title.value.trim() || '无标题笔记', content: content.value };
   try {
-    const res = await notesApi.update(noteId, payload);
-    if (res.note) note.value = res.note;
+    const res = await notesApi.update(noteId.value, payload);
+    if (res.note) {
+      note.value = res.note;
+      // 标题改了会连带把文件改名，路由要跟上新的 id
+      if (res.note.id !== noteId.value) {
+        noteId.value = res.note.id;
+        await router.replace(`/notes/${noteId.value}`);
+      }
+    }
     status.value = 'saved';
-  } catch {
+  } catch (err) {
     status.value = 'error';
-    ui.toast('保存失败，请检查网络');
+    ui.toast(err instanceof DavError ? err.message : '保存失败，请检查网络');
   } finally {
     saving = false;
     if (pending) {
@@ -123,41 +125,19 @@ function flush(): void {
   if (status.value === 'dirty') void save();
 }
 
-/* --------------------------- 分享 --------------------------- */
-
-async function createShare(): Promise<void> {
-  busy.value = true;
-  try {
-    const res = await sharesApi.create({
-      note_id: noteId,
-      password: sharePassword.value.trim() || undefined,
-      expires_in_days: shareDays.value,
-    });
-    shareLink.value = `${window.location.origin}/s/${res.share.slug}`;
-    ui.toast('分享链接已生成');
-  } catch (err) {
-    ui.toast(err instanceof ApiError ? err.message : '生成分享链接失败');
-  } finally {
-    busy.value = false;
-  }
-}
-
-async function copyLink(): Promise<void> {
-  try {
-    await navigator.clipboard.writeText(shareLink.value);
-    ui.toast('链接已复制');
-  } catch {
-    ui.toast('复制失败，请手动选中链接');
-  }
-}
-
 /* --------------------------- 移动 --------------------------- */
 
 async function moveTo(folderId: string | null): Promise<void> {
   busy.value = true;
   try {
-    const res = await notesApi.update(noteId, { folder_id: folderId });
-    if (res.note) note.value = res.note;
+    const res = await notesApi.update(noteId.value, { folder_id: folderId });
+    if (res.note) {
+      note.value = res.note;
+      if (res.note.id !== noteId.value) {
+        noteId.value = res.note.id;
+        await router.replace(`/notes/${noteId.value}`);
+      }
+    }
     ui.toast(folderId ? '已移动' : '已移到未归类');
     moveOpen.value = false;
   } catch {
@@ -172,7 +152,7 @@ async function moveTo(folderId: string | null): Promise<void> {
 async function softDelete(): Promise<void> {
   busy.value = true;
   try {
-    await notesApi.remove(noteId);
+    await notesApi.remove(noteId.value);
     ui.toast('已移入回收站');
     await router.replace('/');
   } catch {
@@ -186,7 +166,7 @@ async function softDelete(): Promise<void> {
 async function hardDelete(): Promise<void> {
   busy.value = true;
   try {
-    await notesApi.remove(noteId, true);
+    await notesApi.remove(noteId.value, true);
     ui.toast('已彻底删除');
     await router.replace('/trash');
   } catch {
@@ -200,8 +180,10 @@ async function hardDelete(): Promise<void> {
 async function restore(): Promise<void> {
   busy.value = true;
   try {
-    await notesApi.restore(noteId);
+    const res = await notesApi.restore(noteId.value);
     ui.toast('已恢复');
+    noteId.value = res.note.id;
+    await router.replace(`/notes/${noteId.value}`);
     await load();
   } catch {
     ui.toast('恢复失败');
@@ -238,7 +220,7 @@ onBeforeUnmount(flush);
     </AppHeader>
 
     <div v-if="isTrashed" class="trash-bar">
-      <span>这篇笔记在回收站里，分享页对外返回 410。</span>
+      <span>这篇笔记在回收站里，恢复后会回到原来的文件夹。</span>
       <button type="button" class="btn-ghost small" :disabled="busy" @click="restore">恢复</button>
     </div>
 
@@ -300,14 +282,6 @@ onBeforeUnmount(flush);
               type="button"
               class="sheet-item"
               :disabled="isTrashed"
-              @click="sheetOpen = false; shareOpen = true"
-            >
-              分享
-            </button>
-            <button
-              type="button"
-              class="sheet-item"
-              :disabled="isTrashed"
               @click="sheetOpen = false; moveOpen = true"
             >
               移动到文件夹
@@ -333,38 +307,6 @@ onBeforeUnmount(flush);
         </div>
       </Transition>
     </Teleport>
-
-    <!-- 分享设置 -->
-    <AppDialog
-      :open="shareOpen"
-      :title="shareLink ? '分享链接' : '创建分享链接'"
-      :confirm-label="shareLink ? '复制链接' : '生成链接'"
-      :busy="busy"
-      @close="shareOpen = false"
-      @confirm="shareLink ? copyLink() : createShare()"
-    >
-      <div v-if="!shareLink" class="form">
-        <label class="field">
-          <span>访问密码（留空则任何人可看）</span>
-          <input v-model="sharePassword" type="text" placeholder="可选" autocomplete="off" />
-        </label>
-        <label class="field">
-          <span>有效期</span>
-          <select v-model="shareDays">
-            <option :value="null">永久</option>
-            <option :value="1">1 天</option>
-            <option :value="7">7 天</option>
-            <option :value="30">30 天</option>
-            <option :value="365">365 天</option>
-          </select>
-        </label>
-        <p class="tip">笔记一旦删除，这个链接会立刻返回「内容已删除」。</p>
-      </div>
-      <div v-else class="form">
-        <p class="link mono">{{ shareLink }}</p>
-        <p class="tip">同一篇笔记重复分享会沿用这条链接，改密码或有效期不会让旧链接失效。</p>
-      </div>
-    </AppDialog>
 
     <!-- 移动到文件夹 -->
     <AppDialog
@@ -399,7 +341,7 @@ onBeforeUnmount(flush);
       @close="deleteOpen = false"
       @confirm="softDelete"
     >
-      <p class="tip">笔记会进入回收站，分享链接立刻失效（返回 410），30 天内都还能恢复。</p>
+      <p class="tip">文件会挪到同步目录的 .trash 里，随时可以恢复。</p>
     </AppDialog>
 
     <AppDialog
@@ -411,7 +353,7 @@ onBeforeUnmount(flush);
       @close="hardDeleteOpen = false"
       @confirm="hardDelete"
     >
-      <p class="tip">这一步不可恢复，笔记及其分享记录都会被永久清除。</p>
+      <p class="tip">这一步不可恢复，文件会被从坚果云里真正删掉。</p>
     </AppDialog>
   </div>
 </template>

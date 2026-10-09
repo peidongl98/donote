@@ -1,8 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
 import type { FolderDTO } from '@donote/shared';
-import { foldersApi } from '@/api/resources';
-import { ApiError } from '@/api/client';
+import { DavError, foldersApi } from '@/storage/notes';
 import { useUiStore } from '@/stores/ui';
 import AppHeader from '@/components/AppHeader.vue';
 import AppDialog from '@/components/AppDialog.vue';
@@ -77,7 +76,7 @@ async function submitCreate(): Promise<void> {
     ui.toast('已创建');
     await load();
   } catch (err) {
-    ui.toast(err instanceof ApiError ? err.message : '创建失败');
+    ui.toast(err instanceof DavError ? err.message : '创建失败');
   } finally {
     busy.value = false;
   }

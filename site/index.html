@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>DoNote — 笔记存在你自己的网盘里</title>
+<meta name="description" content="DoNote 是一个本地优先的 Markdown 笔记客户端。笔记以 .md 文件存在你自己的坚果云里，不经过任何第三方服务器。完全免费。" />
+<style>
+  :root {
+    --bg: #0a0e14;
+    --bg-glow-1: rgba(91, 168, 140, 0.14);
+    --bg-glow-2: rgba(88, 72, 180, 0.14);
+    --surface: rgba(255, 255, 255, 0.04);
+    --border: rgba(255, 255, 255, 0.09);
+    --text: #e9edf2;
+    --text-2: #8a92a0;
+    --accent: #5ba88c;
+    --accent-soft: rgba(91, 168, 140, 0.16);
+    --on-accent: #06110d;
+    --r-md: 16px;
+    --r-lg: 22px;
+    --r-pill: 999px;
+    --ease: cubic-bezier(0.25, 0.46, 0.45, 0.94);
+    --spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+    color-scheme: dark;
+  }
+  @media (prefers-color-scheme: light) {
+    :root {
+      --bg: #f4f6f8;
+      --bg-glow-1: rgba(91, 168, 140, 0.18);
+      --bg-glow-2: rgba(96, 120, 200, 0.14);
+      --surface: rgba(255, 255, 255, 0.72);
+      --border: rgba(0, 0, 0, 0.07);
+      --text: #171a1f;
+      --text-2: #6b7280;
+      --accent-soft: rgba(91, 168, 140, 0.14);
+      --on-accent: #ffffff;
+      color-scheme: light;
+    }
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    min-height: 100svh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 28px;
+    padding: 48px 20px;
+    background: var(--bg);
+    color: var(--text);
+    font-family: Inter, -apple-system, BlinkMacSystemFont, 'PingFang SC',
+      'HarmonyOS Sans SC', 'Microsoft YaHei', 'Segoe UI', sans-serif;
+    -webkit-font-smoothing: antialiased;
+    overflow-x: hidden;
+    position: relative;
+  }
+
+  .glow {
+    position: fixed;
+    border-radius: 50%;
+    filter: blur(90px);
+    pointer-events: none;
+    z-index: 0;
+  }
+  .glow.a { width: 460px; height: 460px; top: -140px; left: -120px; background: radial-gradient(circle, var(--bg-glow-1), transparent 70%); }
+  .glow.b { width: 520px; height: 520px; bottom: -200px; right: -160px; background: radial-gradient(circle, var(--bg-glow-2), transparent 70%); }
+
+  main { position: relative; z-index: 1; width: 100%; max-width: 720px; }
+
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--r-lg);
+    backdrop-filter: blur(20px) saturate(180%);
+    -webkit-backdrop-filter: blur(20px) saturate(180%);
+    box-shadow: 0 18px 60px rgba(0, 0, 0, 0.28);
+    padding: 36px 34px;
+    animation: rise 620ms var(--spring) both;
+  }
+  @keyframes rise {
+    from { opacity: 0; transform: translateY(22px) scale(0.985); }
+    to { opacity: 1; transform: none; }
+  }
+
+  .brand { display: flex; align-items: center; gap: 14px; }
+  .mark {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 48px; height: 48px; flex: none;
+    border-radius: var(--r-md);
+    background: var(--accent-soft);
+    color: var(--accent);
+  }
+  h1 { margin: 0; font-size: 25px; letter-spacing: -0.01em; }
+  .tagline { margin: 3px 0 0; font-size: 13.5px; color: var(--text-2); }
+
+  .badges { display: flex; flex-wrap: wrap; gap: 8px; margin: 22px 0 0; }
+  .badge {
+    font-size: 12px; font-weight: 600; letter-spacing: 0.02em;
+    padding: 5px 11px; border-radius: var(--r-pill);
+    background: var(--accent-soft); color: var(--accent);
+  }
+  .badge.plain { background: transparent; border: 1px solid var(--border); color: var(--text-2); }
+
+  .dl { margin-top: 26px; }
+  a.btn {
+    display: flex; align-items: center; justify-content: center; gap: 10px;
+    height: 56px; border-radius: var(--r-md);
+    background: var(--accent); color: var(--on-accent);
+    font-size: 16px; font-weight: 650; text-decoration: none;
+    transition: transform 280ms var(--spring), opacity 300ms var(--ease);
+  }
+  a.btn:hover { transform: translateY(-2px); }
+  a.btn:active { transform: scale(0.98); }
+  a.btn.is-waiting {
+    background: transparent; border: 1px dashed var(--border);
+    color: var(--text-2); cursor: default; font-weight: 550;
+  }
+  a.btn.is-waiting:hover { transform: none; }
+
+  .meta { margin: 11px 0 0; font-size: 12.5px; color: var(--text-2); text-align: center; }
+
+  .other { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 12px; }
+  .other a {
+    flex: 1 1 0; min-width: 150px;
+    display: flex; align-items: center; justify-content: center; gap: 8px;
+    height: 46px; border-radius: var(--r-md);
+    border: 1px solid var(--border); background: transparent;
+    color: var(--text-2); font-size: 13.5px; font-weight: 550; text-decoration: none;
+    transition: color 300ms var(--ease), border-color 300ms var(--ease);
+  }
+  .other a:hover { color: var(--text); border-color: var(--accent); }
+
+  ul.features { list-style: none; margin: 30px 0 0; padding: 0; display: grid; gap: 16px; }
+  ul.features li { display: flex; gap: 13px; align-items: flex-start; }
+  .fi {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 34px; height: 34px; flex: none; border-radius: 11px;
+    background: var(--accent-soft); color: var(--accent);
+  }
+  ul.features strong { display: block; font-size: 14.5px; font-weight: 620; margin-bottom: 3px; }
+  ul.features span { font-size: 13px; line-height: 1.65; color: var(--text-2); }
+
+  footer {
+    position: relative; z-index: 1;
+    font-size: 12.5px; color: var(--text-2); text-align: center; line-height: 1.8;
+  }
+  footer a { color: var(--accent); text-decoration: none; }
+
+  @media (max-width: 520px) {
+    .card { padding: 26px 20px; }
+    h1 { font-size: 22px; }
+  }
+</style>
+</head>
+<body>
+  <div class="glow a" aria-hidden="true"></div>
+  <div class="glow b" aria-hidden="true"></div>
+
+  <main>
+    <div class="card">
+      <div class="brand">
+        <span class="mark" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="24" height="24">
+            <path d="M6 3.75h9.5a2.75 2.75 0 0 1 2.75 2.75v13.75H8.75A2.75 2.75 0 0 1 6 17.5V3.75Z"
+              fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" />
+            <path d="M9.5 8.5h5M9.5 12h5" fill="none" stroke="currentColor"
+              stroke-width="1.5" stroke-linecap="round" />
+          </svg>
+        </span>
+        <div>
+          <h1>DoNote</h1>
+          <p class="tagline">笔记存在你自己的网盘里</p>
+        </div>
+      </div>
+
+      <div class="badges">
+        <span class="badge">完全免费</span>
+        <span class="badge">无账号</span>
+        <span class="badge plain">数据在你自己的坚果云</span>
+      </div>
+
+      <div class="dl">
+        <a id="win" class="btn is-waiting" href="#" data-href="/downloads/DoNote-0.1.0-win-x64.exe">
+          <svg viewBox="0 0 24 24" width="19" height="19" aria-hidden="true">
+            <path d="M5 6.5 11 5.6v6.1H5V6.5Zm0 6.4h6v6.2l-6-1V12.9Zm7-7.5 7-1v7.3h-7V5.4Zm0 7.5h7v7.4l-7-1V12.9Z"
+              fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" />
+          </svg>
+          <span id="win-label">Windows 版 · 安装包准备中</span>
+        </a>
+        <p class="meta" id="win-meta">支持 Windows 10 / 11（64 位）</p>
+      </div>
+
+      <div class="other">
+        <a href="https://help.jianguoyun.com/?p=2064" target="_blank" rel="noreferrer noopener">
+          如何获取坚果云应用密码
+        </a>
+      </div>
+
+      <ul class="features">
+        <li>
+          <span class="fi" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="17" height="17">
+              <path d="M12 3.5 4.5 7v5.2c0 4.2 3.1 7.6 7.5 8.8 4.4-1.2 7.5-4.6 7.5-8.8V7L12 3.5Z"
+                fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" />
+            </svg>
+          </span>
+          <div>
+            <strong>不经过任何服务器</strong>
+            <span>DoNote 没有后端。笔记直接读写你自己的坚果云，我们看不到、也存不下你的任何内容。</span>
+          </div>
+        </li>
+        <li>
+          <span class="fi" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="17" height="17">
+              <path d="M6 3.75h9.5a2.75 2.75 0 0 1 2.75 2.75v13.75H8.75A2.75 2.75 0 0 1 6 17.5V3.75Z"
+                fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" />
+              <path d="M9.5 9h5M9.5 12.5h3" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
+            </svg>
+          </span>
+          <div>
+            <strong>就是普通的 .md 文件</strong>
+            <span>一篇笔记一个 Markdown 文件，文件夹就是目录。用 Obsidian、Typora、VS Code 都能直接打开，不被锁死。</span>
+          </div>
+        </li>
+        <li>
+          <span class="fi" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="17" height="17">
+              <path d="M12 20.5a8.5 8.5 0 1 0-8.3-6.7" fill="none" stroke="currentColor"
+                stroke-width="1.5" stroke-linecap="round" />
+              <path d="M3.5 9.5 4 14l4.5-.6" fill="none" stroke="currentColor"
+                stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
+              <path d="M12 8.5V13l3 1.8" fill="none" stroke="currentColor"
+                stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
+            </svg>
+          </span>
+          <div>
+            <strong>装了就一直是最新的</strong>
+            <span>新版本在应用内下载并自动替换，不用重新找安装包。更新包带签名校验，装错东西的机会都没有。</span>
+          </div>
+        </li>
+      </ul>
+    </div>
+  </main>
+
+  <footer>
+    DoNote 完全免费，不做会员、不做付费存储，也不接广告。<br />
+    笔记的存储空间与流量由你自己的坚果云账号承担。
+  </footer>
+
+  <script>
+    // 安装包存在就放开下载按钮，不存在就保持「准备中」，避免出现一个点了没反应的死链
+    (function () {
+      var btn = document.getElementById('win');
+      var label = document.getElementById('win-label');
+      var meta = document.getElementById('win-meta');
+      var url = btn.getAttribute('data-href');
+
+      fetch(url, { method: 'HEAD' })
+        .then(function (res) {
+          if (!res.ok) return;
+          var size = Number(res.headers.get('content-length') || 0);
+          btn.href = url;
+          btn.classList.remove('is-waiting');
+          label.textContent = '下载 Windows 版';
+          meta.textContent =
+            '支持 Windows 10 / 11（64 位）' + (size ? ' · ' + (size / 1048576).toFixed(1) + ' MB' : '');
+        })
+        .catch(function () {
+          /* 还没放安装包，保持准备中 */
+        });
+    })();
+  </script>
+</body>
+</html>

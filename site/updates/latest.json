@@ -1,0 +1,11 @@
+{
+  "version": "0.1.0",
+  "notes": "首个 Windows 版本：连接你自己的坚果云，笔记就是 .md 文件；支持文件夹、回收站与应用内更新。",
+  "pub_date": "2026-10-09T17:55:16Z",
+  "platforms": {
+    "windows-x86_64": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSWTRLN1pZbGY4NHVLbjEvVS83TGRPS21iQW9xQThVVzFaK1JxL2dZdm1UL2NOZkw0Yi9iaHUzcmdKYVFnK29vbUdtWEVNbnUyRFlydkV5eHd4MHh4UXRWaVJOT05iWndBPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkxNTY4NDk1CWZpbGU6RG9Ob3RlXzAuMS4wX3g2NC1zZXR1cC5leGUJdmVyc2lvbjowLjEuMAo1SWVXNEVvRzdiVVh5MFdORFI1emtLazU1SWwyRmFGYXBaU0hyUG1GTkRiOEFNQjVlcHAwc0FPdHlnd05ZUXJGOEZRL01lR2txelZMdi9RUytJZkFCdz09Cg==",
+      "url": "https://donote.pages.dev/downloads/DoNote-0.1.0-win-x64.exe"
+    }
+  }
+}

@@ -1,0 +1,38 @@
+[package]
+name = "donote"
+version = "0.1.0"
+description = "DoNote — 本地优先的 Markdown 笔记客户端"
+authors = ["peidongl98"]
+edition = "2021"
+rust-version = "1.77"
+
+[lib]
+name = "donote_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+indexmap = { version = "1.9", features = ["std"] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-http = "2"
+# 应用内在线更新：下载新版本并按签名校验后原地升级，用户不用再去官网拿安装包
+tauri-plugin-updater = "2"
+# 更新完成后重启自身
+tauri-plugin-process = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# 凭据存 Windows 凭据管理器，不落磁盘明文
+keyring = { version = "3", default-features = false, features = ["windows-native"] }
+# 不是为了在代码里用 indexmap，而是为了把 indexmap 1.9 的 `std` 特性打开：
+# schemars 0.8.22（tauri 链路里的传递依赖）依赖 indexmap 1.9 却关掉了它的 default，
+# 于是 IndexMap<K,V,S> 失去 S 的默认值、编译不过。特性合并会把这里的开关传过去。
+indexmap = { version = "1.9", features = ["std"] }
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+panic = "abort"
+strip = true

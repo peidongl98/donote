@@ -2,7 +2,7 @@
 import { onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import type { NoteSummaryDTO } from '@donote/shared';
-import { notesApi } from '@/api/resources';
+import { notesApi } from '@/storage/notes';
 import { useUiStore } from '@/stores/ui';
 import { formatTime } from '@/utils/format';
 import AppHeader from '@/components/AppHeader.vue';
@@ -119,7 +119,7 @@ onMounted(load);
       @close="hardOpen = false"
       @confirm="hardDelete"
     >
-      <p class="tip">「{{ hardTarget?.title }}」将被永久清除，连同它的分享记录，无法恢复。</p>
+      <p class="tip">「{{ hardTarget?.title }}」将被从坚果云里永久删除，无法恢复。</p>
     </AppDialog>
   </div>
 </template>
