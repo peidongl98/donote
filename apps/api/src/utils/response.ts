@@ -1,4 +1,4 @@
-import type { ApiErrorCode } from '@noteapp/shared';
+import type { ApiErrorCode } from '@donote/shared';
 import type { Context } from 'hono';
 import type { ContentfulStatusCode } from 'hono/utils/http-status';
 import type { AppEnv } from '../env';

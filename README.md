@@ -1,6 +1,6 @@
-# noteapp
+# DoNote
 
-多端 Markdown 笔记工具（未来商业化 SaaS）。初期单人使用，架构从第一天按多租户设计。
+DoNote —— 多端 Markdown 笔记工具（未来商业化 SaaS）。初期单人使用，架构从第一天按多租户设计。
 
 ## 技术栈
 
@@ -17,7 +17,7 @@ UI 为自实现纯 CSS 毛玻璃（变量体系参考 `mianbeishiwole/Liquid-Gla
 ## 目录结构
 
 ```
-NoteApp/
+DoNote/
 ├── apps/
 │   ├── web/                    Vite + Vue 3 前端
 │   │   ├── functions/api/[[path]].ts   Pages Function：/api/* 同源反代到 Worker
@@ -50,7 +50,7 @@ pnpm dev:web     # http://localhost:5173（/api 由 Vite 代理到 8787）
 
 ## 数据库
 
-D1 库 `noteapp-db`，id `27114cad-81b3-4d3b-8bf2-080545d49a4e`。
+D1 库 `donote-db`，id `eca2dcd8-9bab-4f6e-beac-dae4d126e8e0`。
 
 ```bash
 pnpm db:local    # 本地
@@ -102,11 +102,11 @@ pnpm db:remote   # 线上
 pnpm deploy:api:prod
 
 # 前端（Pages，含 /api 反代 Function）
-cd apps/web && pnpm build && wrangler pages deploy dist --project-name noteapp --branch main
+cd apps/web && pnpm build && wrangler pages deploy dist --project-name donote --branch main
 
 # 推送到 GitHub（本机 github.com 直连不可用，走 api.github.com）
 git -c core.quotepath=false ls-files --cached -z > "$TMPF"
-PUSH_FILE_LIST="$TMPF" node scripts/push-to-github.cjs --owner peidongl98 --repo noteapp --branch main
+PUSH_FILE_LIST="$TMPF" node scripts/push-to-github.cjs --owner peidongl98 --repo donote --branch main
 ```
 
 ### 为什么前端要经 Pages Function 反代

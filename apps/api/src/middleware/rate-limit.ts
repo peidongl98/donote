@@ -1,5 +1,5 @@
 import { createMiddleware } from 'hono/factory';
-import { PHONE_PATTERN, RATE_LIMITS } from '@noteapp/shared';
+import { PHONE_PATTERN, RATE_LIMITS } from '@donote/shared';
 import type { AppEnv } from '../env';
 import { ApiException } from '../utils/response';
 

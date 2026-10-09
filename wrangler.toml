@@ -1,8 +1,8 @@
-# NoteApp 唯一一份 wrangler 配置（仓库根目录）
+# DoNote 唯一一份 wrangler 配置（仓库根目录）
 # 子包通过 --config ../../wrangler.toml 指回本文件，避免配置漂移。
 # 注意：不在此文件写 account_id，账号由环境变量 CLOUDFLARE_ACCOUNT_ID 提供。
 
-name = "noteapp-api"
+name = "donote-api"
 main = "apps/api/src/index.ts"
 compatibility_date = "2026-10-01"
 compatibility_flags = ["nodejs_compat"]
@@ -18,8 +18,8 @@ ALLOWED_ORIGINS = "http://localhost:5173,http://127.0.0.1:5173"
 
 [[d1_databases]]
 binding = "DB"
-database_name = "noteapp-db"
-database_id = "27114cad-81b3-4d3b-8bf2-080545d49a4e"
+database_name = "donote-db"
+database_id = "eca2dcd8-9bab-4f6e-beac-dae4d126e8e0"
 
 [observability]
 enabled = true
@@ -29,17 +29,17 @@ enabled = true
 # 绑定与 vars 需在本节重新声明（named env 不继承顶层 binding）。
 
 [env.production]
-name = "noteapp-api"
+name = "donote-api"
 
 [env.production.vars]
 ENVIRONMENT = "production"
 # 前端 Pages 域名（wrangler pages project create 分配）
-ALLOWED_ORIGINS = "https://noteapp-4h0.pages.dev"
+ALLOWED_ORIGINS = "https://donote.pages.dev"
 
 [[env.production.d1_databases]]
 binding = "DB"
-database_name = "noteapp-db"
-database_id = "27114cad-81b3-4d3b-8bf2-080545d49a4e"
+database_name = "donote-db"
+database_id = "eca2dcd8-9bab-4f6e-beac-dae4d126e8e0"
 
 [env.production.observability]
 enabled = true

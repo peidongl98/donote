@@ -1,4 +1,4 @@
--- NoteApp D1 schema
+-- DoNote D1 schema
 -- 多租户从第一天做：所有业务表带 tenant_id，查询恒带 WHERE tenant_id = ?
 -- 时间统一 INTEGER（毫秒时间戳）。软删除 = deleted_at 可空。
 -- 幂等：全部 IF NOT EXISTS，可重复执行。

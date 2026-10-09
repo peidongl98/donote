@@ -7,7 +7,7 @@
  *   但 api.github.com 可达。因此改用 REST API 逐文件建 blob → tree → commit → ref。
  *
  * 用法：
- *   GITHUB_TOKEN=xxx node scripts/push-to-github.cjs [--owner peidongl98] [--repo noteapp] [--branch main]
+ *   GITHUB_TOKEN=xxx node scripts/push-to-github.cjs [--owner peidongl98] [--repo donote] [--branch main]
  *   本机 spawn git 会 EBUSY，请先生成清单：
  *   git -c core.quotepath=false ls-files --cached -z > "$TMPF" && PUSH_FILE_LIST="$TMPF" node scripts/push-to-github.cjs
  *
@@ -26,7 +26,7 @@ const path = require('path');
 const ROOT = path.resolve(__dirname, '..');
 const TOKEN = process.env.GITHUB_TOKEN || '';
 const OWNER = arg('owner', 'peidongl98');
-const REPO = arg('repo', 'noteapp');
+const REPO = arg('repo', 'donote');
 const BRANCH = arg('branch', 'main');
 
 function arg(name, dflt) {

@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref } from 'vue';
+import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import { PHONE_PATTERN, RATE_LIMITS } from '@noteapp/shared';
+import { PHONE_PATTERN, RATE_LIMITS } from '@donote/shared';
 import { ApiError } from '@/api/client';
 import { useAuthStore } from '@/stores/auth';
 import GlassCard from '@/components/GlassCard.vue';
@@ -100,6 +100,14 @@ function fillDevCode(): void {
   code.value = devCode.value;
 }
 
+// 一旦重新输入就撤掉上一次的错误态，避免「已经改对了但红框还挂着」
+watch(phone, () => {
+  if (phoneError.value) phoneError.value = '';
+});
+watch(code, () => {
+  if (codeError.value) codeError.value = '';
+});
+
 onBeforeUnmount(stopTimer);
 </script>
 
@@ -124,7 +132,7 @@ onBeforeUnmount(stopTimer);
           </svg>
         </span>
         <div>
-          <h1 class="title">笔记</h1>
+          <h1 class="title">DoNote</h1>
           <p class="subtitle">用手机号登录或注册</p>
         </div>
       </div>
@@ -264,8 +272,10 @@ onBeforeUnmount(stopTimer);
   min-width: 0;
 }
 
+/* 与左侧输入框的控件顶边对齐：跳过标签所占的一行 */
 .send {
   flex: none;
+  margin-top: calc(var(--label-h) + var(--sp-1));
   height: 52px;
   min-width: 112px;
   padding: 0 var(--sp-2);

@@ -21,6 +21,9 @@
   --sp-5: 40px;
   --sp-6: 56px;
 
+  /* 字段标签占位高度：多个控件并排时（如验证码行）用它对齐控件顶边 */
+  --label-h: 20px;
+
   /* 动效 */
   --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
   --ease-smooth: cubic-bezier(0.25, 0.46, 0.45, 0.94);

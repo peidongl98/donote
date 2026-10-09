@@ -1,9 +1,9 @@
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
-import { AUTH_ROUTES, type TenantDTO, type UserDTO } from '@noteapp/shared';
+import { AUTH_ROUTES, type TenantDTO, type UserDTO } from '@donote/shared';
 import { apiRequest, setAuthToken, ApiError } from '@/api/client';
 
-const TOKEN_KEY = 'noteapp.token';
+const TOKEN_KEY = 'donote.token';
 
 export const useAuthStore = defineStore('auth', () => {
   const token = ref<string | null>(null);

@@ -21,7 +21,7 @@ app.onError((err, c) => {
   if (err instanceof ApiException) {
     return fail(c, err.code, err.message, err.status);
   }
-  console.error('[noteapp-api] unhandled', err);
+  console.error('[donote-api] unhandled', err);
   return fail(c, 'internal', '服务器内部错误', 500);
 });
 

@@ -69,6 +69,8 @@ function onInput(event: Event): void {
 
 .label {
   display: block;
+  height: var(--label-h);
+  line-height: var(--label-h);
   margin-bottom: var(--sp-1);
   font-size: 13px;
   color: var(--text-2);

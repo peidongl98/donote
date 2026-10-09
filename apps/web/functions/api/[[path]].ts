@@ -6,11 +6,11 @@
  *   若前端直接跨域调 Worker，用户侧会整站不可用。
  *   经此代理后，前后端同源：不依赖 workers.dev 的可达性，也彻底不需要 CORS。
  *
- * 后端仍然是独立的 Worker（noteapp-api），本函数只负责转发，不含业务逻辑。
+ * 后端仍然是独立的 Worker（donote-api），本函数只负责转发，不含业务逻辑。
  * 超时/重试等策略不在此处实现，保持单一职责。
  */
 
-const API_ORIGIN = 'https://noteapp-api.peidongl98.workers.dev';
+const API_ORIGIN = 'https://donote-api.peidongl98.workers.dev';
 
 export const onRequest: PagesFunction = async (context) => {
   const incoming = new URL(context.request.url);

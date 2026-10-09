@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia';
 import { ref } from 'vue';
 
-const THEME_KEY = 'noteapp.theme';
+const THEME_KEY = 'donote.theme';
 type Theme = 'dark' | 'light';
 
 export const useThemeStore = defineStore('theme', () => {

@@ -1,4 +1,4 @@
-import type { ApiErrorCode, ApiErrorBody } from '@noteapp/shared';
+import type { ApiErrorCode, ApiErrorBody } from '@donote/shared';
 
 /** dev 留空 → 走 Vite 同源代理；production 注入 Worker 域名 */
 const API_BASE = (import.meta.env.VITE_API_BASE ?? '').replace(/\/+$/, '');

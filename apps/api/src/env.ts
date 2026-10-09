@@ -1,4 +1,4 @@
-import type { TenantDTO, UserDTO } from '@noteapp/shared';
+import type { TenantDTO, UserDTO } from '@donote/shared';
 
 /** wrangler.toml 的 [vars] / secrets 映射；凭证全部可选，缺失即 dev 降级 */
 export interface Env {

@@ -17,7 +17,7 @@ importers:
 
   apps/api:
     dependencies:
-      '@noteapp/shared':
+      '@donote/shared':
         specifier: workspace:*
         version: link:../../packages/shared
       hono:
@@ -33,7 +33,7 @@ importers:
 
   apps/web:
     dependencies:
-      '@noteapp/shared':
+      '@donote/shared':
         specifier: workspace:*
         version: link:../../packages/shared
       pinia:

@@ -53,7 +53,7 @@ turbo.json
   例：`@synap/store` 的 `package.json` 里 `"main": "./src/index.ts"`、`"exports": { ".": "./src/index.ts" }`，
   Vue/Pinia 只声明为 `peerDependencies`。→ 本项目 `packages/shared` 采用同一做法（免构建、免 d.ts 生成管线）。
 - `packages/design-tokens`：设计令牌集中导出 TS 常量，而非散落 CSS。→ 本项目收敛为 `packages/shared` 中的类型 + `apps/web/src/styles/tokens.css`。
-- 包命名加 scope（`@synap/*`）→ 本项目用 `@noteapp/*`。
+- 包命名加 scope（`@synap/*`）→ 本项目用 `@donote/*`。
 
 ### 需要适配 / 不适用
 
@@ -158,7 +158,7 @@ turbo.json
 |---|---|---|
 | monorepo 工具 | pnpm workspace，**不引入 Turborepo** | synap.md 精简 |
 | packages 内包分发方式 | 直接暴露 TS 源码，免构建 | synap.md |
-| 包 scope | `@noteapp/*` | synap.md |
+| 包 scope | `@donote/*` | synap.md |
 | wrangler 配置位置 | **仓库根唯一一份**，子包 `--config` 指回 | FlareMo |
 | ORM | **不用**，手写 SQL | FlareMo 对比后否 |
 | 多租户模型 | `tenant_id` + `tenant_members`（**不抄** FlareMo 的 user_id 模型） | FlareMo 对比后改 |

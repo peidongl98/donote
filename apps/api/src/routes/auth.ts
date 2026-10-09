@@ -1,5 +1,5 @@
 import { Hono } from 'hono';
-import { PHONE_PATTERN, RATE_LIMITS } from '@noteapp/shared';
+import { PHONE_PATTERN, RATE_LIMITS } from '@donote/shared';
 import type { AppEnv, TenantRow, UserRow } from '../env';
 import { toTenantDTO, toUserDTO } from '../env';
 import { smsRateLimit } from '../middleware/rate-limit';
