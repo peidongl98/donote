@@ -1,52 +1,32 @@
 /**
- * 笔记数据层：一切读写都直接落到用户自己的坚果云（WebDAV），本地不存数据库。
+ * 笔记数据层：一切读写都落到用户自己的网盘，本地不存数据库。
  *
  * 文件模型
  *   <同步根>/<文件夹…>/<标题>.md   一篇笔记 = 一个 .md 文件
  *   <同步根>/.trash/<时间>-<随机>-<标题>.md   删除先进回收站，frontmatter 记原路径
  *   文件夹 = 真目录；以 `.` 开头的目录（含 .trash）不参与展示
  *
- * 对外暴露的 DTO 形状与之前走 HTTP 时完全一致，视图层基本不用改。
+ * 网络请求全部交给 services/storage 的适配器，这里只做业务：
+ * 路径与命名规则、目录遍历与缓存、DTO 组装、搜索。
+ *
+ * 对外暴露的 DTO 形状与之前走 HTTP 时完全一致，视图层不用改。
  * 笔记/文件夹的 id = 相对路径的 base64url（路径含 `/`，直接塞进路由会破坏匹配）。
  */
 
-import { NOTE_LIMITS, type FolderDTO, type NoteDTO, type NoteListResult, type NoteSummaryDTO } from '@donote/shared';
-import { useNutstoreStore } from '@/stores/nutstore';
-import { davFetch } from './transport';
-import { DAV_ORIGIN_BASE, davPath } from './webdav';
+import {
+  NOTE_LIMITS,
+  type FolderDTO,
+  type NoteDTO,
+  type NoteListResult,
+  type NoteSummaryDTO,
+} from '@donote/shared';
+import { getStorage, StorageError, type DirEntry } from '@/services/storage';
 import { excerptOf, parseNote, serializeNote, type NoteMeta } from './frontmatter';
 
-export class DavError extends Error {
-  readonly status: number;
-  constructor(message: string, status: number) {
-    super(message);
-    this.name = 'DavError';
-    this.status = status;
-  }
-}
+/** 视图层一直用的是这个名字，这里保持导出，避免无谓的改动面 */
+export { StorageError as DavError };
 
 /* ------------------------------ 路径工具 ------------------------------ */
-
-function store() {
-  return useNutstoreStore();
-}
-
-function auth(): string {
-  const c = store().credentials();
-  return `Basic ${btoa(`${c.account}:${c.appPassword}`)}`;
-}
-
-function rootRel(): string {
-  return (store().root || '/DoNote').replace(/\/+$/, '');
-}
-
-/** 相对路径 → 以同步根开头的绝对路径（每段都做 URL 编码）。rel 为空时就是同步根本身 */
-function absPath(rel: string): string {
-  const clean = rel.replace(/^\/+|\/+$/g, '');
-  const base = rootRel();
-  if (!clean) return base;
-  return `${base}/${clean.split('/').map(encodeURIComponent).join('/')}`;
-}
 
 /** 只做 base64url：结果里不含 `/`、`+`、`=`，可以安全地当路由参数 */
 export function encodeId(rel: string): string {
@@ -93,156 +73,29 @@ function sanitize(name: string): string {
   return cleaned || '未命名';
 }
 
-/* ------------------------------ WebDAV 原语 ------------------------------ */
+/* ------------------------------ 适配器包装 ------------------------------ */
 
-interface DavEntry {
-  rel: string;
-  name: string;
-  isDir: boolean;
-  mtime: number;
+/** 列目录。适配器返回的 mtime 是可选的，这里补齐成数字，后续不用到处判空 */
+async function listDir(rel: string): Promise<DirEntry[]> {
+  const entries = await getStorage().list(rel);
+  return entries.map((entry) => ({ ...entry, mtime: entry.mtime ?? 0 }));
 }
 
-/** href → 相对同步根的路径；不属于同步根则返回 null */
-function hrefToRel(href: string): string | null {
-  let path: string;
+/** 读文本。把「不存在」翻译成 null，其余错误照旧抛出 */
+async function readOrNull(rel: string): Promise<string | null> {
   try {
-    path = decodeURIComponent(href);
-  } catch {
-    path = href;
+    return await getStorage().read(rel);
+  } catch (error) {
+    if (error instanceof StorageError && error.code === 'not_found') return null;
+    throw error;
   }
-  const davPrefix = new URL(DAV_ORIGIN_BASE).pathname;
-  const at = path.indexOf(davPrefix);
-  if (at >= 0) path = path.slice(at + davPrefix.length);
-  const base = rootRel();
-  if (path.replace(/\/+$/, '') === base) return '';
-  if (!path.startsWith(`${base}/`)) return null;
-  return path.slice(base.length + 1).replace(/\/+$/, '');
-}
-
-/** 只取状态为 200 的那组 propstat，避免读到 404 组的空壳 */
-function pickProp(node: Element): Element | null {
-  const stats = node.getElementsByTagNameNS('DAV:', 'propstat');
-  for (const stat of Array.from(stats)) {
-    const status = stat.getElementsByTagNameNS('DAV:', 'status')[0]?.textContent ?? '';
-    if (status.includes(' 200 ')) {
-      const prop = stat.getElementsByTagNameNS('DAV:', 'prop')[0];
-      if (prop) return prop;
-    }
-  }
-  return null;
-}
-
-function parseMultistatus(xml: string, baseRel: string): DavEntry[] {
-  const doc = new DOMParser().parseFromString(xml, 'application/xml');
-  const out: DavEntry[] = [];
-  for (const node of Array.from(doc.getElementsByTagNameNS('DAV:', 'response'))) {
-    const href = node.getElementsByTagNameNS('DAV:', 'href')[0]?.textContent?.trim();
-    if (!href) continue;
-    const prop = pickProp(node);
-    if (!prop) continue;
-    const rel = hrefToRel(href);
-    if (rel === null || rel === baseRel) continue;
-    const name = rel.slice(rel.lastIndexOf('/') + 1);
-    if (!name) continue;
-    const mtimeText = prop.getElementsByTagNameNS('DAV:', 'getlastmodified')[0]?.textContent ?? '';
-    out.push({
-      rel,
-      name,
-      isDir: prop.getElementsByTagNameNS('DAV:', 'collection').length > 0,
-      mtime: Date.parse(mtimeText) || 0,
-    });
-  }
-  return out;
-}
-
-async function propfindDir(rel: string): Promise<DavEntry[]> {
-  let res: Response;
-  try {
-    res = await davFetch(davPath(absPath(rel)), {
-      method: 'PROPFIND',
-      headers: {
-        Authorization: auth(),
-        Depth: '1',
-        'Content-Type': 'application/xml; charset=utf-8',
-      },
-      body: '<?xml version="1.0" encoding="utf-8"?><propfind xmlns="DAV:"><prop><resourcetype/><getlastmodified/></prop></propfind>',
-    });
-  } catch {
-    throw new DavError('连不上坚果云，请检查网络', 0);
-  }
-  if (res.status === 404) return [];
-  if (res.status === 401) throw new DavError('账号或应用密码已失效，请重新连接', 401);
-  if (res.status !== 207) throw new DavError(`读取目录失败（HTTP ${res.status}）`, res.status);
-  return parseMultistatus(await res.text(), rel);
-}
-
-async function getText(rel: string): Promise<string | null> {
-  const res = await davFetch(davPath(absPath(rel)), { headers: { Authorization: auth() } });
-  if (res.status === 404) return null;
-  if (!res.ok) throw new DavError(`读取笔记失败（HTTP ${res.status}）`, res.status);
-  return res.text();
-}
-
-async function putText(rel: string, text: string): Promise<void> {
-  const res = await davFetch(davPath(absPath(rel)), {
-    method: 'PUT',
-    headers: { Authorization: auth(), 'Content-Type': 'text/markdown; charset=utf-8' },
-    body: text,
-  });
-  if (res.status !== 200 && res.status !== 201 && res.status !== 204) {
-    throw new DavError(`保存失败（HTTP ${res.status}）`, res.status);
-  }
-}
-
-/** 已存在（405）也算成功 */
-async function mkcol(rel: string): Promise<void> {
-  const res = await davFetch(davPath(absPath(rel)), {
-    method: 'MKCOL',
-    headers: { Authorization: auth() },
-  });
-  if (res.status === 201 || res.status === 405) return;
-  throw new DavError(`创建文件夹失败（HTTP ${res.status}）`, res.status);
-}
-
-/** 逐级建目录，跳过的层级已存在也不会报错 */
-async function ensureDir(rel: string): Promise<void> {
-  if (!rel) return;
-  let acc = '';
-  for (const seg of rel.split('/').filter(Boolean)) {
-    acc = acc ? `${acc}/${seg}` : seg;
-    await mkcol(acc);
-  }
-}
-
-async function removeFile(rel: string): Promise<void> {
-  const res = await davFetch(davPath(absPath(rel)), {
-    method: 'DELETE',
-    headers: { Authorization: auth() },
-  });
-  if (res.status === 204 || res.status === 200 || res.status === 404) return;
-  throw new DavError(`删除失败（HTTP ${res.status}）`, res.status);
-}
-
-/** Destination 必须是绝对地址，因此不能复用 DAV_BASE（dev 下它是同源代理前缀） */
-async function moveEntry(from: string, to: string): Promise<void> {
-  const res = await davFetch(davPath(absPath(from)), {
-    method: 'MOVE',
-    headers: {
-      Authorization: auth(),
-      Destination: `${DAV_ORIGIN_BASE}${absPath(to)}`,
-      Overwrite: 'F',
-    },
-  });
-  if (res.status === 201 || res.status === 204) return;
-  if (res.status === 412) throw new DavError('目标位置已有同名条目', 412);
-  throw new DavError(`移动失败（HTTP ${res.status}）`, res.status);
 }
 
 /* ------------------------------ 目录树 ------------------------------ */
 
 interface Tree {
-  notes: DavEntry[];
-  dirs: DavEntry[];
+  notes: DirEntry[];
+  dirs: DirEntry[];
 }
 
 const MAX_DIRS = 300;
@@ -256,7 +109,9 @@ async function walkTree(): Promise<Tree> {
 
   while (frontier.length && visited < MAX_DIRS) {
     const group = frontier.splice(0, 4);
-    const results = await Promise.all(group.map((item) => propfindDir(item.rel).catch(() => [] as DavEntry[])));
+    const results = await Promise.all(
+      group.map((item) => listDir(item.rel).catch(() => [] as DirEntry[])),
+    );
     const next: { rel: string; depth: number }[] = [];
 
     results.forEach((entries, index) => {
@@ -264,9 +119,9 @@ async function walkTree(): Promise<Tree> {
       const depth = group[index].depth;
       for (const entry of entries) {
         if (entry.name.startsWith('.')) continue;
-        if (entry.isDir) {
+        if (entry.isDirectory) {
           acc.dirs.push(entry);
-          if (depth + 1 < MAX_DEPTH) next.push({ rel: entry.rel, depth: depth + 1 });
+          if (depth + 1 < MAX_DEPTH) next.push({ rel: entry.path, depth: depth + 1 });
         } else if (entry.name.toLowerCase().endsWith('.md')) {
           acc.notes.push(entry);
         }
@@ -326,8 +181,8 @@ function persistCache(): void {
   }
 }
 
-function cachedExcerpt(entry: DavEntry): string {
-  const row = cache()[entry.rel];
+function cachedExcerpt(entry: DirEntry): string {
+  const row = cache()[entry.path];
   return row && row.m === entry.mtime ? row.e : '';
 }
 
@@ -345,17 +200,20 @@ export async function hydrateExcerpts(limit = HYDRATE_BATCH): Promise<number> {
   const { notes } = await tree();
   const filled = cache();
   const pending = notes
-    .filter((entry) => !filled[entry.rel] || filled[entry.rel].m !== entry.mtime)
-    .sort((a, b) => b.mtime - a.mtime)
+    .filter((entry) => !filled[entry.path] || filled[entry.path].m !== entry.mtime)
+    .sort((a, b) => (b.mtime ?? 0) - (a.mtime ?? 0))
     .slice(0, limit);
   if (!pending.length) return 0;
 
   let done = 0;
   await mapLimited(pending, 2, async (entry) => {
     try {
-      const raw = await getText(entry.rel);
+      const raw = await readOrNull(entry.path);
       if (raw === null) return;
-      filled[entry.rel] = { m: entry.mtime, e: excerptOf(parseNote(raw, entry.name, entry.mtime).body) };
+      filled[entry.path] = {
+        m: entry.mtime ?? 0,
+        e: excerptOf(parseNote(raw, entry.name, entry.mtime ?? 0).body),
+      };
       done++;
     } catch {
       // 单篇读失败不该拖垮整次补齐
@@ -367,15 +225,15 @@ export async function hydrateExcerpts(limit = HYDRATE_BATCH): Promise<number> {
 
 /* ------------------------------ 组装 DTO ------------------------------ */
 
-function summaryOf(entry: DavEntry): NoteSummaryDTO {
-  const folder = parentOf(entry.rel);
+function summaryOf(entry: DirEntry): NoteSummaryDTO {
+  const folder = parentOf(entry.path);
   return {
-    id: encodeId(entry.rel),
+    id: encodeId(entry.path),
     folder_id: folder ? encodeId(folder) : null,
-    title: baseName(entry.rel),
+    title: baseName(entry.path),
     excerpt: cachedExcerpt(entry),
-    created_at: entry.mtime,
-    updated_at: entry.mtime,
+    created_at: entry.mtime ?? 0,
+    updated_at: entry.mtime ?? 0,
     deleted_at: null,
   };
 }
@@ -396,8 +254,10 @@ function noteOf(rel: string, meta: NoteMeta, body: string): NoteDTO {
 
 /** 目标目录下挑一个没被占用的文件名 */
 async function uniqueRel(dir: string, stem: string, ext: string, exclude?: string): Promise<string> {
-  const entries = await propfindDir(dir);
-  const taken = new Set(entries.filter((entry) => entry.rel !== exclude).map((entry) => entry.name));
+  const entries = await listDir(dir);
+  const taken = new Set(
+    entries.filter((entry) => entry.path !== exclude).map((entry) => entry.name),
+  );
   let candidate = `${stem}${ext}`;
   let n = 2;
   while (taken.has(candidate)) {
@@ -422,19 +282,19 @@ const TRASH_DIR = '.trash';
 const MAX_TRASH = 60;
 
 async function listTrash(): Promise<NoteSummaryDTO[]> {
-  const entries = (await propfindDir(TRASH_DIR))
-    .filter((entry) => !entry.isDir && entry.name.toLowerCase().endsWith('.md'))
-    .sort((a, b) => b.mtime - a.mtime)
+  const entries = (await listDir(TRASH_DIR))
+    .filter((entry) => !entry.isDirectory && entry.name.toLowerCase().endsWith('.md'))
+    .sort((a, b) => (b.mtime ?? 0) - (a.mtime ?? 0))
     .slice(0, MAX_TRASH);
 
   const rows = await mapLimited(entries, 4, async (entry): Promise<NoteSummaryDTO | null> => {
     try {
-      const raw = await getText(entry.rel);
+      const raw = await readOrNull(entry.path);
       if (raw === null) return null;
-      const parsed = parseNote(raw, baseName(entry.rel), entry.mtime);
-      const deletedAt = parsed.deleted_at ?? entry.mtime;
+      const parsed = parseNote(raw, baseName(entry.path), entry.mtime ?? 0);
+      const deletedAt = parsed.deleted_at ?? entry.mtime ?? 0;
       return {
-        id: encodeId(entry.rel),
+        id: encodeId(entry.path),
         folder_id: null,
         title: parsed.title,
         excerpt: excerptOf(parsed.body),
@@ -491,7 +351,7 @@ export const notesApi = {
 
   async create(input: { title?: string; content?: string; folder_id?: string | null }) {
     const dir = input.folder_id ? decodeId(input.folder_id) : '';
-    if (dir) await ensureDir(dir);
+    if (dir) await getStorage().ensureDir(dir);
 
     const title = input.title?.trim() || '未命名';
     const rel = await uniqueRel(dir, sanitize(title), '.md');
@@ -499,15 +359,15 @@ export const notesApi = {
     const meta: NoteMeta = { title, created: now, updated: now, tags: [] };
     const body = input.content ?? '';
 
-    await putText(rel, serializeNote(meta, body));
+    await getStorage().write(rel, serializeNote(meta, body));
     invalidateTree();
     return { note: noteOf(rel, meta, body) };
   },
 
   async get(id: string) {
     const rel = decodeId(id);
-    const raw = await getText(rel);
-    if (raw === null) throw new DavError('笔记不存在', 404);
+    const raw = await readOrNull(rel);
+    if (raw === null) throw new StorageError('not_found', '笔记不存在', 404);
     const parsed = parseNote(raw, baseName(rel), Date.now());
     const meta: NoteMeta = {
       title: parsed.title,
@@ -529,8 +389,8 @@ export const notesApi = {
     patch: { title?: string; content?: string; folder_id?: string | null },
   ) {
     const rel = decodeId(id);
-    const raw = await getText(rel);
-    if (raw === null) throw new DavError('笔记不存在', 404);
+    const raw = await readOrNull(rel);
+    if (raw === null) throw new StorageError('not_found', '笔记不存在', 404);
 
     const folderNow = parentOf(rel);
     const parsed = parseNote(raw, baseName(rel), Date.now());
@@ -543,9 +403,9 @@ export const notesApi = {
     let target = rel;
     const stem = sanitize(title);
     if (folderNext !== folderNow || stem !== stemOf(rel.slice(rel.lastIndexOf('/') + 1))) {
-      if (folderNext !== folderNow && folderNext) await ensureDir(folderNext);
+      if (folderNext !== folderNow && folderNext) await getStorage().ensureDir(folderNext);
       target = await uniqueRel(folderNext, stem, '.md', rel);
-      if (target !== rel) await moveEntry(rel, target);
+      if (target !== rel) await getStorage().move(rel, target);
       invalidateTree();
     }
 
@@ -555,7 +415,7 @@ export const notesApi = {
       updated: Date.now(),
       tags: parsed.tags,
     };
-    await putText(target, serializeNote(meta, body));
+    await getStorage().write(target, serializeNote(meta, body));
 
     const later = cache();
     delete later[rel];
@@ -570,15 +430,15 @@ export const notesApi = {
     const inTrash = rel.startsWith(`${TRASH_DIR}/`);
 
     if (hard || inTrash) {
-      await removeFile(rel);
+      await getStorage().delete(rel);
       invalidateTree();
       return { hard: true };
     }
 
-    const raw = await getText(rel);
+    const raw = await readOrNull(rel);
     if (raw === null) return { hard: false };
 
-    await ensureDir(TRASH_DIR);
+    await getStorage().ensureDir(TRASH_DIR);
     const parsed = parseNote(raw, baseName(rel), Date.now());
     const now = Date.now();
     const name = `${now}-${Math.random().toString(36).slice(2, 6)}-${baseName(rel)}.md`;
@@ -590,23 +450,23 @@ export const notesApi = {
       deleted_from: rel,
       deleted_at: now,
     };
-    await putText(`${TRASH_DIR}/${name}`, serializeNote(meta, parsed.body));
-    await removeFile(rel);
+    await getStorage().write(`${TRASH_DIR}/${name}`, serializeNote(meta, parsed.body));
+    await getStorage().delete(rel);
     invalidateTree();
     return { hard: false };
   },
 
   async restore(id: string) {
     const rel = decodeId(id);
-    const raw = await getText(rel);
-    if (raw === null) throw new DavError('笔记不存在', 404);
+    const raw = await readOrNull(rel);
+    if (raw === null) throw new StorageError('not_found', '笔记不存在', 404);
 
     const parsed = parseNote(raw, baseName(rel), Date.now());
     const from = parsed.deleted_from;
-    if (!from) throw new DavError('这个文件不在回收站里', 400);
+    if (!from) throw new StorageError('other', '这个文件不在回收站里', 400);
 
     const dir = parentOf(from);
-    if (dir) await ensureDir(dir);
+    if (dir) await getStorage().ensureDir(dir);
 
     const target = await uniqueRel(dir, sanitize(parsed.title), '.md');
     const meta: NoteMeta = {
@@ -615,8 +475,8 @@ export const notesApi = {
       updated: Date.now(),
       tags: parsed.tags,
     };
-    await putText(target, serializeNote(meta, parsed.body));
-    await removeFile(rel);
+    await getStorage().write(target, serializeNote(meta, parsed.body));
+    await getStorage().delete(rel);
     invalidateTree();
     return { note: noteOf(target, meta, parsed.body) };
   },
@@ -630,19 +490,19 @@ export const foldersApi = {
 
     const countByDir = new Map<string, number>();
     for (const note of notes) {
-      const dir = parentOf(note.rel);
+      const dir = parentOf(note.path);
       countByDir.set(dir, (countByDir.get(dir) ?? 0) + 1);
     }
 
     const items: FolderDTO[] = dirs.map((dir) => {
-      const parent = parentOf(dir.rel);
+      const parent = parentOf(dir.path);
       return {
-        id: encodeId(dir.rel),
+        id: encodeId(dir.path),
         parent_id: parent ? encodeId(parent) : null,
         name: dir.name,
-        created_at: dir.mtime,
-        updated_at: dir.mtime,
-        note_count: countByDir.get(dir.rel) ?? 0,
+        created_at: dir.mtime ?? 0,
+        updated_at: dir.mtime ?? 0,
+        note_count: countByDir.get(dir.path) ?? 0,
       };
     });
     items.sort((a, b) => a.name.localeCompare(b.name, 'zh'));
@@ -654,7 +514,7 @@ export const foldersApi = {
     const parent = input.parent_id ? decodeId(input.parent_id) : '';
     const name = sanitize(input.name);
     const rel = parent ? `${parent}/${name}` : name;
-    await mkcol(rel);
+    await getStorage().mkdir(rel);
     invalidateTree();
     const parentFull = parentOf(rel);
     return {
@@ -674,7 +534,7 @@ export const foldersApi = {
     const parent = parentOf(rel);
     // 必须把自己排除掉，否则「改成同名」会被当成重名冲突，多出一个「名字 2」
     const target = await uniqueRel(parent, sanitize(name), '', rel);
-    if (target !== rel) await moveEntry(rel, target);
+    if (target !== rel) await getStorage().move(rel, target);
     invalidateTree();
     return {
       folder: {
@@ -692,15 +552,15 @@ export const foldersApi = {
   async remove(id: string) {
     const rel = decodeId(id);
     const parent = parentOf(rel);
-    const children = (await propfindDir(rel)).filter((entry) => !entry.name.startsWith('.'));
+    const children = (await listDir(rel)).filter((entry) => !entry.name.startsWith('.'));
 
     await mapLimited(children, 3, async (child) => {
-      const ext = child.isDir ? '' : '.md';
+      const ext = child.isDirectory ? '' : '.md';
       const target = await uniqueRel(parent, stemOf(child.name), ext);
-      await moveEntry(child.rel, target);
+      await getStorage().move(child.path, target);
     });
 
-    await removeFile(rel);
+    await getStorage().delete(rel);
     invalidateTree();
     return { moved_to: parent ? encodeId(parent) : null };
   },

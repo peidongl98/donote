@@ -1,15 +1,16 @@
 import { defineStore } from 'pinia';
 import { computed, ref } from 'vue';
+import { secretStore } from '@/storage/secret-store';
 import {
   DEFAULT_ROOT,
-  ensureRoot,
-  probeConnection,
-  type NutstoreCredentials,
-  type ProbeResult,
-} from '@/storage/webdav';
-import { secretStore } from '@/storage/secret-store';
+  JianguoYunAdapter,
+  setStorage,
+  StorageError,
+  type StorageConfig,
+} from '@/services/storage';
 
 const SECRET_KEY = 'donote.nutstore';
+const DAV_BASE_URL = 'https://dav.jianguoyun.com/dav';
 
 /** 应用密码只留在内存里，不进响应式系统（避免被 devtools / 快照带出去） */
 let appPassword = '';
@@ -18,12 +19,17 @@ export type ConnectOutcome =
   | { ok: true; createdRoot: boolean }
   | { ok: false; code: 'unauthorized' | 'forbidden' | 'unreachable' | 'other'; message: string };
 
-const MESSAGES: Record<'unauthorized' | 'forbidden' | 'unreachable' | 'other', string> = {
-  unauthorized: '账号或应用密码不对，请核对后重试',
-  forbidden: '被坚果云拒绝。多半是开了微信二次验证 —— WebDAV 不支持它，请先在网页端关掉',
-  unreachable: '连不上坚果云，请检查网络（网页版会被浏览器的跨域策略拦住，属预期）',
-  other: '连接失败，请稍后重试',
-};
+/** 适配器给的错误码收敛成界面认识的四种，文案直接用适配器带出来的那条 */
+function toOutcome(error: unknown): ConnectOutcome {
+  if (error instanceof StorageError) {
+    const code =
+      error.code === 'unauthorized' || error.code === 'forbidden' || error.code === 'unreachable'
+        ? error.code
+        : 'other';
+    return { ok: false, code, message: error.message || '连接失败，请稍后重试' };
+  }
+  return { ok: false, code: 'other', message: '连接失败，请稍后重试' };
+}
 
 export const useNutstoreStore = defineStore('nutstore', () => {
   const status = ref<'idle' | 'connecting' | 'connected'>('idle');
@@ -33,8 +39,14 @@ export const useNutstoreStore = defineStore('nutstore', () => {
 
   const isConnected = computed(() => status.value === 'connected');
 
-  function credentials(): NutstoreCredentials {
-    return { account: account.value, appPassword };
+  function config(): StorageConfig {
+    return {
+      kind: 'jianguoyun',
+      baseUrl: DAV_BASE_URL,
+      account: account.value,
+      password: appPassword,
+      root: root.value,
+    };
   }
 
   /** 应用启动时从本机凭据恢复连接态（凭据在连接时已校验过，这里不重复打请求） */
@@ -42,67 +54,56 @@ export const useNutstoreStore = defineStore('nutstore', () => {
     try {
       const raw = await secretStore.read(SECRET_KEY);
       if (raw) {
-        const saved = JSON.parse(raw) as Partial<NutstoreCredentials & { root: string }>;
+        const saved = JSON.parse(raw) as Partial<{ account: string; appPassword: string; root: string }>;
         if (saved.account && saved.appPassword) {
           account.value = saved.account;
           appPassword = saved.appPassword;
           root.value = saved.root || DEFAULT_ROOT;
+          const adapter = new JianguoYunAdapter();
+          adapter.adopt(config());
+          setStorage(adapter);
           status.value = 'connected';
         }
       }
     } catch {
       await secretStore.clear(SECRET_KEY);
+      setStorage(null);
     } finally {
       bootstrapped.value = true;
     }
   }
 
-  function describe(probe: ProbeResult): ConnectOutcome {
-    if (probe.kind === 'ok') return { ok: true, createdRoot: false };
-    if (probe.kind === 'error') {
-      return { ok: false, code: 'other', message: `${MESSAGES.other}（HTTP ${probe.status}）` };
-    }
-    if (probe.kind === 'unreachable') {
-      const reason = probe.reason ? `（${probe.reason.slice(0, 120)}）` : '';
-      return { ok: false, code: 'unreachable', message: `${MESSAGES.unreachable}${reason}` };
-    }
-    return { ok: false, code: probe.kind, message: MESSAGES[probe.kind] };
-  }
-
   /**
-   * 连接：先用凭据真实探一次坚果云，通过了才落盘。
+   * 连接：先用凭据真实探一次，通过了才落盘并把适配器注册给上层。
    * 同步根不存在时顺手建出来 —— DoNote 只在这个目录里活动。
    */
   async function connect(nextAccount: string, nextPassword: string): Promise<ConnectOutcome> {
     status.value = 'connecting';
     account.value = nextAccount.trim();
     appPassword = nextPassword;
+    root.value = DEFAULT_ROOT;
 
-    const probe = await probeConnection(credentials(), DEFAULT_ROOT);
-    const described = describe(probe);
-
-    if (!described.ok) {
+    const adapter = new JianguoYunAdapter();
+    try {
+      const result = await adapter.connect(config());
+      setStorage(adapter);
+      await secretStore.write(
+        SECRET_KEY,
+        JSON.stringify({ account: account.value, appPassword, root: root.value }),
+      );
+      status.value = 'connected';
+      return { ok: true, createdRoot: result.createdRoot };
+    } catch (error) {
+      setStorage(null);
       appPassword = '';
       status.value = 'idle';
-      return described;
+      return toOutcome(error);
     }
-
-    let createdRoot = false;
-    if (probe.kind === 'ok' && !probe.rootExists) {
-      createdRoot = await ensureRoot(credentials());
-    }
-
-    root.value = DEFAULT_ROOT;
-    await secretStore.write(
-      SECRET_KEY,
-      JSON.stringify({ account: account.value, appPassword, root: root.value }),
-    );
-    status.value = 'connected';
-    return { ok: true, createdRoot };
   }
 
   async function disconnect(): Promise<void> {
     await secretStore.clear(SECRET_KEY);
+    setStorage(null);
     appPassword = '';
     account.value = '';
     root.value = DEFAULT_ROOT;
@@ -115,7 +116,6 @@ export const useNutstoreStore = defineStore('nutstore', () => {
     root,
     bootstrapped,
     isConnected,
-    credentials,
     restore,
     connect,
     disconnect,
