@@ -1,11 +1,11 @@
 {
-  "version": "0.1.0",
-  "notes": "首个 Windows 版本：连接你自己的坚果云，笔记就是 .md 文件；支持文件夹、回收站与应用内更新。",
-  "pub_date": "2026-10-09T17:55:16Z",
+  "version": "0.1.1",
+  "notes": "支持任意 WebDAV 服务器：连接时填服务器地址、账号与密码，不再只限坚果云。",
+  "pub_date": "2026-10-10T08:45:07Z",
   "platforms": {
     "windows-x86_64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSWTRLN1pZbGY4NHVLbjEvVS83TGRPS21iQW9xQThVVzFaK1JxL2dZdm1UL2NOZkw0Yi9iaHUzcmdKYVFnK29vbUdtWEVNbnUyRFlydkV5eHd4MHh4UXRWaVJOT05iWndBPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkxNTY4NDk1CWZpbGU6RG9Ob3RlXzAuMS4wX3g2NC1zZXR1cC5leGUJdmVyc2lvbjowLjEuMAo1SWVXNEVvRzdiVVh5MFdORFI1emtLazU1SWwyRmFGYXBaU0hyUG1GTkRiOEFNQjVlcHAwc0FPdHlnd05ZUXJGOEZRL01lR2txelZMdi9RUytJZkFCdz09Cg==",
-      "url": "https://donote.pages.dev/downloads/DoNote-0.1.0-win-x64.exe"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSWTRLN1pZbGY4NGpDRmV3WXdXeW9tZE9XYlQxNXhBN05IT1VaUkd1czZXRFVHT3c2ZTJFSkRsUXJ0NEtqUlRrQlFDUG9sL3RmeFdJRkRqMzZkZUpQWStmN0R4d0FDR2dNPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkxNjIxODk0CWZpbGU6RG9Ob3RlXzAuMS4xX3g2NC1zZXR1cC5leGUJdmVyc2lvbjowLjEuMQozUTc5VGhpQmU4MW1EUmxQcUhZczhXQXFmelRBUjRwbHFmbnFnNndDTjA3S05qNzRHblpHOVpvOUtPZEp1QkdTano2RWkrelhrSzRTS2xOUk9mL2RCZz09Cg==",
+      "url": "https://donote.pages.dev/downloads/DoNote-0.1.1-win-x64.exe"
     }
   }
 }

@@ -2,17 +2,21 @@ import { defineStore } from 'pinia';
 import { computed, ref } from 'vue';
 import { secretStore } from '@/storage/secret-store';
 import {
+  DEFAULT_BASE_URL,
   DEFAULT_ROOT,
-  JianguoYunAdapter,
   setStorage,
   StorageError,
+  WebdavAdapter,
   type StorageConfig,
 } from '@/services/storage';
 
+/**
+ * 凭据在本机的存储键。
+ * 值沿用历史名称：改掉会让已经连好的设备下次启动读不到凭据、需要重新输一次密码。
+ */
 const SECRET_KEY = 'donote.nutstore';
-const DAV_BASE_URL = 'https://dav.jianguoyun.com/dav';
 
-/** 应用密码只留在内存里，不进响应式系统（避免被 devtools / 快照带出去） */
+/** 密码只留在内存里，不进响应式系统（避免被 devtools / 快照带出去） */
 let appPassword = '';
 
 export type ConnectOutcome =
@@ -31,8 +35,9 @@ function toOutcome(error: unknown): ConnectOutcome {
   return { ok: false, code: 'other', message: '连接失败，请稍后重试' };
 }
 
-export const useNutstoreStore = defineStore('nutstore', () => {
+export const useWebdavStore = defineStore('webdav', () => {
   const status = ref<'idle' | 'connecting' | 'connected'>('idle');
+  const baseUrl = ref(DEFAULT_BASE_URL);
   const account = ref('');
   const root = ref(DEFAULT_ROOT);
   const bootstrapped = ref(false);
@@ -41,8 +46,8 @@ export const useNutstoreStore = defineStore('nutstore', () => {
 
   function config(): StorageConfig {
     return {
-      kind: 'jianguoyun',
-      baseUrl: DAV_BASE_URL,
+      kind: 'webdav',
+      baseUrl: baseUrl.value,
       account: account.value,
       password: appPassword,
       root: root.value,
@@ -54,12 +59,19 @@ export const useNutstoreStore = defineStore('nutstore', () => {
     try {
       const raw = await secretStore.read(SECRET_KEY);
       if (raw) {
-        const saved = JSON.parse(raw) as Partial<{ account: string; appPassword: string; root: string }>;
+        const saved = JSON.parse(raw) as Partial<{
+          baseUrl: string;
+          account: string;
+          appPassword: string;
+          root: string;
+        }>;
         if (saved.account && saved.appPassword) {
+          // baseUrl 是后加的字段，早期存档没有它，缺省即坚果云
+          baseUrl.value = saved.baseUrl || DEFAULT_BASE_URL;
           account.value = saved.account;
           appPassword = saved.appPassword;
           root.value = saved.root || DEFAULT_ROOT;
-          const adapter = new JianguoYunAdapter();
+          const adapter = new WebdavAdapter();
           adapter.adopt(config());
           setStorage(adapter);
           status.value = 'connected';
@@ -77,19 +89,29 @@ export const useNutstoreStore = defineStore('nutstore', () => {
    * 连接：先用凭据真实探一次，通过了才落盘并把适配器注册给上层。
    * 同步根不存在时顺手建出来 —— DoNote 只在这个目录里活动。
    */
-  async function connect(nextAccount: string, nextPassword: string): Promise<ConnectOutcome> {
+  async function connect(
+    nextBaseUrl: string,
+    nextAccount: string,
+    nextPassword: string,
+  ): Promise<ConnectOutcome> {
     status.value = 'connecting';
+    baseUrl.value = nextBaseUrl.trim().replace(/\/+$/, '');
     account.value = nextAccount.trim();
     appPassword = nextPassword;
     root.value = DEFAULT_ROOT;
 
-    const adapter = new JianguoYunAdapter();
+    const adapter = new WebdavAdapter();
     try {
       const result = await adapter.connect(config());
       setStorage(adapter);
       await secretStore.write(
         SECRET_KEY,
-        JSON.stringify({ account: account.value, appPassword, root: root.value }),
+        JSON.stringify({
+          baseUrl: baseUrl.value,
+          account: account.value,
+          appPassword,
+          root: root.value,
+        }),
       );
       status.value = 'connected';
       return { ok: true, createdRoot: result.createdRoot };
@@ -105,6 +127,7 @@ export const useNutstoreStore = defineStore('nutstore', () => {
     await secretStore.clear(SECRET_KEY);
     setStorage(null);
     appPassword = '';
+    baseUrl.value = DEFAULT_BASE_URL;
     account.value = '';
     root.value = DEFAULT_ROOT;
     status.value = 'idle';
@@ -112,6 +135,7 @@ export const useNutstoreStore = defineStore('nutstore', () => {
 
   return {
     status,
+    baseUrl,
     account,
     root,
     bootstrapped,

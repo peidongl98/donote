@@ -14,7 +14,8 @@ interface SecretPayload {
 export function installTauriBridge(): boolean {
   if (!isTauriRuntime()) return false;
 
-  // 请求走 Rust reqwest，不经浏览器网络栈 → 不受坚果云 CORS 限制
+  // 请求走 Rust reqwest，不经浏览器网络栈 → 不受 WebDAV 服务的跨域限制
+  // （远端域名由 src-tauri/capabilities/default.json 放行）
   setDavFetch((url, init) => tauriFetch(url, init) as unknown as Promise<Response>);
 
   // 凭据进 Windows 凭据管理器，不落磁盘明文

@@ -2,9 +2,9 @@
  * 当前生效的存储适配器。
  *
  * 上层一律通过 getStorage() 拿适配器，不直接 import 具体实现，
- * 因此将来换后端（自建 WebDAV / Seafile / COS）只需换这一个注册点。
+ * 因此将来真要换协议（非 WebDAV 的对象存储）只需换这一个注册点。
  *
- * 连接成功后由 stores/nutstore.ts 注册进来，断开连接时清空。
+ * 连接成功后由 stores/webdav.ts 注册进来，断开连接时清空。
  */
 
 import { StorageError, type StorageAdapter } from './types';
@@ -25,4 +25,4 @@ export function getStorage(): StorageAdapter {
 }
 
 export * from './types';
-export { JianguoYunAdapter } from './jianguoyun';
+export { WebdavAdapter } from './webdav';

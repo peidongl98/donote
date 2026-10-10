@@ -1,7 +1,20 @@
 <script setup lang="ts">
-import { ref } from 'vue';
+import { computed, ref } from 'vue';
+
+const props = defineProps<{
+  /** 当前填写的服务器地址，只用来决定展示哪一套说明，不做校验 */
+  server: string;
+}>();
 
 const open = ref(false);
+
+const isJianguoyun = computed(() => {
+  try {
+    return new URL(props.server.trim()).host === 'dav.jianguoyun.com';
+  } catch {
+    return false;
+  }
+});
 </script>
 
 <template>
@@ -14,7 +27,7 @@ const open = ref(false);
           <circle cx="12" cy="17" r="1" fill="currentColor" />
         </svg>
       </span>
-      <span class="head-text">怎么拿到应用密码？</span>
+      <span class="head-text">密码怎么填？</span>
       <svg class="chev" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
         <path d="m7 10 5 5 5-5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
       </svg>
@@ -22,35 +35,43 @@ const open = ref(false);
 
     <Transition name="fold">
       <div v-if="open" class="body">
-        <ol class="steps">
-          <li>打开<strong>坚果云网页版</strong>并登录（电脑浏览器、手机 App 里都能操作）</li>
-          <li>点右上角<strong>你的账户名</strong> → <strong>账户信息</strong></li>
-          <li>左侧选<strong>安全选项</strong> → 找到<strong>第三方应用管理</strong> → 点<strong>添加应用密码</strong></li>
-          <li>名称随便填（比如 <span class="m">DoNote</span>）→ 点<strong>生成密码</strong></li>
-          <li>复制那串 <strong>16 位密码</strong>，粘回上面的「应用密码」栏</li>
-        </ol>
+        <template v-if="isJianguoyun">
+          <ol class="steps">
+            <li>打开<strong>坚果云网页版</strong>并登录（电脑浏览器、手机 App 里都能操作）</li>
+            <li>点右上角<strong>你的账户名</strong> → <strong>账户信息</strong></li>
+            <li>左侧选<strong>安全选项</strong> → 找到<strong>第三方应用管理</strong> → 点<strong>添加应用密码</strong></li>
+            <li>名称随便填（比如 <span class="m">DoNote</span>）→ 点<strong>生成密码</strong></li>
+            <li>复制那串 <strong>16 位密码</strong>，粘回上面的「密码」栏</li>
+          </ol>
 
-        <ul class="notes">
-          <li>这是<strong>应用密码</strong>，不是你的登录密码。它只能读写文件，登不了坚果云网页。</li>
-          <li>随时能在同一个页面<strong>撤销</strong>；撤销后 DoNote 立刻失效。</li>
-          <li>如果开了<strong>微信二次验证</strong>，要先关掉 —— WebDAV 不支持它。</li>
-          <li>免费版每月有流量额度（上传 1GB / 下载 3GB），日常记笔记够用。</li>
+          <ul class="notes">
+            <li>这是<strong>应用密码</strong>，不是你的登录密码。它只能读写文件，登不了坚果云网页。</li>
+            <li>随时能在同一个页面<strong>撤销</strong>；撤销后 DoNote 立刻失效。</li>
+            <li>如果开了<strong>微信二次验证</strong>，要先关掉 —— WebDAV 不支持它。</li>
+            <li>免费版每月有流量额度（上传 1GB / 下载 3GB），日常记笔记够用。</li>
+          </ul>
+
+          <div class="links">
+            <a class="link" href="https://www.jianguoyun.com/d/home" target="_blank" rel="noreferrer noopener">
+              打开坚果云网页版
+              <svg viewBox="0 0 24 24" width="13" height="13" aria-hidden="true">
+                <path d="M8 16 16 8M9.5 8H16v6.5" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" />
+              </svg>
+            </a>
+            <a class="link" href="https://help.jianguoyun.com/?p=2064" target="_blank" rel="noreferrer noopener">
+              坚果云官方说明
+              <svg viewBox="0 0 24 24" width="13" height="13" aria-hidden="true">
+                <path d="M8 16 16 8M9.5 8H16v6.5" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" />
+              </svg>
+            </a>
+          </div>
+        </template>
+
+        <ul v-else class="notes is-first">
+          <li>填你在<strong>自己的 WebDAV 服务</strong>里的账号密码；多数服务建议在设置里生成一个<strong>应用密码</strong>，比登录密码安全，也能单独撤销。</li>
+          <li>地址要写到 WebDAV 的入口，通常以 <span class="m">/dav</span> 或 <span class="m">/remote.php/dav</span> 结尾。服务商文档里会给出这个地址。</li>
+          <li>只支持 <strong>http / https</strong>；自建服务器如果是自签证书，需要先让系统信任它。</li>
         </ul>
-
-        <div class="links">
-          <a class="link" href="https://www.jianguoyun.com/d/home" target="_blank" rel="noreferrer noopener">
-            打开坚果云网页版
-            <svg viewBox="0 0 24 24" width="13" height="13" aria-hidden="true">
-              <path d="M8 16 16 8M9.5 8H16v6.5" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" />
-            </svg>
-          </a>
-          <a class="link" href="https://help.jianguoyun.com/?p=2064" target="_blank" rel="noreferrer noopener">
-            坚果云官方说明
-            <svg viewBox="0 0 24 24" width="13" height="13" aria-hidden="true">
-              <path d="M8 16 16 8M9.5 8H16v6.5" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" />
-            </svg>
-          </a>
-        </div>
       </div>
     </Transition>
   </div>
@@ -144,6 +165,11 @@ const open = ref(false);
   line-height: 1.85;
   color: var(--text-2);
   list-style: disc;
+}
+
+/* 没有步骤列表时，说明块就是第一块内容，去掉上边距 */
+.notes.is-first {
+  margin-top: 0;
 }
 
 .notes strong {

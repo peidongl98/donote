@@ -4,12 +4,12 @@ import { useRouter } from 'vue-router';
 import { notesApi } from '@/storage/notes';
 import { isTauriRuntime } from '@/storage/transport';
 import { appVersion, checkUpdate, installUpdate, type UpdateState } from '@/updater';
-import { useNutstoreStore } from '@/stores/nutstore';
+import { useWebdavStore } from '@/stores/webdav';
 import { useUiStore } from '@/stores/ui';
 import AppHeader from '@/components/AppHeader.vue';
 import ThemeToggle from '@/components/ThemeToggle.vue';
 
-const nutstore = useNutstoreStore();
+const webdav = useWebdavStore();
 const ui = useUiStore();
 const router = useRouter();
 
@@ -21,7 +21,7 @@ const version = ref('');
 const updateState = ref<UpdateState | null>(null);
 const checking = ref(false);
 
-const displayName = computed(() => nutstore.account || '未连接');
+const displayName = computed(() => webdav.account || '未连接');
 const initial = computed(() => displayName.value.slice(0, 1).toUpperCase() || 'D');
 
 const updateText = computed(() => {
@@ -76,8 +76,8 @@ onMounted(async () => {
 
 async function onDisconnect(): Promise<void> {
   signingOut.value = true;
-  await nutstore.disconnect();
-  ui.toast('已断开坚果云');
+  await webdav.disconnect();
+  ui.toast('已断开连接');
   await router.replace({ name: 'login' });
 }
 </script>
@@ -91,8 +91,8 @@ async function onDisconnect(): Promise<void> {
         <span class="avatar" aria-hidden="true">{{ initial }}</span>
         <div class="profile-main">
           <p class="name">{{ displayName }}</p>
-          <p class="meta mono">同步目录 {{ nutstore.root }}</p>
-          <p class="meta">笔记只存在你自己的坚果云里</p>
+          <p class="meta mono">同步目录 {{ webdav.root }}</p>
+          <p class="meta">笔记只存在你自己的网盘里</p>
         </div>
       </section>
 
@@ -133,15 +133,19 @@ async function onDisconnect(): Promise<void> {
         <ThemeToggle />
       </div>
 
-      <p class="section-title">坚果云</p>
+      <p class="section-title">WebDAV</p>
       <div class="card-plain">
         <p class="line">
+          <span class="line-key">服务器</span>
+          <span class="line-val mono">{{ webdav.baseUrl }}</span>
+        </p>
+        <p class="line">
           <span class="line-key">账号</span>
-          <span class="line-val mono">{{ nutstore.account || '—' }}</span>
+          <span class="line-val mono">{{ webdav.account || '—' }}</span>
         </p>
         <p class="line">
           <span class="line-key">同步目录</span>
-          <span class="line-val mono">{{ nutstore.root }}</span>
+          <span class="line-val mono">{{ webdav.root }}</span>
         </p>
       </div>
 

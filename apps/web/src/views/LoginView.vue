@@ -1,21 +1,24 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import { useNutstoreStore } from '@/stores/nutstore';
+import { DEFAULT_BASE_URL } from '@/services/storage';
+import { useWebdavStore } from '@/stores/webdav';
 import { useUiStore } from '@/stores/ui';
 import GlassCard from '@/components/GlassCard.vue';
 import GlassTextField from '@/components/GlassTextField.vue';
 import GlassButton from '@/components/GlassButton.vue';
-import NutstoreGuide from '@/components/NutstoreGuide.vue';
+import WebdavGuide from '@/components/WebdavGuide.vue';
 import ThemeToggle from '@/components/ThemeToggle.vue';
 
-const nutstore = useNutstoreStore();
+const webdav = useWebdavStore();
 const ui = useUiStore();
 const router = useRouter();
 const route = useRoute();
 
+const serverUrl = ref(DEFAULT_BASE_URL);
 const account = ref('');
 const password = ref('');
+const serverError = ref('');
 const accountError = ref('');
 const passwordError = ref('');
 const banner = ref('');
@@ -23,36 +26,55 @@ const submitting = ref(false);
 
 const isDev = import.meta.env.DEV;
 
-const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+/** 只接受 http/https 的绝对地址；返回去掉尾斜杠的结果，不合法返回 null */
+function normalizeServer(raw: string): string | null {
+  const value = raw.trim();
+  if (!value) return null;
+  let parsed: URL;
+  try {
+    parsed = new URL(value);
+  } catch {
+    return null;
+  }
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return null;
+  if (!parsed.host) return null;
+  return value.replace(/\/+$/, '');
+}
 
 async function submit(): Promise<void> {
   if (submitting.value) return;
+  serverError.value = '';
   accountError.value = '';
   passwordError.value = '';
   banner.value = '';
 
+  const server = normalizeServer(serverUrl.value);
   const a = account.value.trim();
   const p = password.value.trim();
 
-  if (!EMAIL.test(a)) {
-    accountError.value = '请填坚果云注册邮箱';
+  if (!server) {
+    serverError.value = '请填 http:// 或 https:// 开头的地址';
+    return;
+  }
+  if (!a) {
+    accountError.value = '请填账号';
     return;
   }
   if (!p) {
-    passwordError.value = '请填应用密码（不是你登录坚果云的密码）';
+    passwordError.value = '请填密码';
     return;
   }
 
   submitting.value = true;
   try {
-    const res = await nutstore.connect(a, p);
+    const res = await webdav.connect(server, a, p);
     if (!res.ok) {
       // 认证失败几乎总是密码填错了，落到密码框上比丢到通栏提示更好定位
       if (res.code === 'unauthorized') passwordError.value = res.message;
       else banner.value = res.message;
       return;
     }
-    ui.toast(res.createdRoot ? `已连接，并建好了同步目录 ${nutstore.root}` : '已连接坚果云');
+    ui.toast(res.createdRoot ? `已连接，并建好了同步目录 ${webdav.root}` : '已连接');
     const redirect = typeof route.query.redirect === 'string' ? route.query.redirect : '/';
     await router.replace(redirect);
   } finally {
@@ -61,6 +83,9 @@ async function submit(): Promise<void> {
 }
 
 // 一旦重新输入就撤掉上一次的错误态，避免「已经改对了但红框还挂着」
+watch(serverUrl, () => {
+  if (serverError.value) serverError.value = '';
+});
 watch(account, () => {
   if (accountError.value) accountError.value = '';
 });
@@ -91,15 +116,24 @@ watch(password, () => {
         </span>
         <div>
           <h1 class="title">DoNote</h1>
-          <p class="subtitle">连接你的坚果云，笔记存在自己的盘里</p>
+          <p class="subtitle">连接你的 WebDAV，笔记存在自己的盘里</p>
         </div>
       </div>
 
       <form class="form" novalidate @submit.prevent="submit">
         <GlassTextField
+          v-model="serverUrl"
+          label="服务器地址"
+          placeholder="https://dav.example.com/dav"
+          autocomplete="off"
+          :disabled="submitting"
+          :error="serverError"
+        />
+
+        <GlassTextField
           v-model="account"
-          label="坚果云账号"
-          placeholder="你的坚果云注册邮箱"
+          label="账号"
+          placeholder="你的账号"
           inputmode="email"
           autocomplete="username"
           :disabled="submitting"
@@ -108,8 +142,8 @@ watch(password, () => {
 
         <GlassTextField
           v-model="password"
-          label="应用密码"
-          placeholder="16 位应用密码"
+          label="密码"
+          placeholder="应用密码"
           type="password"
           revealable
           autocomplete="current-password"
@@ -117,15 +151,15 @@ watch(password, () => {
           :error="passwordError"
         />
 
-        <NutstoreGuide />
+        <WebdavGuide :server="serverUrl" />
 
         <p v-if="banner" class="banner">{{ banner }}</p>
 
-        <GlassButton label="连接坚果云" type="submit" :loading="submitting" />
+        <GlassButton label="连接" type="submit" :loading="submitting" />
       </form>
 
       <p class="footnote">
-        账号和应用密码只保存在这台设备上。<br />
+        地址、账号和密码只保存在这台设备上。<br />
         DoNote 不上传，服务器不存任何账号信息。
       </p>
       <p v-if="isDev" class="devnote">

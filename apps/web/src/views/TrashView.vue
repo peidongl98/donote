@@ -119,7 +119,7 @@ onMounted(load);
       @close="hardOpen = false"
       @confirm="hardDelete"
     >
-      <p class="tip">「{{ hardTarget?.title }}」将被从坚果云里永久删除，无法恢复。</p>
+      <p class="tip">「{{ hardTarget?.title }}」将被从你的网盘里永久删除，无法恢复。</p>
     </AppDialog>
   </div>
 </template>

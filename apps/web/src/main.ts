@@ -2,7 +2,7 @@ import { createApp } from 'vue';
 import { createPinia } from 'pinia';
 import App from './App.vue';
 import { router } from './router';
-import { useNutstoreStore } from './stores/nutstore';
+import { useWebdavStore } from './stores/webdav';
 import { useThemeStore } from './stores/theme';
 import { useUiStore } from './stores/ui';
 import { installTauriBridge } from './storage/tauri';
@@ -25,9 +25,9 @@ installTauriBridge();
 // 主题在挂载前先应用，避免与首屏内联脚本产生二次跳变
 useThemeStore().init();
 
-// 先从本机凭据恢复坚果云连接态，再放行路由，避免已连接用户闪一下连接页
-const nutstore = useNutstoreStore();
-nutstore.restore().finally(() => {
+// 先从本机凭据恢复连接态，再放行路由，避免已连接用户闪一下连接页
+const webdav = useWebdavStore();
+webdav.restore().finally(() => {
   app.use(router);
   app.mount('#app');
   // 启动后悄悄看一眼有没有新版本；失败就当作没有，不打扰用户

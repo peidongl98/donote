@@ -353,7 +353,7 @@ onBeforeUnmount(flush);
       @close="hardDeleteOpen = false"
       @confirm="hardDelete"
     >
-      <p class="tip">这一步不可恢复，文件会被从坚果云里真正删掉。</p>
+      <p class="tip">这一步不可恢复，文件会被从你的网盘里真正删掉。</p>
     </AppDialog>
   </div>
 </template>

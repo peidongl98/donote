@@ -186,7 +186,7 @@ function cachedExcerpt(entry: DirEntry): string {
   return row && row.m === entry.mtime ? row.e : '';
 }
 
-/** 并发受限的 map，避免一次甩出上百个请求被坚果云限流 */
+/** 并发受限的 map，避免一次甩出上百个请求被服务端限流 */
 async function mapLimited<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
   const out: R[] = [];
   for (let i = 0; i < items.length; i += limit) {

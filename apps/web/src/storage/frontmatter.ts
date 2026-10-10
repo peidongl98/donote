@@ -1,6 +1,6 @@
 /**
  * 极简 frontmatter：只认 `key: value` 与 `tags: [a, b]` 两种写法，不引 YAML 依赖。
- * 文件本身就是笔记 —— 用户在自己的坚果云里打开也能一眼读懂。
+ * 文件本身就是笔记 —— 用户在自己的网盘里打开也能一眼读懂。
  */
 
 export interface NoteMeta {

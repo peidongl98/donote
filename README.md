@@ -1,13 +1,15 @@
 # DoNote
 
-本地优先的 Markdown 笔记客户端。**没有后端** —— 笔记以 `.md` 文件直接读写用户自己的坚果云（WebDAV），
+本地优先的 Markdown 笔记客户端。**没有后端** —— 笔记以 `.md` 文件直接读写你自己的 WebDAV 网盘，
 DoNote 看不到、也存不下任何内容。完全免费，不做会员、不做付费存储、不接广告。
 
 下载站：**https://donote.pages.dev**（只是下载页，不是一个网页版笔记应用）
 
+服务器不限定某一家：坚果云（默认）、Nextcloud、群晖、自建 WebDAV 都行，连接时填地址 + 账号 + 密码即可。
+
 ## 为什么是网页下载页而不是网页应用
 
-坚果云 WebDAV 不返回 CORS 响应头，浏览器里任何直连都会被跨域拦掉；
+多数 WebDAV 服务不返回 CORS 响应头，浏览器里任何直连都会被跨域拦掉；
 而且 Chromium 对带 `WWW-Authenticate` 的 401 会挂起等凭据，`fetch` 永远不 resolve。
 只有原生壳（Tauri 的 reqwest / 鸿蒙 `@ohos.net.http` / iOS URLSession）能绕开这个限制。
 所以：**桌面端与手机端是产品形态，网页只是一个下载页。**
@@ -16,14 +18,19 @@ DoNote 看不到、也存不下任何内容。完全免费，不做会员、不�
 
 ```
 Tauri 2 (Windows)  ─┐
-鸿蒙 ArkWeb 壳       ├─→ 原生网络栈 ─→ 坚果云 WebDAV (https://dav.jianguoyun.com/dav)
+鸿蒙 ArkWeb 壳       ├─→ 原生网络栈 ─→ 用户自己的 WebDAV 服务器
 iOS 壳              ─┘        ↑
                        凭据只存本机：Windows 凭据管理器 / AssetStoreKit
 ```
 
 - 前端：Vite 8 + Vue 3.5 + TypeScript + Vue Router 5 + Pinia 4 + markdown-it
 - 桌面壳：Tauri 2（`tauri-plugin-http` 走 Rust reqwest 发请求、`tauri-plugin-updater` 应用内更新、`keyring` 存凭据）
-- 数据：用户自己的坚果云，**无服务端、无数据库、无账号体系**
+- 数据：用户自己的 WebDAV，**无服务端、无数据库、无账号体系**
+
+**远端域名放行**：`src-tauri/capabilities/default.json` 里 `http:default` 只放行
+`https://*:*` 与 `http://*:*` 两条（协议收窄到 http/https，主机与端口不限）。
+写成 `https://*/*` 是不够的 —— URL Pattern 里没写端口时只匹配标准端口，自建 NAS 的
+自定义端口会被拦下。这两条规则用真实 Chromium 实测过（见「已知陷阱」）。
 
 ## 文件模型
 
@@ -59,10 +66,11 @@ DoNote/
 │   ├── web/                      前端（同时也是桌面壳的前端）
 │   │   ├── public/               PWA 图标
 │   │   └── src/
-│   │       ├── storage/          ★ 数据层：transport / webdav / notes / frontmatter / secret-store
+│   │       ├── services/storage/ ★ 适配器层：types / webdav（唯一的 HTTP 落点）/ index
+│   │       ├── storage/          业务数据层：notes / frontmatter / transport / secret-store / tauri
 │   │       ├── views/            home / login / note / folders / folder / trash / settings
 │   │       ├── components/       毛玻璃组件
-│   │       ├── stores/           nutstore（连接态）/ theme / ui
+│   │       ├── stores/           webdav（连接态）/ theme / ui
 │   │       └── updater.ts        应用内更新
 │   └── desktop/                  Tauri 2 工程（src-tauri）
 ├── packages/shared/              数据类型与常量（直接暴露 TS 源码，不走构建）
@@ -82,9 +90,12 @@ DoNote/
 # esbuild postinstall 在本机会 spawnSync EBUSY，必须 --ignore-scripts
 pnpm install --ignore-scripts
 
-pnpm dev:web        # http://localhost:5173，/nutdav 由 Vite 代理转发到坚果云
+pnpm dev:web        # http://localhost:5173
 pnpm dev:desktop    # 起 Tauri 窗口
 ```
+
+⚠️ dev 的 Vite 代理 `/nutdav` **目标写死为坚果云**，因此浏览器里只有坚果云连得上；
+填别的服务器会因跨域失败，这是预期（端上走原生网络栈，不受此限）。
 
 ⚠️ `apps/web/vite.config.ts` 的 `/nutdav` 代理里必须剥掉 `WWW-Authenticate` 响应头，
 否则「密码错了」会让请求永远挂起而不是返回 401（见「已知陷阱」）。
@@ -98,11 +109,14 @@ export TAURI_SIGNING_PRIVATE_KEY_PASSWORD=""
 pnpm tauri build --bundles nsis      # 产出 -setup.exe 与 .exe.sig
 
 # 把产物铺进下载站并生成最新清单
-node scripts/make-release.mjs --version 0.1.0 --notes "更新说明"
+node scripts/make-release.mjs --version 0.1.1 --notes "更新说明"
 
 # 发布下载站（Pages 项目 donote）
 wrangler pages deploy site --project-name donote --branch main
 ```
+
+⚠️ 改了 `capabilities/default.json`（域名白名单）必须重新打包 —— 它是编进二进制里的，
+不发新版本的话已装的客户端拿不到新规则。
 
 ### 应用内更新
 
@@ -111,7 +125,7 @@ wrangler pages deploy site --project-name donote --branch main
 - 私钥在 `.updater-key/`（**已 gitignore，丢了就没法再发更新**）。
 - 设置页有「检查更新」，启动时也会静默查一次；装的是 NSIS 的 `passive` 模式，不打断用户。
 
-## 平台限制（坚果云免费版）
+## 平台限制（以坚果云免费版为例）
 
 | 限制 | 值 | 应对 |
 |---|---|---|
@@ -120,26 +134,30 @@ wrangler pages deploy site --project-name donote --branch main
 | 单文件 | ≤ 500 MB | 笔记正文上限 20 万字符 |
 | 每月流量 | 上传 1 GB / 下载 3 GB | 只传改动过的文件 |
 
+换别的服务器时这些数字会变，但「目录树一次遍历 + 摘要缓存」的用法对任何 WebDAV 都成立。
+
 ## 已知陷阱
 
 1. **带 `WWW-Authenticate` 的 401 会让 Chromium 挂起**：dev 代理必须删掉这个响应头。
-2. **坚果云不返回 CORS 响应头**：浏览器直连必被拦，这是「网页版做不成笔记应用」的根因。
-3. **`-webkit-backdrop-filter` 陷阱**：Vite 8 默认 lightningcss 压缩会把 `backdrop-filter`
+2. **WebDAV 普遍不返回 CORS 响应头**：浏览器直连必被拦，这是「网页版做不成笔记应用」的根因。
+3. **Tauri 权限的 URL Pattern 默认只匹配标准端口**：`https://*/*` 匹配不了 `https://nas:8443/...`。
+   要覆盖任意端口必须显式写 `https://*:*`。这条是实测出来的，别凭直觉改回去。
+4. **`-webkit-backdrop-filter` 陷阱**：Vite 8 默认 lightningcss 压缩会把 `backdrop-filter`
    改写成只剩 `-webkit-` 前缀版本，Chromium 不认 → 线上毛玻璃整条失效（dev 不压缩测不出来）。
    已设 `cssMinify: 'esbuild'`，改样式后必须核验构建产物。
-4. **`MOVE` 的 `Destination` 必须是绝对 URL**：不能复用 dev 代理前缀，要用真域名拼。
-5. **列表摘要要读正文**：WebDAV 列目录不含内容，所以摘要按「路径 + mtime」缓在 localStorage，
+5. **`MOVE` 的 `Destination` 必须是绝对 URL**：不能复用 dev 代理前缀，要用真域名拼。
+6. **列表摘要要读正文**：WebDAV 列目录不含内容，所以摘要按「路径 + mtime」缓在 localStorage，
    首次打开会分批补齐，之后加载几乎零请求。
-6. **`pnpm install` 与移动仓库目录**：移动/改名后必须删掉各级 `node_modules` 再装，
+7. **`pnpm install` 与移动仓库目录**：移动/改名后必须删掉各级 `node_modules` 再装，
    否则出现 `Cannot find module 'undici'` 这类「装了但没装全」。
-7. **`git push` 不可用**：本机 `github.com:443` 会弹 Git Credential Manager 并挂起，
+8. **`git push` 不可用**：本机 `github.com:443` 会弹 Git Credential Manager 并挂起，
    统一走 `scripts/push-to-github.cjs`（Git Data API）。
-8. **Tauri 的 NSIS 工具链要从 GitHub 下**：本机 `objects.githubusercontent.com` 不可达；
+9. **Tauri 的 NSIS 工具链要从 GitHub 下**：本机 `objects.githubusercontent.com` 不可达；
    走镜像把 `nsis-3.11.zip` 与 `nsis_tauri_utils.dll` 铺到 `%LOCALAPPDATA%\tauri\NSIS` 即可离线复用
    （两个文件都有 SHA1 校验，见 `docs/PLAN.md`）。
 
 ## 数据与隐私
 
-- 账号与应用密码只存在本机（Windows 凭据管理器 / AssetStoreKit），**不上传**。
-- 应用密码不是登录密码，在坚果云网页端「账户信息 → 安全选项 → 第三方应用管理」生成，可随时撤销。
+- 服务器地址、账号与密码只存在本机（Windows 凭据管理器 / AssetStoreKit），**不上传**。
+- 坚果云要用**应用密码**（不是登录密码），在网页端「账户信息 → 安全选项 → 第三方应用管理」生成，可随时撤销。
 - 坚果云开了微信二次验证时 WebDAV 用不了，必须先关掉。

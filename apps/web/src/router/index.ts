@@ -1,5 +1,5 @@
 import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router';
-import { useNutstoreStore } from '@/stores/nutstore';
+import { useWebdavStore } from '@/stores/webdav';
 
 declare module 'vue-router' {
   interface RouteMeta {
@@ -63,12 +63,12 @@ export const router = createRouter({
 });
 
 router.beforeEach((to) => {
-  const nutstore = useNutstoreStore();
+  const webdav = useWebdavStore();
 
-  if (to.meta.requiresAuth && !nutstore.isConnected) {
+  if (to.meta.requiresAuth && !webdav.isConnected) {
     return { name: 'login', query: { redirect: to.fullPath } };
   }
-  if (to.meta.guestOnly && nutstore.isConnected) {
+  if (to.meta.guestOnly && webdav.isConnected) {
     return { name: 'home' };
   }
   return true;

@@ -2,7 +2,7 @@
  * 存储后端抽象层。
  *
  * 上层业务（笔记 / 文件夹 / 搜索 / 回收站）只依赖这里定义的接口，
- * 不关心底层是坚果云 WebDAV、自建 WebDAV，还是别的对象存储。
+ * 不关心底层是坚果云，还是 Nextcloud / 群晖 / 用户自建的 WebDAV 服务器。
  *
  * 路径约定：所有 path 都是「相对同步根」的路径，例如
  *   ''            同步根本身
@@ -11,7 +11,14 @@
  * 这个约定沿用改造前的 rel 语义，业务层因此几乎不用改。
  */
 
-export type StorageKind = 'jianguoyun';
+/**
+ * 存储后端种类。目前只有一种：标准 WebDAV 协议。
+ * 坚果云、Nextcloud、群晖、自建服务都走它，差别只在地址与凭据。
+ */
+export type StorageKind = 'webdav';
+
+/** 默认服务器：坚果云。用户可以改成任意 WebDAV 地址 */
+export const DEFAULT_BASE_URL = 'https://dav.jianguoyun.com/dav';
 
 /** 同步根：DoNote 只在这个目录里活动，不碰用户网盘里的其它东西 */
 export const DEFAULT_ROOT = '/DoNote';
@@ -20,9 +27,9 @@ export interface StorageConfig {
   kind: StorageKind;
   /** WebDAV 基地址（不含同步根），例如 https://dav.jianguoyun.com/dav */
   baseUrl: string;
-  /** 账号。坚果云是注册邮箱 */
+  /** 账号。坚果云是注册邮箱，自建服务多为用户名 */
   account: string;
-  /** 应用密码（不是登录密码） */
+  /** 密码。坚果云必须用「应用密码」，不是登录密码 */
   password: string;
   /** 同步根。DoNote 只在这个目录里活动，不碰用户网盘里的其它东西 */
   root: string;

@@ -1,16 +1,20 @@
 /**
- * 坚果云 WebDAV 适配器。
+ * WebDAV 适配器。
  *
- * 请求全部经 @/storage/transport 的 davFetch 发出，与改造前完全一致：
- *   端上（Tauri）→ tauri-plugin-http（Rust reqwest），不受 CORS 限制
- *   dev（浏览器）→ Vite 同源代理 /nutdav，绕开坚果云不返回 CORS 响应头的问题
+ * 不绑定某一家服务：坚果云、Nextcloud、群晖、用户自建的 WebDAV 都走这一个实现，
+ * 差别只在 baseUrl / 账号 / 密码，以及服务器自身的限流策略。
  *
- * 本文件是「直接调坚果云」的唯一落点。改造前后发出的请求逐条对应，
- * method / header / body 都没有变，也没有引入新的请求模式。
+ * 请求全部经 @/storage/transport 的 davFetch 发出：
+ *   端上（Tauri）→ tauri-plugin-http（Rust reqwest），不受 CORS 限制，
+ *                  远端域名由 capabilities/default.json 放行
+ *   dev（浏览器）→ 只有坚果云走 Vite 同源代理 /nutdav（见 apps/web/vite.config.ts）
+ *
+ * 本文件是「直接发 WebDAV 请求」的唯一落点。
  */
 
 import { davFetch, isTauriRuntime } from '@/storage/transport';
 import {
+  DEFAULT_BASE_URL,
   DEFAULT_ROOT,
   StorageError,
   type BatchOperation,
@@ -23,18 +27,26 @@ import {
   type WriteResult,
 } from './types';
 
-const DEFAULT_BASE = 'https://dav.jianguoyun.com/dav';
 const PROP_BODY =
   '<?xml version="1.0" encoding="utf-8"?><propfind xmlns="DAV:"><prop><resourcetype/><getlastmodified/></prop></propfind>';
 
+/** 判断是不是坚果云 —— 只用于决定 dev 下能否走同源代理，不参与连接逻辑 */
+function isJianguoyun(baseUrl: string): boolean {
+  try {
+    return new URL(baseUrl).host === 'dav.jianguoyun.com';
+  } catch {
+    return false;
+  }
+}
+
 /**
- * dev（纯浏览器）没有可用的原生网络栈，坚果云又不返回 CORS 响应头，
- * 只能走 Vite 的同源代理 /nutdav（见 apps/web/vite.config.ts）。
- * 端上走原生 reqwest，直接用绝对地址。
+ * dev（纯浏览器）没有原生网络栈，而多数 WebDAV 服务不返回 CORS 响应头，直连必被拦。
+ * Vite 的代理是写死目标的，只有坚果云配了代理；换成别的服务器就只能直连，
+ * 直连失败是 dev 下的预期结果 —— 端上走原生 reqwest，不受这条限制。
  */
 function resolveRequestBase(baseUrl: string): string {
   const base = baseUrl.replace(/\/+$/, '');
-  if (import.meta.env.DEV && !isTauriRuntime()) {
+  if (import.meta.env.DEV && !isTauriRuntime() && isJianguoyun(base)) {
     return `/nutdav${new URL(base).pathname.replace(/\/+$/, '')}`;
   }
   return base;
@@ -106,8 +118,8 @@ function parseMultistatus(
   return out;
 }
 
-export class JianguoYunAdapter implements StorageAdapter {
-  readonly kind = 'jianguoyun' as const;
+export class WebdavAdapter implements StorageAdapter {
+  readonly kind = 'webdav' as const;
 
   private config: StorageConfig | null = null;
   /** 实际发请求的前缀：dev 下是同源代理，端上是绝对地址 */
@@ -133,15 +145,15 @@ export class JianguoYunAdapter implements StorageAdapter {
 
   /** Destination 必须是绝对地址，因此不能复用 dev 下的同源代理前缀 */
   private originUrl(rel: string): string {
-    const base = (this.config?.baseUrl ?? DEFAULT_BASE).replace(/\/+$/, '');
+    const base = (this.config?.baseUrl ?? DEFAULT_BASE_URL).replace(/\/+$/, '');
     return `${base}${this.abs(rel)}`;
   }
 
   private auth(): string {
     const c = this.config;
     if (!c) throw new StorageError('not_connected', '还没连接存储，请先完成连接');
-    // 账号是邮箱、应用密码是 16 位字母数字，都是纯 ASCII，btoa 安全
-    return `Basic ${btoa(`${c.account}:${c.password}`)}`;
+    // 账号与密码按 UTF-8 编码后再 Base64，避免非 ASCII 凭据被 btoa 抛错
+    return `Basic ${btoa(String.fromCharCode(...new TextEncoder().encode(`${c.account}:${c.password}`)))}`;
   }
 
   /** 统一把「请求根本没发出去」翻译成一个可读错误，不让底层异常直接漏到界面 */
@@ -149,7 +161,7 @@ export class JianguoYunAdapter implements StorageAdapter {
     try {
       return await davFetch(url, init);
     } catch {
-      throw new StorageError('unreachable', '连不上坚果云，请检查网络', 0);
+      throw new StorageError('unreachable', '连不上服务器，请检查地址与网络', 0);
     }
   }
 
@@ -168,12 +180,12 @@ export class JianguoYunAdapter implements StorageAdapter {
 
     const probe = await this.probe(config.root);
     if (probe.kind === 'unauthorized') {
-      throw new StorageError('unauthorized', '账号或应用密码不对，请核对后重试', 401);
+      throw new StorageError('unauthorized', '账号或密码不对，请核对后重试', 401);
     }
     if (probe.kind === 'forbidden') {
       throw new StorageError(
         'forbidden',
-        '被坚果云拒绝。多半是开了微信二次验证 —— WebDAV 不支持它，请先在网页端关掉',
+        '服务器拒绝了这个账号。若用的是坚果云，多半是开了微信二次验证 —— WebDAV 不支持它，请先在网页端关掉',
         403,
       );
     }
@@ -181,7 +193,7 @@ export class JianguoYunAdapter implements StorageAdapter {
       const reason = probe.reason ? `（${probe.reason.slice(0, 120)}）` : '';
       throw new StorageError(
         'unreachable',
-        `连不上坚果云，请检查网络（网页版会被浏览器的跨域策略拦住，属预期）${reason}`,
+        `连不上这个地址，请检查服务器地址与网络（网页版会被浏览器的跨域策略拦住，属预期）${reason}`,
         0,
       );
     }
@@ -213,7 +225,7 @@ export class JianguoYunAdapter implements StorageAdapter {
 
   /** href 里剥掉的前缀取自真实服务端地址，dev 的同源代理前缀不参与 */
   private davPrefix(): string {
-    return davPrefixOf(this.config?.baseUrl ?? DEFAULT_BASE);
+    return davPrefixOf(this.config?.baseUrl ?? DEFAULT_BASE_URL);
   }
 
   /**
@@ -282,7 +294,7 @@ export class JianguoYunAdapter implements StorageAdapter {
     });
     if (res.status === 404) return [];
     if (res.status === 401) {
-      throw new StorageError('unauthorized', '账号或应用密码已失效，请重新连接', 401);
+      throw new StorageError('unauthorized', '账号或密码已失效，请重新连接', 401);
     }
     if (res.status !== 207) {
       throw new StorageError('other', `读取目录失败（HTTP ${res.status}）`, res.status);
@@ -415,7 +427,7 @@ export class JianguoYunAdapter implements StorageAdapter {
 
   /**
    * WebDAV 没有原生批量写接口（不像 S3 的 POST /?delete），所以这里能做的是：
-   *   1. 串行执行 —— 天然把并发压到 1，不会触发坚果云的并发限流；
+   *   1. 串行执行 —— 天然把并发压到 1，不容易撞上服务端的并发限流；
    *   2. 同一批次里重复的 mkdir 只发一次；
    *   3. 单条失败不中断整批，按序返回每条结果，让调用方自己决定怎么处理。
    *
