@@ -68,6 +68,12 @@ export interface WriteResult {
   mtime: number;
 }
 
+/**
+ * 可写内容。笔记正文是 string；附件是二进制。
+ * 二进制只走 ArrayBuffer —— Blob 在端上的 fetch 实现里支持度不一，调用方自己转。
+ */
+export type WriteContent = string | Blob | ArrayBuffer;
+
 export type BatchOperation =
   | { type: 'write'; path: string; content: string; etag?: string }
   | { type: 'delete'; path: string }
@@ -127,7 +133,7 @@ export interface StorageAdapter {
 
   /* 单文件 / 单目录 */
   read(path: string): Promise<string>;
-  write(path: string, content: string, etag?: string): Promise<WriteResult>;
+  write(path: string, content: WriteContent, etag?: string): Promise<WriteResult>;
   delete(path: string): Promise<void>;
   move(from: string, to: string): Promise<void>;
   stat(path: string): Promise<FileStat>;

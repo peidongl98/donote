@@ -24,6 +24,7 @@ import {
   type FileStat,
   type StorageAdapter,
   type StorageConfig,
+  type WriteContent,
   type WriteResult,
 } from './types';
 
@@ -319,14 +320,19 @@ export class WebdavAdapter implements StorageAdapter {
     return res.text();
   }
 
-  async write(path: string, content: string, etag?: string): Promise<WriteResult> {
+  async write(path: string, content: WriteContent, etag?: string): Promise<WriteResult> {
     // etag 通道已预留但本批次不启用：传了也不发 If-Match，保持请求与改造前一致
     void etag;
-    const res = await this.send(this.url(path), {
-      method: 'PUT',
-      headers: { Authorization: this.auth(), 'Content-Type': 'text/markdown; charset=utf-8' },
-      body: content,
-    });
+    const headers: Record<string, string> = { Authorization: this.auth() };
+    let body: BodyInit;
+    if (typeof content === 'string') {
+      headers['Content-Type'] = 'text/markdown; charset=utf-8';
+      body = content;
+    } else {
+      headers['Content-Type'] = 'application/octet-stream';
+      body = content instanceof Blob ? await content.arrayBuffer() : content;
+    }
+    const res = await this.send(this.url(path), { method: 'PUT', headers, body });
     if (res.status !== 200 && res.status !== 201 && res.status !== 204) {
       throw new StorageError('other', `保存失败（HTTP ${res.status}）`, res.status);
     }

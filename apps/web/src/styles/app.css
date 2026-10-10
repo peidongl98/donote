@@ -7,6 +7,9 @@
   position: relative;
   z-index: 1;
   min-height: 100%;
+  /* 桌面端给固定侧边栏让位；移动端侧边栏是抽屉，--content-offset 恒为 0 */
+  padding-left: var(--content-offset);
+  transition: padding-left var(--dur) var(--ease-smooth);
   /* 有底部导航的页面留出安全距离 */
   padding-bottom: calc(72px + env(safe-area-inset-bottom, 0px));
 }
@@ -17,9 +20,16 @@
 
 .page-body {
   width: 100%;
-  max-width: 720px;
+  max-width: var(--content-max);
   margin: 0 auto;
-  padding: var(--sp-2);
+  padding: var(--sp-3) var(--page-gutter);
+}
+
+/* 桌面端没有底部导航，底部留白收到正常节奏 */
+@media (min-width: 1024px) {
+  .page {
+    padding-bottom: var(--sp-5);
+  }
 }
 
 .stack {

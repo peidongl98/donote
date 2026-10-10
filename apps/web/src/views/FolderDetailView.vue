@@ -6,6 +6,7 @@ import { foldersApi, notesApi } from '@/storage/notes';
 import { useUiStore } from '@/stores/ui';
 import AppHeader from '@/components/AppHeader.vue';
 import NoteCard from '@/components/NoteCard.vue';
+import NoteActionMenu from '@/components/NoteActionMenu.vue';
 import EmptyState from '@/components/EmptyState.vue';
 
 const route = useRoute();
@@ -16,6 +17,8 @@ const folderId = String(route.params.id);
 const folderName = ref('文件夹');
 const notes = ref<NoteSummaryDTO[]>([]);
 const loading = ref(true);
+/** 右键 / 「更多」打开的那篇笔记 */
+const menuNote = ref<NoteSummaryDTO | null>(null);
 
 const subtitle = computed(() => `${notes.value.length} 篇笔记`);
 
@@ -55,7 +58,11 @@ onMounted(load);
 
 <template>
   <div class="page page-full">
-    <AppHeader :title="folderName" :subtitle="subtitle" back back-to="/folders">
+    <AppHeader
+      :crumbs="[{ label: '文件夹', to: '/folders' }, { label: folderName }]"
+      back
+      back-to="/folders"
+    >
       <template #actions>
         <button class="add" type="button" aria-label="在此文件夹新建笔记" @click="create">
           <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
@@ -80,10 +87,23 @@ onMounted(load);
           </svg>
         </template>
       </EmptyState>
-      <div v-else class="stack">
-        <NoteCard v-for="note in notes" :key="note.id" :note="note" />
+      <p v-if="!loading && notes.length" class="section-title">{{ subtitle }}</p>
+
+      <div v-if="!loading && notes.length" class="stack">
+        <NoteCard
+          v-for="note in notes"
+          :key="note.id"
+          :note="note"
+          @menu="menuNote = $event"
+        />
       </div>
     </div>
+
+    <NoteActionMenu
+      :note="menuNote"
+      @close="menuNote = null"
+      @done="load"
+    />
   </div>
 </template>
 

@@ -21,6 +21,14 @@ import {
   type NoteSummaryDTO,
 } from '@donote/shared';
 import { getStorage, StorageError, type DirEntry } from '@/services/storage';
+import {
+  assetsDirName,
+  getAssetsDirPath,
+  isAssetsDir,
+  pathExists,
+  rewriteAssetRefs,
+  uniqueName,
+} from '@/services/attachments';
 import { excerptOf, parseNote, serializeNote, type NoteMeta } from './frontmatter';
 
 /** 视图层一直用的是这个名字，这里保持导出，避免无谓的改动面 */
@@ -118,7 +126,9 @@ async function walkTree(): Promise<Tree> {
       visited++;
       const depth = group[index].depth;
       for (const entry of entries) {
-        if (entry.name.startsWith('.')) continue;
+        // 点开头的是内部目录（.trash 等）；`.assets` 是笔记的附件目录。
+        // 两者都不是笔记，也不往下递归 —— .assets 内部约定平铺。
+        if (entry.name.startsWith('.') || isAssetsDir(entry.name)) continue;
         if (entry.isDirectory) {
           acc.dirs.push(entry);
           if (depth + 1 < MAX_DEPTH) next.push({ rel: entry.path, depth: depth + 1 });
@@ -267,6 +277,35 @@ async function uniqueRel(dir: string, stem: string, ext: string, exclude?: strin
   return dir ? `${dir}/${candidate}` : candidate;
 }
 
+/* ------------------------------ 附件联动 ------------------------------ */
+
+/**
+ * 回收站里的条目名是 `${时间戳}-${随机}-${原名}.md`，
+ * 附件目录沿用同一前缀 —— 配对靠这个前缀，不靠 frontmatter。
+ */
+function trashAssetsPath(trashRel: string): string {
+  return `${trashRel.replace(/\.md$/i, '')}.assets`;
+}
+
+/**
+ * 把附件目录搬到新位置。
+ * 目标已存在就不覆盖：把源目录里的文件逐个挪过去，重名加后缀，最后删掉空壳。
+ */
+async function moveAssets(fromDir: string, toDir: string): Promise<void> {
+  if (!(await pathExists(fromDir))) return;
+  if (!(await pathExists(toDir))) {
+    await getStorage().move(fromDir, toDir);
+    return;
+  }
+  const taken = new Set((await listDir(toDir)).map((entry) => entry.name));
+  for (const entry of await listDir(fromDir)) {
+    const name = uniqueName(entry.name, taken);
+    taken.add(name);
+    await getStorage().move(entry.path, `${toDir}/${name}`);
+  }
+  await getStorage().delete(fromDir);
+}
+
 /* ------------------------------ 笔记 API ------------------------------ */
 
 export interface NoteListQuery {
@@ -396,7 +435,7 @@ export const notesApi = {
     const parsed = parseNote(raw, baseName(rel), Date.now());
 
     const title = patch.title !== undefined ? patch.title.trim() || '无标题笔记' : parsed.title;
-    const body = patch.content !== undefined ? patch.content : parsed.body;
+    let body = patch.content !== undefined ? patch.content : parsed.body;
     const folderNext =
       patch.folder_id !== undefined ? (patch.folder_id ? decodeId(patch.folder_id) : '') : folderNow;
 
@@ -405,8 +444,19 @@ export const notesApi = {
     if (folderNext !== folderNow || stem !== stemOf(rel.slice(rel.lastIndexOf('/') + 1))) {
       if (folderNext !== folderNow && folderNext) await getStorage().ensureDir(folderNext);
       target = await uniqueRel(folderNext, stem, '.md', rel);
-      if (target !== rel) await getStorage().move(rel, target);
-      invalidateTree();
+      if (target !== rel) {
+        await getStorage().move(rel, target);
+        // 附件目录与笔记同级，跟着一起走；标题变了，正文里指向它的引用也要改
+        const fromDir = getAssetsDirPath(rel);
+        const toDir = getAssetsDirPath(target);
+        if (fromDir !== toDir) {
+          await moveAssets(fromDir, toDir);
+          const fromName = assetsDirName(rel);
+          const toName = assetsDirName(target);
+          if (fromName !== toName) body = rewriteAssetRefs(body, fromName, toName);
+        }
+        invalidateTree();
+      }
     }
 
     const meta: NoteMeta = {
@@ -431,6 +481,8 @@ export const notesApi = {
 
     if (hard || inTrash) {
       await getStorage().delete(rel);
+      // 回收站里的附件目录按同一时间戳前缀配对，一起清掉
+      await getStorage().delete(trashAssetsPath(rel));
       invalidateTree();
       return { hard: true };
     }
@@ -452,23 +504,33 @@ export const notesApi = {
     };
     await getStorage().write(`${TRASH_DIR}/${name}`, serializeNote(meta, parsed.body));
     await getStorage().delete(rel);
+    // 附件目录跟着进回收站，结构保持，恢复时再一起回来
+    await moveAssets(getAssetsDirPath(rel), trashAssetsPath(`${TRASH_DIR}/${name}`));
     invalidateTree();
     return { hard: false };
   },
 
+  /**
+   * 恢复。原位置已被占用就放弃 —— 不再自动改名，免得「恢复出来的东西悄悄换了名字」。
+   * WebDAV 没有多步原子操作，附件失败时按 best-effort 回滚。
+   */
   async restore(id: string) {
     const rel = decodeId(id);
     const raw = await readOrNull(rel);
     if (raw === null) throw new StorageError('not_found', '笔记不存在', 404);
 
     const parsed = parseNote(raw, baseName(rel), Date.now());
-    const from = parsed.deleted_from;
-    if (!from) throw new StorageError('other', '这个文件不在回收站里', 400);
+    const target = parsed.deleted_from;
+    if (!target) throw new StorageError('other', '这个文件不在回收站里', 400);
 
-    const dir = parentOf(from);
+    // 前置校验：原路径上不能已经有东西，否则什么都不动
+    if (await pathExists(target)) {
+      throw new StorageError('conflict', '原位置已有同名文件，恢复已放弃', 409);
+    }
+
+    const dir = parentOf(target);
     if (dir) await getStorage().ensureDir(dir);
 
-    const target = await uniqueRel(dir, sanitize(parsed.title), '.md');
     const meta: NoteMeta = {
       title: parsed.title,
       created: parsed.created,
@@ -476,6 +538,16 @@ export const notesApi = {
       tags: parsed.tags,
     };
     await getStorage().write(target, serializeNote(meta, parsed.body));
+
+    // 附件目录跟着回来；失败就把刚恢复的笔记撤回去，不留半截状态
+    try {
+      await moveAssets(trashAssetsPath(rel), getAssetsDirPath(target));
+    } catch (error) {
+      await getStorage().delete(target);
+      const reason = error instanceof Error ? error.message : String(error);
+      throw new StorageError('other', `附件恢复失败，已回滚：${reason}`, 0);
+    }
+
     await getStorage().delete(rel);
     invalidateTree();
     return { note: noteOf(target, meta, parsed.body) };

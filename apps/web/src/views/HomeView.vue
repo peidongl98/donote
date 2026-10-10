@@ -1,18 +1,23 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
-import { useRouter } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 import type { FolderDTO, NoteSummaryDTO } from '@donote/shared';
 import { foldersApi, hydrateExcerpts, notesApi } from '@/storage/notes';
 import { useUiStore } from '@/stores/ui';
 import AppHeader from '@/components/AppHeader.vue';
 import NoteCard from '@/components/NoteCard.vue';
+import NoteActionMenu from '@/components/NoteActionMenu.vue';
 import EmptyState from '@/components/EmptyState.vue';
+
+const route = useRoute();
 
 const notes = ref<NoteSummaryDTO[]>([]);
 const folders = ref<FolderDTO[]>([]);
 const loading = ref(true);
-const keyword = ref('');
+const keyword = ref(String(route.query.q ?? '').trim());
 const total = ref(0);
+/** 右键 / 「更多」打开的那篇笔记 */
+const menuNote = ref<NoteSummaryDTO | null>(null);
 
 const router = useRouter();
 const ui = useUiStore();
@@ -74,10 +79,25 @@ async function create(): Promise<void> {
   }
 }
 
+/** 菜单里的重命名 / 移动 / 删除都会动到列表与文件夹计数，两个都要刷 */
+function refresh(): void {
+  void load();
+  void loadFolders();
+}
+
 onMounted(() => {
   loadFolders();
   load().then(hydrate);
 });
+
+// 已经在首页时再用侧边栏搜一次，路由 query 变了但组件没重建，得跟着走
+watch(
+  () => route.query.q,
+  (q) => {
+    const term = String(q ?? '').trim();
+    if (term && term !== keyword.value) keyword.value = term;
+  },
+);
 
 onBeforeUnmount(() => {
   if (searchTimer) clearTimeout(searchTimer);
@@ -86,7 +106,7 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="page">
-    <AppHeader title="DoNote" :subtitle="subtitle" />
+    <AppHeader :crumbs="[{ label: '全部笔记' }]" />
 
     <div class="page-body">
       <div class="search">
@@ -96,6 +116,8 @@ onBeforeUnmount(() => {
         </svg>
         <input v-model="keyword" type="search" placeholder="搜索标题或正文" aria-label="搜索笔记" />
       </div>
+
+      <p class="section-title">{{ subtitle }}</p>
 
       <div class="list-wrap">
         <EmptyState v-if="loading" loading title="加载中" />
@@ -128,6 +150,7 @@ onBeforeUnmount(() => {
             :folder-name="note.folder_id ? folderNames[note.folder_id] : null"
             :style="{ animationDelay: `${Math.min(index, 8) * 45}ms` }"
             class="pop"
+            @menu="menuNote = $event"
           />
         </div>
       </div>
@@ -138,12 +161,14 @@ onBeforeUnmount(() => {
         <path d="M12 6v12M6 12h12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
       </svg>
     </button>
+
+    <NoteActionMenu :note="menuNote" @close="menuNote = null" @done="refresh" />
   </div>
 </template>
 
 <style scoped>
 .list-wrap {
-  margin-top: var(--sp-2);
+  margin-top: 0;
 }
 
 /* 列表项错位淡入 */
@@ -164,7 +189,8 @@ onBeforeUnmount(() => {
 
 .fab {
   position: fixed;
-  right: max(var(--sp-2), calc(50vw - 360px + var(--sp-2)));
+  /* 贴着内容列的右缘；窗口比内容列窄时退化成普通的右下角悬浮按钮 */
+  right: max(var(--sp-3), calc((100vw - var(--content-offset) - var(--content-max)) / 2 + var(--sp-3)));
   bottom: calc(84px + env(safe-area-inset-bottom, 0px));
   z-index: 7;
   display: inline-flex;
@@ -175,10 +201,17 @@ onBeforeUnmount(() => {
   border-radius: var(--r-pill);
   background: var(--accent);
   color: var(--on-accent);
-  box-shadow: var(--shadow-card);
+  box-shadow: var(--shadow-2);
   transition:
+    right var(--dur) var(--ease-smooth),
     transform var(--dur) var(--ease-spring),
     box-shadow var(--dur) var(--ease-smooth);
+}
+
+@media (min-width: 1024px) {
+  .fab {
+    bottom: var(--sp-4);
+  }
 }
 
 .fab:hover {

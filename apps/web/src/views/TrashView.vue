@@ -7,6 +7,7 @@ import { useUiStore } from '@/stores/ui';
 import { formatTime } from '@/utils/format';
 import AppHeader from '@/components/AppHeader.vue';
 import AppDialog from '@/components/AppDialog.vue';
+import NoteActionMenu from '@/components/NoteActionMenu.vue';
 import EmptyState from '@/components/EmptyState.vue';
 
 const notes = ref<NoteSummaryDTO[]>([]);
@@ -17,6 +18,8 @@ const router = useRouter();
 const hardOpen = ref(false);
 const hardTarget = ref<NoteSummaryDTO | null>(null);
 const busy = ref(false);
+/** 右键打开的那条（回收站菜单只有恢复 / 彻底删除） */
+const menuNote = ref<NoteSummaryDTO | null>(null);
 
 async function load(): Promise<void> {
   loading.value = true;
@@ -63,12 +66,7 @@ onMounted(load);
 
 <template>
   <div class="page page-full">
-    <AppHeader
-      title="回收站"
-      :subtitle="notes.length ? `${notes.length} 篇待处理` : '删除的笔记会先放到这里'"
-      back
-      back-to="/settings"
-    />
+    <AppHeader :crumbs="[{ label: '回收站' }]" back back-to="/settings" />
 
     <div class="page-body">
       <EmptyState v-if="loading" loading title="加载中" />
@@ -89,7 +87,12 @@ onMounted(load);
       </EmptyState>
 
       <div v-else class="stack">
-        <div v-for="note in notes" :key="note.id" class="row-card card-plain">
+        <div
+          v-for="note in notes"
+          :key="note.id"
+          class="row-card card-plain"
+          @contextmenu.prevent="menuNote = note"
+        >
           <button type="button" class="main" @click="router.push(`/notes/${note.id}`)">
             <span class="title">{{ note.title }}</span>
             <span class="time">删除于 {{ formatTime(note.deleted_at) }}</span>
@@ -109,6 +112,13 @@ onMounted(load);
         </div>
       </div>
     </div>
+
+    <NoteActionMenu
+      :note="menuNote"
+      mode="trash"
+      @close="menuNote = null"
+      @done="load"
+    />
 
     <AppDialog
       :open="hardOpen"

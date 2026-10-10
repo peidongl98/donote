@@ -32,11 +32,12 @@ function isActive(match: (path: string) => boolean): boolean {
 <style scoped>
 .tabs {
   position: fixed;
-  left: 50%;
+  left: 0;
+  right: 0;
   bottom: 0;
-  transform: translateX(-50%);
   width: 100%;
-  max-width: 720px;
+  max-width: var(--content-max);
+  margin: 0 auto;
   display: flex;
   justify-content: space-around;
   gap: var(--sp-1);
@@ -47,6 +48,13 @@ function isActive(match: (path: string) => boolean): boolean {
   border-right: none;
   border-bottom: none;
   z-index: 6;
+}
+
+/* 桌面端导航交给侧边栏，底部标签栏退出 */
+@media (min-width: 1024px) {
+  .tabs {
+    display: none;
+  }
 }
 
 .tab {

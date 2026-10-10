@@ -1,12 +1,15 @@
 /* ==========================================================================
-   设计令牌 —— 全站唯一的颜色/圆角/间距/动效来源
-   变量命名与取值参考 mianbeishiwole/Liquid-Glass-Vue 的 --glass-* 体系
-   （该项目 private:true 未发布，故只抄变量设计、不引依赖）
-   强调色 #5BA88C 全站统一，明暗两套只覆盖颜色，不改结构。
+   设计令牌 —— 全站唯一的颜色 / 圆角 / 间距 / 字体 / 材质来源
+   变量名沿用 mianbeishiwole/Liquid-Glass-Vue 的 --glass-* 体系（只借变量设计，不引依赖）。
+
+   视觉方向：空间感 + 沉浸光感。底与面拉开层次，主色低饱和（#4A6FA5），
+   靠「一层薄光 + 极细边框 + 柔和阴影」造材质，不用大色块、不用重投影。
+   强调色明暗共用同一个值，两套主题只覆盖颜色，不改结构。
    ========================================================================== */
 
 :root {
   /* 圆角：连续曲率观感靠大圆角 + 柔和阴影，不用锐角 */
+  --r-xs: 8px;
   --r-sm: 12px;
   --r-md: 16px;
   --r-lg: 20px;
@@ -20,6 +23,18 @@
   --sp-4: 32px;
   --sp-5: 40px;
   --sp-6: 56px;
+
+  /* 字体层级 —— 页面只用这几档，不再各处写死 px */
+  --fs-xs: 12px;
+  --fs-sm: 13px;
+  --fs-base: 15px;
+  --fs-md: 17px;
+  --fs-lg: 22px;
+  --fs-xl: 28px;
+  --fs-2xl: 34px;
+  --lh-tight: 1.25;
+  --lh-normal: 1.6;
+  --lh-relaxed: 1.75;
 
   /* 字段标签占位高度：多个控件并排时（如验证码行）用它对齐控件顶边 */
   --label-h: 20px;
@@ -36,72 +51,103 @@
     'Microsoft YaHei', 'Segoe UI', sans-serif;
   --font-mono: 'JetBrains Mono', ui-monospace, 'Cascadia Mono', Consolas, monospace;
 
+  /* 骨架尺寸：一个变量同时决定侧边栏宽度和主内容让出的宽度 */
+  --sidebar-w: 260px;
+  --content-offset: 0px;
+  --topbar-h: 48px;
+  --content-max: 900px;
+  --page-gutter: var(--sp-3);
+
   /* 毛玻璃（明暗共用，两套主题各自覆盖透明度） */
   --glass-blur: 20px;
   --glass-saturation: 180%;
   --glass-highlight-top: linear-gradient(
     135deg,
-    rgba(255, 255, 255, 0.28) 0%,
-    rgba(255, 255, 255, 0.06) 40%,
+    rgba(255, 255, 255, 0.22) 0%,
+    rgba(255, 255, 255, 0.05) 40%,
     transparent 62%
   );
-  --glass-inner-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.18);
+  --glass-inner-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.14);
+}
+
+/* 桌面端且侧边栏展开时，主内容整体右移；移动端侧边栏是抽屉，不占位 */
+@media (min-width: 1024px) {
+  html[data-sidebar='open'] {
+    --content-offset: var(--sidebar-w);
+  }
 }
 
 /* ---------------------------- 亮色（默认） ---------------------------- */
 html[data-theme='light'] {
   color-scheme: light;
 
-  --bg: #f5f5f7;
-  --bg-glow-1: rgba(91, 168, 140, 0.1);
-  --bg-glow-2: rgba(96, 120, 200, 0.08);
+  --bg: #f8f9fc;
+  --bg-glow-1: rgba(74, 111, 165, 0.1);
+  --bg-glow-2: rgba(126, 154, 205, 0.08);
 
   --surface: #ffffff;
-  --surface-border: rgba(0, 0, 0, 0.06);
-  --divider: rgba(0, 0, 0, 0.05);
-  --shadow-card: 0 8px 30px rgba(0, 0, 0, 0.08);
+  --surface-2: #f2f4f9;
+  --surface-border: rgba(15, 20, 25, 0.08);
+  --divider: rgba(15, 20, 25, 0.06);
 
-  --text: #1d1d1f;
-  --text-2: #86868b;
+  --shadow-1: 0 1px 2px rgba(15, 20, 25, 0.06);
+  --shadow-2: 0 8px 24px rgba(15, 20, 25, 0.08);
+  --shadow-3: 0 20px 48px rgba(15, 20, 25, 0.12);
+  --shadow-card: var(--shadow-2);
 
-  --accent: #5ba88c;
-  --accent-soft: rgba(91, 168, 140, 0.12);
-  --accent-ring: rgba(91, 168, 140, 0.35);
+  --text: #0f1419;
+  --text-2: #6b7280;
+
+  --accent: #4a6fa5;
+  --accent-soft: rgba(74, 111, 165, 0.1);
+  --accent-ring: rgba(74, 111, 165, 0.32);
   --on-accent: #ffffff;
 
   --danger: #c0392b;
   --danger-soft: rgba(192, 57, 43, 0.1);
 
-  --glass-bg: rgba(255, 255, 255, 0.6);
-  --glass-border: rgba(255, 255, 255, 0.75);
-  --glass-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+  --glass-bg: rgba(255, 255, 255, 0.66);
+  --glass-border: rgba(255, 255, 255, 0.8);
+  --glass-shadow: 0 8px 32px rgba(15, 20, 25, 0.1);
+
+  /* 侧边栏比页面底再重一档，拉开「墙」与「桌面」的层次 */
+  --rail-bg: rgba(240, 243, 249, 0.72);
+  --rail-active: rgba(74, 111, 165, 0.12);
 }
 
 /* ---------------------------- 暗色 ---------------------------- */
 html[data-theme='dark'] {
   color-scheme: dark;
 
-  --bg: #0a0e14;
-  --bg-glow-1: rgba(91, 168, 140, 0.12);
-  --bg-glow-2: rgba(88, 72, 180, 0.12);
+  --bg: #0b1020;
+  --bg-glow-1: rgba(74, 111, 165, 0.22);
+  --bg-glow-2: rgba(104, 96, 190, 0.16);
 
-  --surface: rgba(255, 255, 255, 0.03);
-  --surface-border: rgba(255, 255, 255, 0.08);
-  --divider: rgba(255, 255, 255, 0.05);
-  --shadow-card: 0 8px 30px rgba(0, 0, 0, 0.45);
+  --surface: #141a2a;
+  --surface-2: #1b2233;
+  --surface-border: rgba(255, 255, 255, 0.09);
+  --divider: rgba(255, 255, 255, 0.06);
 
-  --text: #e8e8e8;
-  --text-2: #8a8f98;
+  --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-2: 0 8px 24px rgba(0, 0, 0, 0.45);
+  --shadow-3: 0 20px 48px rgba(0, 0, 0, 0.55);
+  --shadow-card: var(--shadow-2);
 
-  --accent: #5ba88c;
-  --accent-soft: rgba(91, 168, 140, 0.16);
-  --accent-ring: rgba(91, 168, 140, 0.4);
-  --on-accent: #06110d;
+  --text: #e8ecf4;
+  --text-2: #8b96ad;
+
+  --accent: #4a6fa5;
+  --accent-soft: rgba(74, 111, 165, 0.22);
+  --accent-ring: rgba(106, 145, 200, 0.45);
+  --on-accent: #ffffff;
 
   --danger: #e57373;
   --danger-soft: rgba(229, 115, 115, 0.12);
 
-  --glass-bg: rgba(255, 255, 255, 0.08);
+  --glass-bg: rgba(20, 26, 42, 0.62);
   --glass-border: rgba(255, 255, 255, 0.1);
-  --glass-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+  --glass-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+
+  --rail-bg: rgba(16, 21, 36, 0.78);
+  --rail-active: rgba(74, 111, 165, 0.24);
 }

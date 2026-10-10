@@ -1,0 +1,266 @@
+/**
+ * Milkdown 编辑面的内容样式。
+ *
+ * ProseMirror 渲染出来的节点是普通的 p / h1-h6 / ul / table，跟 MarkdownView 里的
+ * 静态预览长得不该差太远。这里集中放，明暗两套都走 tokens.css 的变量。
+ */
+
+/* Milkdown 会在挂载点和 .ProseMirror 之间插一层 <div class="milkdown">，
+   要撑满卡片就得从这一层开始拉伸，只给 .ProseMirror 设 flex 是够不着父级的。 */
+.donote-surface .milkdown {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.donote-surface .ProseMirror {
+  outline: none;
+  font-size: 15px;
+  line-height: 1.75;
+  color: var(--text);
+  word-break: break-word;
+  /* 撑满卡片：正文短的时候，下方空白也算编辑器，点那儿光标才会落到文末 */
+  flex: 1 1 auto;
+}
+
+/* 只读模式下光标不该出现 */
+.donote-surface .ProseMirror[contenteditable='false'] {
+  caret-color: transparent;
+}
+
+/* ---------------------------- 标题 ---------------------------- */
+
+.donote-surface .ProseMirror h1,
+.donote-surface .ProseMirror h2,
+.donote-surface .ProseMirror h3,
+.donote-surface .ProseMirror h4,
+.donote-surface .ProseMirror h5,
+.donote-surface .ProseMirror h6 {
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  line-height: 1.35;
+  margin: 1.4em 0 0.5em;
+}
+
+.donote-surface .ProseMirror > :first-child {
+  margin-top: 0;
+}
+
+.donote-surface .ProseMirror h1 {
+  font-size: 1.7em;
+}
+.donote-surface .ProseMirror h2 {
+  font-size: 1.4em;
+}
+.donote-surface .ProseMirror h3 {
+  font-size: 1.18em;
+}
+.donote-surface .ProseMirror h4,
+.donote-surface .ProseMirror h5,
+.donote-surface .ProseMirror h6 {
+  font-size: 1em;
+}
+
+/* ---------------------------- 段落 / 行内 ---------------------------- */
+
+.donote-surface .ProseMirror p {
+  margin: 0.7em 0;
+}
+
+.donote-surface .ProseMirror a {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.donote-surface .ProseMirror code {
+  font-family: var(--font-mono);
+  font-size: 0.88em;
+  padding: 0.15em 0.4em;
+  border-radius: 6px;
+  background: var(--surface);
+  border: 1px solid var(--surface-border);
+}
+
+/* ---------------------------- 列表 ---------------------------- */
+
+.donote-surface .ProseMirror ul,
+.donote-surface .ProseMirror ol {
+  padding-left: 1.5em;
+  margin: 0.6em 0;
+}
+
+.donote-surface .ProseMirror li {
+  margin: 0.2em 0;
+}
+
+.donote-surface .ProseMirror li > p {
+  margin: 0;
+}
+
+/* 任务清单：勾选框跟文字对齐 */
+.donote-surface .ProseMirror li[data-item-type='task'] {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  list-style: none;
+}
+
+.donote-surface .ProseMirror li[data-item-type='task'] > input {
+  margin-top: 0.35em;
+  accent-color: var(--accent);
+  flex: none;
+}
+
+.donote-surface .ProseMirror li[data-item-type='task'] > div {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* ---------------------------- 引用 ---------------------------- */
+
+.donote-surface .ProseMirror blockquote {
+  margin: 0.8em 0;
+  padding: 0.1em 0 0.1em 1em;
+  border-left: 3px solid var(--accent-ring);
+  color: var(--text-2);
+}
+
+/* ---------------------------- 代码块 ---------------------------- */
+
+.donote-surface .ProseMirror pre {
+  font-family: var(--font-mono);
+  font-size: 0.88em;
+  line-height: 1.6;
+  margin: 0.9em 0;
+  padding: 12px 14px;
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  border: 1px solid var(--surface-border);
+  overflow-x: auto;
+  white-space: pre;
+}
+
+.donote-surface .ProseMirror pre code {
+  padding: 0;
+  border: none;
+  background: none;
+  font-size: inherit;
+}
+
+/* ---------------------------- 表格 ---------------------------- */
+
+.donote-surface .ProseMirror table {
+  border-collapse: collapse;
+  margin: 0.9em 0;
+  width: 100%;
+  table-layout: fixed;
+  overflow: hidden;
+}
+
+.donote-surface .ProseMirror th,
+.donote-surface .ProseMirror td {
+  border: 1px solid var(--surface-border);
+  padding: 6px 10px;
+  vertical-align: top;
+  position: relative;
+}
+
+.donote-surface .ProseMirror th {
+  background: var(--surface);
+  font-weight: 600;
+  text-align: left;
+}
+
+.donote-surface .ProseMirror td > p,
+.donote-surface .ProseMirror th > p {
+  margin: 0;
+}
+
+/* 被选中的单元格描边，方便看清当前在哪一格 */
+.donote-surface .ProseMirror .selectedCell::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: var(--accent-soft);
+  pointer-events: none;
+}
+
+/* ---------------------------- 分割线 ---------------------------- */
+
+.donote-surface .ProseMirror hr {
+  border: none;
+  border-top: 1px solid var(--surface-border);
+  margin: 1.6em 0;
+}
+
+/* ---------------------------- 图片 ---------------------------- */
+
+.donote-surface .ProseMirror img {
+  max-width: 100%;
+  height: auto;
+  border-radius: var(--r-sm);
+}
+
+.donote-surface .ProseMirror img.ProseMirror-selectednode {
+  outline: 2px solid var(--accent-ring);
+}
+
+/* ---------------------------- 公式 ---------------------------- */
+
+/* 本批次不接 KaTeX，公式显示为等宽的 LaTeX 原文 */
+.donote-surface .ProseMirror .donote-math-inline {
+  font-family: var(--font-mono);
+  font-size: 0.88em;
+  padding: 0.1em 0.35em;
+  border-radius: 6px;
+  background: var(--accent-soft);
+  color: var(--text);
+  cursor: default;
+}
+
+.donote-surface .ProseMirror .donote-math-block {
+  font-family: var(--font-mono);
+  font-size: 0.88em;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  margin: 0.9em 0;
+  padding: 12px 14px;
+  border-radius: var(--r-sm);
+  background: var(--accent-soft);
+  color: var(--text);
+  overflow-x: auto;
+}
+
+/* ---------------------------- 思维导图预览 ---------------------------- */
+
+/* 挂在代码块下面的装饰层，不参与文档结构（见 mermaid.ts） */
+.donote-surface .ProseMirror .donote-mermaid {
+  margin: 4px 0 14px;
+  padding: 12px;
+  border-radius: var(--r-sm);
+  background: var(--surface-2);
+  border: 1px solid var(--surface-border);
+  overflow-x: auto;
+  text-align: center;
+  font-size: var(--fs-sm);
+  line-height: var(--lh-normal);
+  color: var(--text-2);
+  cursor: default;
+}
+
+.donote-surface .ProseMirror .donote-mermaid svg {
+  max-width: 100%;
+  height: auto;
+}
+
+.donote-surface .ProseMirror .donote-mermaid.is-error {
+  text-align: left;
+  color: var(--danger);
+  border-color: var(--danger-soft);
+}
+
+/* ---------------------------- 光标 ---------------------------- */
+
+/* 正文为空时的占位提示是容器的 ::before，实现在 NoteEditor.vue 里 —— 这里不重复一份 */

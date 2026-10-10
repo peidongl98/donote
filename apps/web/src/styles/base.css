@@ -92,14 +92,16 @@ a {
   font-variant-numeric: tabular-nums;
 }
 
-/* 内容区：移动优先，桌面端最大 720px */
+/* 内容区：移动优先，桌面端按 --content-max 居中。
+   侧边栏让位由外层 .page 的 padding-left 负责，这里不重复加偏移，
+   否则 padding 会算进 max-width、把内容挤得不居中 */
 .wrap {
   position: relative;
   z-index: 1;
   width: 100%;
-  max-width: 720px;
+  max-width: var(--content-max);
   margin: 0 auto;
-  padding: 0 var(--sp-2);
+  padding: 0 var(--page-gutter);
 }
 
 .sr-only {

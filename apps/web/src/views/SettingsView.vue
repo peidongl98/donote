@@ -84,7 +84,7 @@ async function onDisconnect(): Promise<void> {
 
 <template>
   <div class="page">
-    <AppHeader title="设置" />
+    <AppHeader :crumbs="[{ label: '设置' }]" />
 
     <div class="page-body">
       <section class="card-plain profile">

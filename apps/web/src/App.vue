@@ -1,17 +1,26 @@
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, onMounted } from 'vue';
 import { RouterView, useRoute } from 'vue-router';
+import AppSidebar from '@/components/AppSidebar.vue';
 import BottomTabs from '@/components/BottomTabs.vue';
+import { useLayoutStore } from '@/stores/layout';
 import { useUiStore } from '@/stores/ui';
 
 const route = useRoute();
 const ui = useUiStore();
+const layout = useLayoutStore();
 
-/** 底部导航只在主页面出现，编辑页、公开页保持全屏专注 */
+/** 底部导航只在主页面出现，编辑页、公开页保持全屏专注（桌面端由 CSS 隐藏，改用侧边栏） */
 const showTabs = computed(() => route.meta.tabs === true);
+/** 登录页没有导航；其余已连接页面都挂侧边栏 */
+const showShell = computed(() => route.meta.requiresAuth === true);
+
+onMounted(() => layout.init());
 </script>
 
 <template>
+  <AppSidebar v-if="showShell" />
+
   <RouterView v-slot="{ Component }">
     <Transition name="page" mode="out-in">
       <component :is="Component" />

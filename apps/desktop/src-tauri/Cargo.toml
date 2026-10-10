@@ -21,6 +21,8 @@ tauri-plugin-http = "2"
 tauri-plugin-updater = "2"
 # 更新完成后重启自身
 tauri-plugin-process = "2"
+# 选本机图片：系统文件对话框（插件只给路径，内容由本文件的 read_image 读回来）
+tauri-plugin-dialog = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 # 凭据存 Windows 凭据管理器，不落磁盘明文

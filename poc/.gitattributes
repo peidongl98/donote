@@ -1,0 +1,4 @@
+# 这几个 fixture 是按字节测量的基准，必须原样进出。
+# Windows 上 core.autocrlf=true 会把 LF 换成 CRLF，md5 和字节数当场就变，
+# 所以这里显式关掉换行转换。
+fixtures/** -text

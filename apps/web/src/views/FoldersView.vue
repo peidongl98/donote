@@ -133,10 +133,14 @@ onMounted(load);
 
 <template>
   <div class="page">
-    <AppHeader title="文件夹" :subtitle="folders.length ? `${folders.length} 个 · ${totalNotes} 篇笔记` : '用文件夹归类笔记'" />
+    <AppHeader :crumbs="[{ label: '文件夹' }]" />
 
     <div class="page-body">
       <button class="btn-major full" type="button" @click="openCreate(null)">新建文件夹</button>
+
+      <p class="section-title">
+        {{ folders.length ? `${folders.length} 个 · ${totalNotes} 篇笔记` : '用文件夹归类笔记' }}
+      </p>
 
       <EmptyState v-if="loading" loading title="加载中" />
 

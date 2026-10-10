@@ -1,18 +1,22 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import type { FolderDTO, NoteDTO } from '@donote/shared';
-import { DavError, foldersApi, notesApi } from '@/storage/notes';
+import { DavError, decodeId, foldersApi, notesApi } from '@/storage/notes';
+import { uploadAttachment } from '@/services/attachments';
+import { pickImage } from '@/services/pick-image';
+import { useEditingStore } from '@/stores/editing';
 import { useUiStore } from '@/stores/ui';
 import AppHeader from '@/components/AppHeader.vue';
 import AppDialog from '@/components/AppDialog.vue';
-import MarkdownView from '@/components/MarkdownView.vue';
+import NoteEditor from '@/components/editor/NoteEditor.vue';
 
 type SaveStatus = 'idle' | 'dirty' | 'saving' | 'saved' | 'error';
 
 const route = useRoute();
 const router = useRouter();
 const ui = useUiStore();
+const editing = useEditingStore();
 
 /** 标题即文件名，改名会换 id，所以这里必须是响应式的 */
 const noteId = ref(String(route.params.id));
@@ -21,7 +25,47 @@ const title = ref('');
 const content = ref('');
 const status = ref<SaveStatus>('idle');
 const loading = ref(true);
-const mode = ref<'edit' | 'preview'>('edit');
+
+/** 所见即所得 / 源码。默认所见即所得，开关在顶栏右侧 */
+const mode = ref<'wysiwyg' | 'source'>('wysiwyg');
+
+/**
+ * 「切回所见即所得会规范化格式」这句话只提醒一次。
+ * 存的是「别再问了」这个状态，不是问没问过 —— 用户清掉浏览器数据就再提醒一次，符合预期。
+ */
+const HINT_KEY = 'donote.normalize-hint';
+const askWysiwyg = ref(false);
+const muteHint = ref(false);
+
+function toggleMode(): void {
+  if (mode.value === 'wysiwyg') {
+    mode.value = 'source';
+    return;
+  }
+  // 切回去要把正文重新过一遍 Milkdown 的解析 → 序列化，写法会被统一（渲染不变）。
+  // 这件事说一次就够，勾了「不再提示」就不再拦。
+  if (localStorage.getItem(HINT_KEY) === 'off') {
+    mode.value = 'wysiwyg';
+    return;
+  }
+  muteHint.value = false;
+  askWysiwyg.value = true;
+}
+
+function backToWysiwyg(): void {
+  if (muteHint.value) localStorage.setItem(HINT_KEY, 'off');
+  askWysiwyg.value = false;
+  mode.value = 'wysiwyg';
+}
+
+/**
+ * 「这篇笔记被重新读进来了」的代次，作编辑器的 key。
+ *
+ * NoteEditor 有意不监听 modelValue（只有一个真相来源），换笔记只能重建组件。
+ * 但**改名不是换笔记**：拿 noteId 当 key 的话，标题一改、路由一换，编辑器就被拆掉重建，
+ * 光标连同「下次插图落哪」一起丢了。所以 key 挂加载代次，改名时纹丝不动。
+ */
+const loadSeq = ref(0);
 
 const folders = ref<FolderDTO[]>([]);
 const sheetOpen = ref(false);
@@ -30,9 +74,56 @@ const deleteOpen = ref(false);
 const hardDeleteOpen = ref(false);
 const busy = ref(false);
 
+/** 正文编辑器实例，用来在光标处插图 */
+const editorRef = ref<InstanceType<typeof NoteEditor> | null>(null);
+/** 插图失败时的内联提示（不弹层，就地说明为什么没插进去） */
+const imageError = ref('');
+let picking = false;
+
+/**
+ * 点工具栏「图片」→ 选文件 → 存进这篇笔记的附件目录 → 在当前光标处插入引用。
+ *
+ * 路径规则一条都不新增：存哪儿由 uploadAttachment 按 getAssetsDirPath 推，
+ * 写进正文的相对路径也由它给。这里只负责把三件事串起来。
+ */
+async function pickAndInsertImage(): Promise<void> {
+  if (picking) return;
+  picking = true;
+  imageError.value = '';
+  try {
+    const picked = await pickImage();
+    if (!picked) return; // 用户取消，什么都不做
+
+    // 选完文件再等一次自动保存：标题刚改过的话，这一步跑完 noteId 才指向新文件名
+    await flush();
+
+    // 标题即文件名，改名那次保存已经把 noteId 换成新路径，这里直接解
+    const { url } = await uploadAttachment(decodeId(noteId.value), picked.name, picked.data);
+    editorRef.value?.placeImage(url, picked.name.replace(/\.[^.]+$/, '') || '图片');
+  } catch (err) {
+    imageError.value = err instanceof Error ? `图片没插进去：${err.message}` : '图片没插进去';
+  } finally {
+    picking = false;
+  }
+}
+
 let saveTimer: ReturnType<typeof setTimeout> | null = null;
 let saving = false;
 let pending = false;
+/** 保存彻底停下来时要通知的人（等待点见 flush） */
+let idleWaiters: Array<() => void> = [];
+
+/** 队列空了：要么接着写排队的那一次，要么把等着的人放行 */
+function settleIdle(): void {
+  saving = false;
+  if (pending) {
+    pending = false;
+    void save();
+    return;
+  }
+  for (const done of idleWaiters) done();
+  idleWaiters = [];
+}
 
 const isTrashed = computed(() => note.value?.deleted_at != null);
 const folderName = computed(() => {
@@ -65,6 +156,7 @@ async function load(): Promise<void> {
     title.value = res.note.title;
     content.value = res.note.content;
     status.value = 'idle';
+    loadSeq.value += 1;
   } catch (err) {
     if (err instanceof DavError && err.status === 404) {
       ui.toast('笔记不存在');
@@ -105,11 +197,7 @@ async function save(): Promise<void> {
     status.value = 'error';
     ui.toast(err instanceof DavError ? err.message : '保存失败，请检查网络');
   } finally {
-    saving = false;
-    if (pending) {
-      pending = false;
-      void save();
-    }
+    settleIdle();
   }
 }
 
@@ -119,10 +207,20 @@ function scheduleSave(): void {
   saveTimer = setTimeout(() => void save(), 1200);
 }
 
-function flush(): void {
+/**
+ * 立刻把待保存的改动写完，并等到真正落盘。
+ *
+ * 插图前必须先走这一步：标题是防抖自动保存的，改过名的话 noteId 要等保存回来才换成新路径。
+ * 不等的后果是附件被存进旧名字的 .assets 目录，而链接写进正文之后改名那次保存已经过去了，
+ * 不会再被改写 —— 图就裂了。
+ */
+async function flush(): Promise<void> {
   if (saveTimer) clearTimeout(saveTimer);
   saveTimer = null;
-  if (status.value === 'dirty') void save();
+  if (isTrashed.value || (!saving && status.value !== 'dirty')) return;
+  const done = new Promise<void>((resolve) => idleWaiters.push(resolve));
+  if (!saving) void save();
+  await done;
 }
 
 /* --------------------------- 移动 --------------------------- */
@@ -201,14 +299,40 @@ onMounted(async () => {
   }
 });
 
-onBeforeUnmount(flush);
+// 标记「这篇笔记正开着」，列表 / 文件夹 / 回收站的动作菜单据此禁用重命名 / 移动 / 删除。
+// 标题改了会换 id，所以跟着 noteId 走而不是只在挂载时标一次。
+watch(noteId, (id) => editing.enter(id), { immediate: true });
+onBeforeUnmount(() => {
+  editing.leave(noteId.value);
+  void flush();
+});
 </script>
 
 <template>
   <div class="editor">
-    <AppHeader :title="isTrashed ? '回收站中的笔记' : '编辑'" back>
+    <AppHeader :title="isTrashed ? '回收站中的笔记' : '编辑'" :subtitle="folderName" back>
       <template #actions>
         <span class="status mono" :class="`is-${status}`">{{ statusText }}</span>
+        <button
+          class="icon-btn"
+          type="button"
+          :aria-label="mode === 'wysiwyg' ? '源码' : '所见即所得'"
+          :title="mode === 'wysiwyg' ? '切到源码模式' : '切回所见即所得模式'"
+          :disabled="loading"
+          @click="toggleMode"
+        >
+          <!-- 切到源码：一对尖括号；切回来：一只眼睛 -->
+          <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none"
+            stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+            <template v-if="mode === 'wysiwyg'">
+              <path d="M9.5 7 4.5 12l5 5M14.5 7l5 5-5 5" />
+            </template>
+            <template v-else>
+              <path d="M2.5 12S6 6.2 12 6.2 21.5 12 21.5 12 18 17.8 12 17.8 2.5 12 2.5 12Z" />
+              <circle cx="12" cy="12" r="2.6" />
+            </template>
+          </svg>
+        </button>
         <button class="more" type="button" aria-label="更多操作" @click="sheetOpen = true">
           <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
             <circle cx="5" cy="12" r="1.6" fill="currentColor" />
@@ -236,41 +360,21 @@ onBeforeUnmount(flush);
         @input="scheduleSave"
       />
 
-      <div class="tabs">
-        <button
-          type="button"
-          class="seg"
-          :class="{ 'is-on': mode === 'edit' }"
-          @click="mode = 'edit'"
-        >
-          编辑
-        </button>
-        <button
-          type="button"
-          class="seg"
-          :class="{ 'is-on': mode === 'preview' }"
-          @click="mode = 'preview'"
-        >
-          预览
-        </button>
-        <span class="where">· {{ folderName }}</span>
-      </div>
-
       <div v-if="loading" class="skeleton" />
 
-      <textarea
-        v-else-if="mode === 'edit'"
-        v-model="content"
-        class="content-input mono"
-        placeholder="用 Markdown 写点什么…"
-        spellcheck="false"
-        :readonly="isTrashed"
-        @input="scheduleSave"
-      />
+      <template v-else>
+        <p v-if="imageError" class="inline-note is-error">{{ imageError }}</p>
 
-      <div v-else class="preview">
-        <MarkdownView :source="content" empty="暂无内容" />
-      </div>
+        <NoteEditor
+          ref="editorRef"
+          :key="loadSeq"
+          v-model="content"
+          :mode="mode"
+          :readonly="isTrashed"
+          @save="scheduleSave"
+          @pick-image="pickAndInsertImage"
+        />
+      </template>
     </div>
 
     <!-- 更多操作 -->
@@ -332,6 +436,7 @@ onBeforeUnmount(flush);
       </div>
     </AppDialog>
 
+    <!-- 插入图片：走系统文件对话框，图片存进这篇笔记自己的附件目录 -->
     <AppDialog
       :open="deleteOpen"
       title="删除这篇笔记？"
@@ -355,6 +460,21 @@ onBeforeUnmount(flush);
     >
       <p class="tip">这一步不可恢复，文件会被从你的网盘里真正删掉。</p>
     </AppDialog>
+
+    <!-- 切回所见即所得前的提醒：源码里怎么写都行，回程会被统一规范化 -->
+    <AppDialog
+      :open="askWysiwyg"
+      title="切回所见即所得？"
+      confirm-label="继续"
+      @close="askWysiwyg = false"
+      @confirm="backToWysiwyg"
+    >
+      <p class="tip">切回所见即所得模式，格式会被统一规范化。是否继续？</p>
+      <label class="check">
+        <input v-model="muteHint" type="checkbox" />
+        <span>不再提示</span>
+      </label>
+    </AppDialog>
   </div>
 </template>
 
@@ -365,6 +485,10 @@ onBeforeUnmount(flush);
   display: flex;
   flex-direction: column;
   height: 100%;
+  /* 桌面端给侧边栏让位；移动端 --content-offset 恒为 0 */
+  padding-left: var(--content-offset);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  transition: padding-left var(--dur) var(--ease-smooth);
 }
 
 .status {
@@ -392,6 +516,30 @@ onBeforeUnmount(flush);
   color: var(--text);
 }
 
+/* 顶栏上的模式开关：图标按钮，两种模式共用一个位置 */
+.icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--r-xs);
+  color: var(--text-2);
+  flex: none;
+  transition:
+    background-color var(--dur-fast) var(--ease-smooth),
+    color var(--dur-fast) var(--ease-smooth);
+}
+
+.icon-btn:hover:not(:disabled) {
+  background: var(--surface);
+  color: var(--text);
+}
+
+.icon-btn:disabled {
+  opacity: 0.45;
+}
+
 .trash-bar {
   display: flex;
   align-items: center;
@@ -415,10 +563,10 @@ onBeforeUnmount(flush);
   display: flex;
   flex-direction: column;
   width: 100%;
-  max-width: 720px;
+  max-width: var(--content-max);
   margin: 0 auto;
-  padding: var(--sp-2);
-  gap: var(--sp-1);
+  padding: var(--sp-3) var(--page-gutter);
+  gap: var(--sp-2);
 }
 
 .title-input {
@@ -436,56 +584,34 @@ onBeforeUnmount(flush);
   opacity: 0.55;
 }
 
-.tabs {
+/* 插图失败时的内联提示：就地说明，不弹层 */
+.inline-note {
+  padding: 8px 12px;
+  border-radius: var(--r-sm);
+  font-size: var(--fs-sm);
+}
+
+.inline-note.is-error {
+  color: var(--danger);
+  background: var(--danger-soft);
+}
+
+/* 「不再提示」勾选：整行可点，别只点那个小方块 */
+.check {
   display: flex;
   align-items: center;
-  gap: 6px;
-}
-
-.seg {
-  padding: 5px 14px;
-  border-radius: var(--r-pill);
+  gap: 8px;
+  margin-top: var(--sp-2);
   font-size: 13px;
   color: var(--text-2);
-  background: var(--surface);
-  border: 1px solid var(--surface-border);
-  transition:
-    color var(--dur-fast) var(--ease-smooth),
-    background-color var(--dur-fast) var(--ease-smooth);
+  cursor: pointer;
 }
 
-.seg.is-on {
-  color: var(--accent);
-  background: var(--accent-soft);
-  border-color: transparent;
-}
-
-.where {
-  margin-left: auto;
-  font-size: 12px;
-  color: var(--text-2);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: 40%;
-}
-
-.content-input,
-.preview {
-  flex: 1 1 auto;
-  min-height: 46vh;
-  padding: var(--sp-2);
-  border-radius: var(--r-lg);
-  background: var(--surface);
-  border: 1px solid var(--surface-border);
-  font-size: 15px;
-  line-height: 1.75;
-  resize: none;
-  overflow-y: auto;
-}
-
-.preview {
-  overflow-y: auto;
+.check input {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--accent);
+  cursor: pointer;
 }
 
 .skeleton {
