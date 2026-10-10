@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>页面不存在 — DoNote</title>
+<meta name="robots" content="noindex" />
+<style>
+  :root {
+    --bg: #0a0e14;
+    --surface: rgba(255, 255, 255, 0.04);
+    --border: rgba(255, 255, 255, 0.09);
+    --text: #e9edf2;
+    --text-2: #8a92a0;
+    --accent: #5ba88c;
+    --accent-soft: rgba(91, 168, 140, 0.16);
+    --on-accent: #06110d;
+    --r-lg: 22px;
+    color-scheme: dark;
+  }
+  @media (prefers-color-scheme: light) {
+    :root {
+      --bg: #f4f6f8;
+      --surface: rgba(255, 255, 255, 0.72);
+      --border: rgba(0, 0, 0, 0.07);
+      --text: #171a1f;
+      --text-2: #6b7280;
+      --accent-soft: rgba(91, 168, 140, 0.14);
+      --on-accent: #ffffff;
+      color-scheme: light;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    min-height: 100svh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 48px 20px;
+    background: var(--bg);
+    color: var(--text);
+    font-family: Inter, -apple-system, BlinkMacSystemFont, 'PingFang SC',
+      'HarmonyOS Sans SC', 'Microsoft YaHei', 'Segoe UI', sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  .card {
+    width: 100%;
+    max-width: 440px;
+    text-align: center;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--r-lg);
+    padding: 44px 32px;
+  }
+  .code {
+    font-size: 44px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    color: var(--accent);
+    margin: 0 0 6px;
+  }
+  h1 { font-size: 18px; font-weight: 600; margin: 0 0 10px; }
+  p { margin: 0 0 26px; font-size: 14px; line-height: 1.7; color: var(--text-2); }
+  a {
+    display: inline-block;
+    padding: 11px 24px;
+    border-radius: 999px;
+    background: var(--accent);
+    color: var(--on-accent);
+    font-size: 14px;
+    font-weight: 600;
+    text-decoration: none;
+  }
+  a:hover { background: var(--accent-soft); color: var(--accent); }
+</style>
+</head>
+<body>
+  <main class="card">
+    <p class="code">404</p>
+    <h1>这个页面不存在</h1>
+    <p>这个地址没有内容。DoNote 现在只提供 Windows 客户端下载，笔记数据存在你自己的坚果云里。</p>
+    <a href="/">回到下载页</a>
+  </main>
+</body>
+</html>
