@@ -1,6 +1,45 @@
 <!doctype html>
 <html lang="zh-CN">
   <head>
+    <!--
+      兜底：注销遗留的 Service Worker。
+      背景：0.2.0 及更早的桌面端会注册 SW，把 WebView2 的 profile 缓存住。
+      升级到新版时，旧 SW 用旧的 precache 清单回退导航请求，新资源一次都不会被请求，
+      界面就停在上一版。下面这段在首屏最前面同步跑掉，清完再 reload 一次，把机器拉回正轨。
+      注意：新版桌面端已不再注册 SW（见 vite.config.ts 的 VitePWA.disable），
+      这段只为已经被旧 SW 污染的机器准备，正常情况下执行一次就再无 SW 可注销。
+    -->
+    <script>
+      (function () {
+        if (!('serviceWorker' in navigator)) return;
+        // unregister 失败时若不设防，每次启动都会 reload，变成死循环。同一个标签页只做一次。
+        try {
+          if (sessionStorage.getItem('donote.sw-purged')) return;
+          sessionStorage.setItem('donote.sw-purged', '1');
+        } catch (e) {
+          /* 隐私模式下 sessionStorage 可能不可用，退回不做标记（有 SW 才会 reload，风险有限） */
+        }
+        navigator.serviceWorker.getRegistrations().then(function (regs) {
+          if (!regs.length) return;
+          Promise.all(
+            regs.map(function (r) {
+              return r.unregister();
+            }),
+          ).then(function () {
+            if (!('caches' in window)) return;
+            caches.keys().then(function (keys) {
+              return Promise.all(
+                keys.map(function (k) {
+                  return caches.delete(k);
+                }),
+              );
+            }).then(function () {
+              location.reload();
+            });
+          });
+        });
+      })();
+    </script>
     <meta charset="UTF-8" />
     <meta
       name="viewport"
