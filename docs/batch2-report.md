@@ -120,3 +120,8 @@ wrangler pages deploy site --project-name donote --branch main
 ```
 
 当前版本是 **0.1.1**。批次 2 的改动量（编辑器换掉、布局重做）建议发 **0.2.0**，但这取决于你。
+
+> **2026-10-11 补记**：已按上面的建议发布 **0.2.0**（commit `80b9d01`），该 commit 只改版本元数据、未动源码。
+> 线上：下载页 https://donote.pages.dev ｜清单 https://donote.pages.dev/updates/latest.json ｜
+> 安装包 `/downloads/DoNote-0.2.0-win-x64.exe`（3.99 MiB，sha256 `9e1acc7e373b2affc0e4d7feb480ae9375c8c1cc26edddd0d45572ba16dfb06a`）。
+

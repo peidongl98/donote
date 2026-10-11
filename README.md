@@ -109,11 +109,19 @@ export TAURI_SIGNING_PRIVATE_KEY_PASSWORD=""
 pnpm tauri build --bundles nsis      # 产出 -setup.exe 与 .exe.sig
 
 # 把产物铺进下载站并生成最新清单
-node scripts/make-release.mjs --version 0.1.1 --notes "更新说明"
+node scripts/make-release.mjs --version 0.2.0 --notes "更新说明"
 
 # 发布下载站（Pages 项目 donote）
 wrangler pages deploy site --project-name donote --branch main
 ```
+
+⚠️ 发版前两件事（2026-10-11 踩过）：
+
+- `%USERPROFILE%\.cargo\bin` 下的 rustup shim 可能是 **0 字节**，`tauri build` 会报 `os error 193`（不是有效 Win32 程序）。
+  改用 `%USERPROFILE%\.rustup\toolchains\stable-x86_64-pc-windows-msvc\bin` 里的真 `cargo`。
+- 构建会先清空 `apps/web/dist`；在沙箱里这会触发批量删除护栏。先把 `dist` 改名让开，再跑构建。
+- 版本号要同时改 `tauri.conf.json`（决定产物名 `DoNote_<版本>_x64-setup.exe`）、`Cargo.toml`、各处 `package.json`
+  和 `site/index.html` 里的 `data-href` —— 漏掉最后这处，下载页仍会指向旧包。
 
 ⚠️ 改了 `capabilities/default.json`（域名白名单）必须重新打包 —— 它是编进二进制里的，
 不发新版本的话已装的客户端拿不到新规则。
