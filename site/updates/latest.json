@@ -1,11 +1,11 @@
 {
-  "version": "0.2.1",
-  "notes": "修复升级后界面停留在旧版的问题（桌面端不再注册 Service Worker，并自动清掉旧注册）；所见即所得编辑器、Notion 式桌面布局、Word 式工具栏 15 项、插入本机图片、源码模式。",
-  "pub_date": "2026-10-11T09:36:47Z",
+  "version": "0.2.2",
+  "notes": "修复从 0.1.x 原地升级时被旧缓存锁定的问题（新版换用 https origin，旧 Service Worker 按 origin 隔离自然失效，界面即恢复）；所见即所得编辑器、Notion 式桌面布局、Word 式工具栏 15 项、插入本机图片、源码模式。",
+  "pub_date": "2026-10-11T14:46:35Z",
   "platforms": {
     "windows-x86_64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSWTRLN1pZbGY4NG50WEgzZUVXUHZwcDhXT2NoWkhHM2hQWW5ZQUFwNUFIY0E2elRyWWVjYklmQ1NZNk1COFJVVy9VNURiZXM5dlAzSU5TZHZwUGJSOWZsTlR0ams2K3djPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkxNzExMzkxCWZpbGU6RG9Ob3RlXzAuMi4xX3g2NC1zZXR1cC5leGUJdmVyc2lvbjowLjIuMQpMMW52c3pNY1VJSmxzQS90c0lvUkJMOVlEU2VlbWhOVnhyd2cyYjNUUXlsaVJjUy9Ib2JoSjE2YXBiRXltK1Jodjc1eThNTmZxaWxyNVY5M2orVElBQT09Cg==",
-      "url": "https://donote.pages.dev/downloads/DoNote-0.2.1-win-x64.exe"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSWTRLN1pZbGY4NHI5OGhCWmRQMktLZmZVQmdReEZUcktDWG5wRzhKSkxLZFYyUkV5aWx2dFJvVjNuOFZ2aGJWR0JNV3dudFd3bk1ma21mVWV2MGJ2SUcwT1BDcCs2YWdVPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkxNzI5OTg2CWZpbGU6RG9Ob3RlXzAuMi4yX3g2NC1zZXR1cC5leGUJdmVyc2lvbjowLjIuMgpFZ3VmN2x6QmxyQkNpVXNiVDAzbklBeFdvWVBYNmUvSEhiUUdUMWtJT1dicWpoV0l1dTVwRHpQbWo0UkpRUTd0L2M0S2tLVVVwSnhYRCtaNStIRndCZz09Cg==",
+      "url": "https://donote.pages.dev/downloads/DoNote-0.2.2-win-x64.exe"
     }
   }
 }
