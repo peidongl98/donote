@@ -1,11 +1,11 @@
 {
-  "version": "0.1.1",
-  "notes": "支持任意 WebDAV 服务器：连接时填服务器地址、账号与密码，不再只限坚果云。",
-  "pub_date": "2026-10-10T08:45:07Z",
+  "version": "0.2.0",
+  "notes": "所见即所得编辑器（Milkdown）、Notion 式桌面布局、Word 式工具栏 15 项、插入本机图片、源码模式；全套换用沉浸光感视觉，亮暗跟随系统。",
+  "pub_date": "2026-10-11T09:00:28Z",
   "platforms": {
     "windows-x86_64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSWTRLN1pZbGY4NGpDRmV3WXdXeW9tZE9XYlQxNXhBN05IT1VaUkd1czZXRFVHT3c2ZTJFSkRsUXJ0NEtqUlRrQlFDUG9sL3RmeFdJRkRqMzZkZUpQWStmN0R4d0FDR2dNPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkxNjIxODk0CWZpbGU6RG9Ob3RlXzAuMS4xX3g2NC1zZXR1cC5leGUJdmVyc2lvbjowLjEuMQozUTc5VGhpQmU4MW1EUmxQcUhZczhXQXFmelRBUjRwbHFmbnFnNndDTjA3S05qNzRHblpHOVpvOUtPZEp1QkdTano2RWkrelhrSzRTS2xOUk9mL2RCZz09Cg==",
-      "url": "https://donote.pages.dev/downloads/DoNote-0.1.1-win-x64.exe"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSWTRLN1pZbGY4NHNOM0NRREZZc0NMOVpENVhOdy9Bam9BTTJ5ZnVXMnYrRVdOUU8xVE5mVVBOSTI3aW9heTl5bFVZNTF2QW9LZW1MazBiZWxrOWlkUDJhQWhmZ2gvTHc0PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkxNzA5MTM3CWZpbGU6RG9Ob3RlXzAuMi4wX3g2NC1zZXR1cC5leGUJdmVyc2lvbjowLjIuMApHQ2xCMno4YXd5L2hvWkhxZk5LZHhlTUlBMWxBc3FEcDZTZXlvekFocHBGYlZjODY0SWRlckN0cE9idXgyUnNZQ29TK08vK3NIWnlITVQ3WE5UK1BEdz09Cg==",
+      "url": "https://donote.pages.dev/downloads/DoNote-0.2.0-win-x64.exe"
     }
   }
 }
