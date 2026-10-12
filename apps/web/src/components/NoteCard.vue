@@ -2,15 +2,23 @@
 import { computed } from 'vue';
 import type { NoteSummaryDTO } from '@donote/shared';
 import { cleanExcerpt, formatTime } from '@/utils/format';
+import { useSyncStore } from '@/stores/sync';
 
 const props = defineProps<{ note: NoteSummaryDTO; folderName?: string | null }>();
 const emit = defineEmits<{ menu: [note: NoteSummaryDTO] }>();
 
+const sync = useSyncStore();
 const excerpt = computed(() => cleanExcerpt(props.note.excerpt).slice(0, 90));
+/** 本机还没有正文副本 —— 断网时这篇打不开，所以画成浅灰 */
+const uncached = computed(() => !props.note.deleted_at && !sync.hasCopy(props.note.id));
 </script>
 
 <template>
-  <div class="card glass" @contextmenu.prevent="emit('menu', note)">
+  <div
+    class="card glass"
+    :class="{ 'is-uncached': uncached }"
+    @contextmenu.prevent="emit('menu', note)"
+  >
     <RouterLink class="main" :to="`/notes/${note.id}`">
       <div class="top">
         <h3 class="title">{{ note.title }}</h3>
@@ -140,5 +148,12 @@ const excerpt = computed(() => cleanExcerpt(props.note.excerpt).slice(0, 90));
   margin-left: 6px;
   background: var(--danger-soft);
   color: var(--danger);
+}
+
+/* 没缓存的笔记：正文还没落到本机，断网读不到，画浅一点提示用户 */
+.card.is-uncached .title,
+.card.is-uncached .excerpt {
+  color: var(--text-2);
+  opacity: 0.6;
 }
 </style>

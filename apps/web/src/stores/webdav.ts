@@ -9,6 +9,9 @@ import {
   WebdavAdapter,
   type StorageConfig,
 } from '@/services/storage';
+import { CachedStorage } from '@/services/cache/cached-adapter';
+import { cacheStore } from '@/services/cache/store';
+import { useSyncStore } from './sync';
 
 /**
  * 凭据在本机的存储键。
@@ -33,6 +36,16 @@ function toOutcome(error: unknown): ConnectOutcome {
     return { ok: false, code, message: error.message || '连接失败，请稍后重试' };
   }
   return { ok: false, code: 'other', message: '连接失败，请稍后重试' };
+}
+
+/**
+ * 把适配器交给上层，并在外面套一层本地缓存。
+ * 之所以套在注册点而不是改适配器内部：换掉存储协议时缓存层不用跟着动。
+ */
+function register(adapter: WebdavAdapter, root: string): void {
+  const cached = new CachedStorage(adapter, cacheStore(), root);
+  setStorage(cached);
+  useSyncStore().attach(cached);
 }
 
 export const useWebdavStore = defineStore('webdav', () => {
@@ -73,13 +86,14 @@ export const useWebdavStore = defineStore('webdav', () => {
           root.value = saved.root || DEFAULT_ROOT;
           const adapter = new WebdavAdapter();
           adapter.adopt(config());
-          setStorage(adapter);
+          register(adapter, root.value);
           status.value = 'connected';
         }
       }
     } catch {
       await secretStore.clear(SECRET_KEY);
       setStorage(null);
+      useSyncStore().detach();
     } finally {
       bootstrapped.value = true;
     }
@@ -103,7 +117,7 @@ export const useWebdavStore = defineStore('webdav', () => {
     const adapter = new WebdavAdapter();
     try {
       const result = await adapter.connect(config());
-      setStorage(adapter);
+      register(adapter, root.value);
       await secretStore.write(
         SECRET_KEY,
         JSON.stringify({
@@ -117,6 +131,7 @@ export const useWebdavStore = defineStore('webdav', () => {
       return { ok: true, createdRoot: result.createdRoot };
     } catch (error) {
       setStorage(null);
+      useSyncStore().detach();
       appPassword = '';
       status.value = 'idle';
       return toOutcome(error);
@@ -126,6 +141,7 @@ export const useWebdavStore = defineStore('webdav', () => {
   async function disconnect(): Promise<void> {
     await secretStore.clear(SECRET_KEY);
     setStorage(null);
+    useSyncStore().detach();
     appPassword = '';
     baseUrl.value = DEFAULT_BASE_URL;
     account.value = '';

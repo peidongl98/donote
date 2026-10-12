@@ -5,21 +5,49 @@ import { notesApi } from '@/storage/notes';
 import { isTauriRuntime } from '@/storage/transport';
 import { appVersion, checkUpdate, installUpdate, type UpdateState } from '@/updater';
 import { useWebdavStore } from '@/stores/webdav';
+import { useSyncStore } from '@/stores/sync';
 import { useUiStore } from '@/stores/ui';
 import AppHeader from '@/components/AppHeader.vue';
 import ThemeToggle from '@/components/ThemeToggle.vue';
 
 const webdav = useWebdavStore();
+const sync = useSyncStore();
 const ui = useUiStore();
 const router = useRouter();
 
 const trashCount = ref<number | null>(null);
 const signingOut = ref(false);
+const syncing = ref(false);
 
 const desktop = isTauriRuntime();
 const version = ref('');
 const updateState = ref<UpdateState | null>(null);
 const checking = ref(false);
+
+async function onOpenCacheDir(): Promise<void> {
+  try {
+    await sync.openDir();
+  } catch (error) {
+    ui.toast(error instanceof Error ? error.message : String(error));
+  }
+}
+
+async function onSyncNow(): Promise<void> {
+  syncing.value = true;
+  try {
+    await sync.syncNow();
+    ui.toast('同步完成');
+  } finally {
+    syncing.value = false;
+  }
+}
+
+async function onResolve(path: string, keep: 'local' | 'remote'): Promise<void> {
+  const item = sync.conflicts.find((entry) => entry.path === path);
+  if (!item) return;
+  await sync.resolve(item, keep);
+  ui.toast(keep === 'local' ? '已用本地版本覆盖云端' : '已用云端版本覆盖本地');
+}
 
 const displayName = computed(() => webdav.account || '未连接');
 const initial = computed(() => displayName.value.slice(0, 1).toUpperCase() || 'D');
@@ -116,6 +144,41 @@ async function onDisconnect(): Promise<void> {
         </span>
         <span class="tile-tail mono">{{ trashCount ?? '—' }}</span>
       </button>
+
+      <p class="section-title">本地缓存</p>
+      <div class="card-plain">
+        <p class="line">
+          <span class="line-key">状态</span>
+          <span class="line-val">{{ sync.usable ? sync.label : '未连接' }}</span>
+        </p>
+        <p class="line">
+          <span class="line-key">缓存目录</span>
+          <span class="line-val mono" :title="sync.dir">{{ sync.dir || '—' }}</span>
+        </p>
+      </div>
+      <p v-if="sync.fallback" class="hint">
+        安装目录不可写，缓存已放到应用数据目录，不影响使用。
+      </p>
+
+      <div v-if="sync.conflicts.length" class="conflicts">
+        <p class="conflict-title">以下几篇云端比本地新，选一个版本</p>
+        <div v-for="item in sync.conflicts" :key="item.path" class="conflict">
+          <span class="conflict-path mono">{{ item.path }}</span>
+          <span class="conflict-actions">
+            <button type="button" @click="onResolve(item.path, 'local')">保留本地</button>
+            <button type="button" @click="onResolve(item.path, 'remote')">用云端</button>
+          </span>
+        </div>
+      </div>
+
+      <div class="row-btns">
+        <button class="secondary" type="button" :disabled="!sync.usable" @click="onOpenCacheDir">
+          打开缓存目录
+        </button>
+        <button class="secondary" type="button" :disabled="!sync.usable || syncing" @click="onSyncNow">
+          {{ syncing ? '同步中…' : '立即同步' }}
+        </button>
+      </div>
 
       <p class="section-title">外观</p>
       <div class="tile as-row">
@@ -288,6 +351,67 @@ async function onDisconnect(): Promise<void> {
   transition:
     background-color var(--dur) var(--ease-smooth),
     transform var(--dur-fast) var(--ease-spring);
+}
+
+/* 两个按钮并排时不要各自再撑满整行 */
+.row-btns {
+  display: flex;
+  gap: var(--sp-1);
+  margin-top: var(--sp-2);
+}
+
+.row-btns .secondary {
+  margin-top: 0;
+}
+
+.hint {
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--text-2);
+}
+
+.conflicts {
+  margin-top: var(--sp-2);
+}
+
+.conflict-title {
+  font-size: 13px;
+  color: var(--text-2);
+  margin-bottom: 6px;
+}
+
+.conflict {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-2);
+  padding: 8px 0;
+}
+
+.conflict + .conflict {
+  border-top: 1px solid var(--divider);
+}
+
+.conflict-path {
+  font-size: 12px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.conflict-actions {
+  display: flex;
+  gap: 6px;
+  flex: none;
+}
+
+.conflict-actions button {
+  padding: 4px 10px;
+  border-radius: var(--r-xs);
+  font-size: 12px;
+  color: var(--accent);
+  background: var(--accent-soft);
 }
 
 .secondary:hover:not(:disabled) {

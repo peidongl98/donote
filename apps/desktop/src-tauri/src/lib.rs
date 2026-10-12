@@ -1,4 +1,43 @@
 use serde::Serialize;
+use tauri::Manager;
+
+mod cache;
+
+/// 无边框窗口的 Win11 系统圆角。
+///
+/// 窗口去掉了原生边框（`decorations: false`），圆角得自己跟 DWM 要。
+/// Win10 不认识这个属性，调用直接失败 —— 忽略即可，直角降级不影响启动。
+#[cfg(target_os = "windows")]
+mod corners {
+    use std::ffi::c_void;
+
+    /// DWMWA_WINDOW_CORNER_PREFERENCE
+    const ATTR: u32 = 33;
+    /// DWMWCP_ROUND
+    const ROUND: u32 = 2;
+
+    #[link(name = "dwmapi")]
+    extern "system" {
+        fn DwmSetWindowAttribute(
+            hwnd: *mut c_void,
+            attribute: u32,
+            value: *const c_void,
+            size: u32,
+        ) -> i32;
+    }
+
+    pub fn round(hwnd: *mut c_void) {
+        let preference: u32 = ROUND;
+        unsafe {
+            DwmSetWindowAttribute(
+                hwnd,
+                ATTR,
+                &preference as *const u32 as *const c_void,
+                std::mem::size_of::<u32>() as u32,
+            );
+        }
+    }
+}
 
 /// Windows 凭据管理器里的服务名。凭据只进系统钥匙串，不落磁盘明文。
 const SERVICE: &str = "donote";
@@ -54,11 +93,28 @@ pub fn run() {
         .plugin(tauri_plugin_process::init())
         // 插入图片时的系统文件对话框
         .plugin(tauri_plugin_dialog::init())
+        .setup(|app| {
+            // 窗口是无边框的，圆角要向系统要（Win10 上会失败，忽略）
+            #[cfg(target_os = "windows")]
+            if let Some(window) = app.get_webview_window("main") {
+                if let Ok(hwnd) = window.hwnd() {
+                    corners::round(hwnd.0);
+                }
+            }
+            let _ = app;
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             secret_read,
             secret_write,
             secret_clear,
-            read_image
+            read_image,
+            cache::cache_dir,
+            cache::cache_read,
+            cache::cache_write,
+            cache::cache_remove,
+            cache::cache_list,
+            cache::cache_open_dir
         ])
         .run(tauri::generate_context!())
         .expect("DoNote 启动失败");

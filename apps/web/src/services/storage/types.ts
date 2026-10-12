@@ -46,9 +46,9 @@ export interface FileStat {
   mtime: number;
   isDirectory: boolean;
   /**
-   * 乐观锁用。本批次恒为空串 —— 通道已预留，尚未启用。
-   * 启用需要改 PROPFIND 的 property 列表（加 getetag），属于网络行为变更，
-   * 留到真正要做冲突处理时再开。
+   * 服务端内容指纹（PROPFIND 的 getetag）。
+   * 本地缓存用它判断「缓存是否过期」；有的 WebDAV 服务不返回，此时为空串，
+   * 调用方退回按 mtime 判断。
    */
   etag: string;
 }
@@ -60,6 +60,8 @@ export interface DirEntry {
   isDirectory: boolean;
   size?: number;
   mtime?: number;
+  /** 内容指纹。服务端不返回时省略，调用方改用 mtime */
+  etag?: string;
 }
 
 export interface WriteResult {
@@ -73,6 +75,16 @@ export interface WriteResult {
  * 二进制只走 ArrayBuffer —— Blob 在端上的 fetch 实现里支持度不一，调用方自己转。
  */
 export type WriteContent = string | Blob | ArrayBuffer;
+
+export interface ReadOptions {
+  /**
+   * 有本地副本就先给副本（打开笔记用，追求秒开），
+   * 同时在后台比对内容指纹，不一致再把副本换掉。
+   * 不传则一律以云端为准 —— 读改写（保存 / 删除 / 恢复）必须走这条，
+   * 否则会拿旧内容覆盖掉别人刚改的东西。
+   */
+  preferCache?: boolean;
+}
 
 export type BatchOperation =
   | { type: 'write'; path: string; content: string; etag?: string }
@@ -132,7 +144,7 @@ export interface StorageAdapter {
   testConnection(): Promise<boolean>;
 
   /* 单文件 / 单目录 */
-  read(path: string): Promise<string>;
+  read(path: string, options?: ReadOptions): Promise<string>;
   write(path: string, content: WriteContent, etag?: string): Promise<WriteResult>;
   delete(path: string): Promise<void>;
   move(from: string, to: string): Promise<void>;

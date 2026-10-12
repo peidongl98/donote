@@ -1,11 +1,11 @@
 {
-  "version": "0.2.2",
-  "notes": "修复从 0.1.x 原地升级时被旧缓存锁定的问题（新版换用 https origin，旧 Service Worker 按 origin 隔离自然失效，界面即恢复）；所见即所得编辑器、Notion 式桌面布局、Word 式工具栏 15 项、插入本机图片、源码模式。",
-  "pub_date": "2026-10-11T14:46:35Z",
+  "version": "0.2.3",
+  "notes": "新增本地缓存：读过的笔记会存一份在本机，断网也能打开；离线时的改动先存在本地，顶栏会提示还有几篇没同步。窗口去掉系统原生标题栏，改为应用内自绘标题栏（Win11 圆角，边缘缩放与窗口贴靠照常可用）。修复若干界面元素互相遮挡、内容被底栏压住的问题。",
+  "pub_date": "2026-10-12T05:17:07Z",
   "platforms": {
     "windows-x86_64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSWTRLN1pZbGY4NHI5OGhCWmRQMktLZmZVQmdReEZUcktDWG5wRzhKSkxLZFYyUkV5aWx2dFJvVjNuOFZ2aGJWR0JNV3dudFd3bk1ma21mVWV2MGJ2SUcwT1BDcCs2YWdVPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkxNzI5OTg2CWZpbGU6RG9Ob3RlXzAuMi4yX3g2NC1zZXR1cC5leGUJdmVyc2lvbjowLjIuMgpFZ3VmN2x6QmxyQkNpVXNiVDAzbklBeFdvWVBYNmUvSEhiUUdUMWtJT1dicWpoV0l1dTVwRHpQbWo0UkpRUTd0L2M0S2tLVVVwSnhYRCtaNStIRndCZz09Cg==",
-      "url": "https://donote.pages.dev/downloads/DoNote-0.2.2-win-x64.exe"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSWTRLN1pZbGY4NHAzODNqS3NScTZ5MzkybzNSUUZsak9WSDgwa2grTitiRUt1WUJTWXlaUkc3Z3NYYy9OY0xYSkZ1Vnl1MkpIbkRnbitsa09oYTNZZC9Ba2M4TzZvYWdBPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkxNzgyMTkyCWZpbGU6RG9Ob3RlXzAuMi4zX3g2NC1zZXR1cC5leGUJdmVyc2lvbjowLjIuMwp3azNpZDRTcG1DZVNiVzNpUDBtYm1wSHR5NnI4TTF5Yk1HSVY3R3BaeHVPK0dMZVJ6QmtQWm5tdzNORzZhajEvK0xnSnFJOHlPR2NDZmRKZHUvS0dDdz09Cg==",
+      "url": "https://donote.pages.dev/downloads/DoNote-0.2.3-win-x64.exe"
     }
   }
 }

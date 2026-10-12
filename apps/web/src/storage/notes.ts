@@ -89,10 +89,13 @@ async function listDir(rel: string): Promise<DirEntry[]> {
   return entries.map((entry) => ({ ...entry, mtime: entry.mtime ?? 0 }));
 }
 
-/** 读文本。把「不存在」翻译成 null，其余错误照旧抛出 */
-async function readOrNull(rel: string): Promise<string | null> {
+/**
+ * 读文本。把「不存在」翻译成 null，其余错误照旧抛出。
+ * preferCache 只给「打开来看」用 —— 读改写一律走云端，免得用旧内容覆盖别人的改动。
+ */
+async function readOrNull(rel: string, preferCache = false): Promise<string | null> {
   try {
-    return await getStorage().read(rel);
+    return await getStorage().read(rel, preferCache ? { preferCache: true } : undefined);
   } catch (error) {
     if (error instanceof StorageError && error.code === 'not_found') return null;
     throw error;
@@ -405,7 +408,8 @@ export const notesApi = {
 
   async get(id: string) {
     const rel = decodeId(id);
-    const raw = await readOrNull(rel);
+    // 打开笔记：有本地副本就先给副本，秒开；后台再对一次指纹
+    const raw = await readOrNull(rel, true);
     if (raw === null) throw new StorageError('not_found', '笔记不存在', 404);
     const parsed = parseNote(raw, baseName(rel), Date.now());
     const meta: NoteMeta = {

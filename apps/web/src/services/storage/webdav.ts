@@ -29,7 +29,7 @@ import {
 } from './types';
 
 const PROP_BODY =
-  '<?xml version="1.0" encoding="utf-8"?><propfind xmlns="DAV:"><prop><resourcetype/><getlastmodified/></prop></propfind>';
+  '<?xml version="1.0" encoding="utf-8"?><propfind xmlns="DAV:"><prop><resourcetype/><getlastmodified/><getetag/></prop></propfind>';
 
 /** 判断是不是坚果云 —— 只用于决定 dev 下能否走同源代理，不参与连接逻辑 */
 function isJianguoyun(baseUrl: string): boolean {
@@ -58,6 +58,8 @@ interface DavEntry {
   name: string;
   isDir: boolean;
   mtime: number;
+  /** 服务端给的内容指纹。有的 WebDAV 服务不返回，此时为空串，改用 mtime 判断 */
+  etag: string;
 }
 
 /** 只取状态为 200 的那组 propstat，避免读到 404 组的空壳 */
@@ -109,11 +111,13 @@ function parseMultistatus(
     const name = rel.slice(rel.lastIndexOf('/') + 1);
     if (!name) continue;
     const mtimeText = prop.getElementsByTagNameNS('DAV:', 'getlastmodified')[0]?.textContent ?? '';
+    const etagText = prop.getElementsByTagNameNS('DAV:', 'getetag')[0]?.textContent ?? '';
     out.push({
       rel,
       name,
       isDir: prop.getElementsByTagNameNS('DAV:', 'collection').length > 0,
       mtime: Date.parse(mtimeText) || 0,
+      etag: etagText.trim(),
     });
   }
   return out;
@@ -307,6 +311,7 @@ export class WebdavAdapter implements StorageAdapter {
         path: entry.rel,
         isDirectory: entry.isDir,
         mtime: entry.mtime,
+        etag: entry.etag,
       }),
     );
   }
@@ -425,7 +430,7 @@ export class WebdavAdapter implements StorageAdapter {
       size: 0,
       mtime: self.mtime,
       isDirectory: self.isDir,
-      etag: '',
+      etag: self.etag,
     };
   }
 
