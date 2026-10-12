@@ -99,7 +99,8 @@ async function pickAndInsertImage(): Promise<void> {
 
     // 标题即文件名，改名那次保存已经把 noteId 换成新路径，这里直接解
     const { url } = await uploadAttachment(decodeId(noteId.value), picked.name, picked.data);
-    editorRef.value?.placeImage(url, picked.name.replace(/\.[^.]+$/, '') || '图片');
+    // 等它上报完再返回：正文一到手就会排进保存队列，用户紧接着离开也不会丢图
+    await editorRef.value?.placeImage(url, picked.name.replace(/\.[^.]+$/, '') || '图片');
   } catch (err) {
     imageError.value = err instanceof Error ? `图片没插进去：${err.message}` : '图片没插进去';
   } finally {
@@ -431,7 +432,7 @@ onBeforeUnmount(() => {
           :class="{ 'is-on': f.id === note?.folder_id }"
           @click="moveTo(f.id)"
         >
-          {{ f.name }}
+          📁 {{ f.name }}
         </button>
       </div>
     </AppDialog>
@@ -686,9 +687,15 @@ onBeforeUnmount(() => {
 }
 
 /* 底部动作面板 */
+/*
+ * 遮罩铺满视口，内容盒收进**内容列**（padding-left = 侧栏让出的宽度），
+ * 里面的 .sheet 就居中于内容区而不是视口 —— 否则窄窗口下面板会压到侧栏。
+ * 用 padding 而不是给 .sheet 加 translateX：面板的进出场动画占用了 transform。
+ */
 .sheet-mask {
   position: fixed;
   inset: 0;
+  padding-left: var(--content-offset);
   z-index: 25;
   display: flex;
   align-items: flex-end;

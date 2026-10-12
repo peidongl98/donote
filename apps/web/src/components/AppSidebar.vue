@@ -10,6 +10,7 @@ import { RouterLink, useRoute, useRouter } from 'vue-router';
 import { notesApi } from '@/storage/notes';
 import { useLayoutStore } from '@/stores/layout';
 import { useUiStore } from '@/stores/ui';
+import SidebarTree from '@/components/SidebarTree.vue';
 
 const layout = useLayoutStore();
 const ui = useUiStore();
@@ -37,13 +38,62 @@ function search(): void {
   void router.push({ path: '/', query: { q: term } });
 }
 
-const items = [
-  { to: '/', label: '全部笔记', icon: 'notes' as const, match: (p: string) => p === '/' || p.startsWith('/notes') },
-  { to: '/folders', label: '文件夹', icon: 'folder' as const, match: (p: string) => p.startsWith('/folders') },
-  { to: '/trash', label: '回收站', icon: 'trash' as const, match: (p: string) => p.startsWith('/trash') },
-  { to: '/settings', label: '设置', icon: 'gear' as const, match: (p: string) => p.startsWith('/settings') },
-];
+interface NavItem {
+  kind: 'nav';
+  to: string;
+  label: string;
+  icon: 'notes' | 'folder' | 'trash' | 'gear';
+  match: (path: string) => boolean;
+}
 
+const notesItem: NavItem = {
+  kind: 'nav',
+  to: '/',
+  label: '全部笔记',
+  icon: 'notes',
+  match: (p) => p === '/' || p.startsWith('/notes'),
+};
+const foldersItem: NavItem = {
+  kind: 'nav',
+  to: '/folders',
+  label: '文件夹',
+  icon: 'folder',
+  // 只有 /folders 列表页算「文件夹」这一项；进了某个文件夹之后由树里那一行高亮，
+  // 两边都亮会看不出「现在到底在哪一层」
+  match: (p) => p === '/folders',
+};
+const trashItem: NavItem = {
+  kind: 'nav',
+  to: '/trash',
+  label: '回收站',
+  icon: 'trash',
+  match: (p) => p.startsWith('/trash'),
+};
+const settingsItem: NavItem = {
+  kind: 'nav',
+  to: '/settings',
+  label: '设置',
+  icon: 'gear',
+  match: (p) => p.startsWith('/settings'),
+};
+
+/**
+ * 导航排布：全部笔记 / 文件夹 → **文件夹树** → 回收站 / 设置。
+ * 树用 `{ kind: 'tree' }` 占位，这样一个 v-for 就能排完，不用把图标那几十行 SVG 复制成两组。
+ *
+ * 🔴 树挂在 `layout.open` 上：桌面折叠 / 手机抽屉关着时**不挂载**。
+ * 手机上抽屉默认是关的，一直挂着就等于每个页面都白付一次目录遍历；
+ * 展开时再挂，数据走 `tree()` 的模块缓存，立刻就有。
+ */
+type NavEntry = NavItem | { kind: 'tree' };
+
+const entries: NavEntry[] = [
+  notesItem,
+  foldersItem,
+  { kind: 'tree' },
+  trashItem,
+  settingsItem,
+];
 const isMobileDrawer = computed(() => !layout.desktop);
 
 async function create(): Promise<void> {
@@ -127,55 +177,60 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey));
     </button>
 
     <nav class="nav">
-      <RouterLink
-        v-for="item in items"
-        :key="item.to"
-        :to="item.to"
-        class="nav-item"
-        :class="{ 'is-active': item.match(route.path) && route.path !== '/login' }"
-        @click="onNavigate"
-      >
-        <svg v-if="item.icon === 'notes'" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
-          <path
-            d="M6 3.75h9.5a2.75 2.75 0 0 1 2.75 2.75v13.75H8.75A2.75 2.75 0 0 1 6 17.5V3.75Z"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="1.6"
-            stroke-linejoin="round"
-          />
-          <path d="M9.5 9h5M9.5 12.5h5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" />
-        </svg>
-        <svg v-else-if="item.icon === 'folder'" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
-          <path
-            d="M3.5 6.75A1.75 1.75 0 0 1 5.25 5h3.4l1.7 2h8.4a1.75 1.75 0 0 1 1.75 1.75v7.5A1.75 1.75 0 0 1 18.75 18H5.25a1.75 1.75 0 0 1-1.75-1.75Z"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="1.6"
-            stroke-linejoin="round"
-          />
-        </svg>
-        <svg v-else-if="item.icon === 'trash'" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
-          <path
-            d="M5.5 7h13M10 7V5.5h4V7M7 7l.9 12h8.2L17 7"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="1.6"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-          />
-        </svg>
-        <svg v-else viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
-          <circle cx="12" cy="12" r="2.75" fill="none" stroke="currentColor" stroke-width="1.6" />
-          <path
-            d="M12 3.5v2.2M12 18.3v2.2M20.5 12h-2.2M5.7 12H3.5M18 6l-1.6 1.6M7.6 16.4 6 18M18 18l-1.6-1.6M7.6 7.6 6 6"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="1.6"
-            stroke-linecap="round"
-          />
-        </svg>
-        {{ item.label }}
-      </RouterLink>
+      <template v-for="entry in entries" :key="entry.kind === 'tree' ? '__tree__' : entry.to">
+        <template v-if="entry.kind === 'tree'">
+          <SidebarTree v-if="layout.open" />
+        </template>
+
+        <RouterLink
+          v-else
+          :to="entry.to"
+          class="nav-item"
+          :class="{ 'is-active': entry.match(route.path) && route.path !== '/login' }"
+          @click="onNavigate"
+        >
+          <svg v-if="entry.icon === 'notes'" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+            <path
+              d="M6 3.75h9.5a2.75 2.75 0 0 1 2.75 2.75v13.75H8.75A2.75 2.75 0 0 1 6 17.5V3.75Z"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.6"
+              stroke-linejoin="round"
+            />
+            <path d="M9.5 9h5M9.5 12.5h5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" />
+          </svg>
+          <svg v-else-if="entry.icon === 'folder'" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+            <path
+              d="M3.5 6.75A1.75 1.75 0 0 1 5.25 5h3.4l1.7 2h8.4a1.75 1.75 0 0 1 1.75 1.75v7.5A1.75 1.75 0 0 1 18.75 18H5.25a1.75 1.75 0 0 1-1.75-1.75Z"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.6"
+              stroke-linejoin="round"
+            />
+          </svg>
+          <svg v-else-if="entry.icon === 'trash'" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+            <path
+              d="M5.5 7h13M10 7V5.5h4V7M7 7l.9 12h8.2L17 7"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.6"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            />
+          </svg>
+          <svg v-else viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+            <circle cx="12" cy="12" r="2.75" fill="none" stroke="currentColor" stroke-width="1.6" />
+            <path
+              d="M12 3.5v2.2M12 18.3v2.2M20.5 12h-2.2M5.7 12H3.5M18 6l-1.6 1.6M7.6 16.4 6 18M18 18l-1.6-1.6M7.6 7.6 6 6"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.6"
+              stroke-linecap="round"
+            />
+          </svg>
+          {{ entry.label }}
+        </RouterLink>
+      </template>
     </nav>
 
     <div class="rail-foot">
@@ -335,12 +390,19 @@ html[data-sidebar='closed'] .rail {
 }
 
 .nav {
+  /*
+   * 导航整体吃掉剩余高度：里面的树（SidebarTree）靠 flex:1 + overflow-y 自己滚，
+   * 下面的 rail-foot 因此不用再靠 margin-top:auto 顶到底。
+   */
+  flex: 1 1 auto;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   gap: 2px;
 }
 
 .nav-item {
+  flex: none;
   display: flex;
   align-items: center;
   gap: 10px;

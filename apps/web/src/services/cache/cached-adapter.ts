@@ -2,15 +2,22 @@
  * 带本地缓存的存储装饰器。
  *
  * 主存储仍然是用户自己的网盘 —— 这一层只做三件事：
- *   1. 读：打开笔记时先给本地副本（秒开），同时在后台比对 etag 把过期副本换掉；
- *      网断了就直接用副本，不再往上抛错。
+ *   1. 读：列表和正文都先给本地（秒开），后台再校验；网断了直接用本地，不往上抛错。
  *   2. 写：写云端成功就顺手更新副本；网断了写副本并标 dirty，等恢复联网再推。
- *   3. 列目录：网断了用 meta.json 里记的结构顶一下，让列表还能显示。
+ *   3. 列目录：本地已有这一层就直接返回，同时后台发一次 PROPFIND 对账。
+ *
+ * 「本地优先 + 后台校验」的判据：
+ *   - 列表 / 打开笔记：有副本就先给副本，请求全部挪到后台，界面不等网络。
+ *   - 校验用文件的 etag（坚果云给文件发真 etag，且内容变就变）；
+ *     集合（目录）没有 etag，退回 getlastmodified，按秒比较。
+ *   - 同一目录在 LIST_TTL_MS 内不重复校验 —— 坚果云 30 分钟只有 600 次配额。
+ *   - 校验真的发现差异才 notifyData()，界面据此重取一次数据；没差异就静默。
  *
  * 刻意不做的事：
- *   - 不接管 move / delete / mkdir。这些是结构变更，半成功比失败更难收拾，
- *     断网时直接抛错，交给界面提示。
+ *   - 不接管 move / delete / mkdir 的云端语义。这些是结构变更，半成功比失败更难收拾，
+ *     断网时直接抛错，交给界面提示。本地索引跟着一起改，但那只是索引，不是事实来源。
  *   - 不承诺完全离线。只有「本机读过的」才在缓存里。
+ *   - 不做写队列。「先写本地再后台推」是另一个量级的改动，本批次不碰。
  */
 import type {
   BatchOperation,
@@ -18,6 +25,7 @@ import type {
   ConnectResult,
   DirEntry,
   FileStat,
+  ListOptions,
   ReadOptions,
   StorageAdapter,
   StorageConfig,
@@ -43,9 +51,33 @@ function parentOf(rel: string): string {
   return at < 0 ? '' : rel.slice(0, at);
 }
 
+/** 去掉 .md 后缀的末段 */
+function stemOf(name: string): string {
+  return name.toLowerCase().endsWith('.md') ? name.slice(0, -3) : name;
+}
+
 /** 请求根本没发出去 = 离线。只有这一类错误才有资格走缓存兜底 */
 function isOffline(error: unknown): boolean {
   return error instanceof StorageError && error.code === 'unreachable';
+}
+
+/** 被服务端限流（坚果云免费版 30 分钟 600 次），先停一会儿再校验 */
+function isRateLimited(error: unknown): boolean {
+  return error instanceof StorageError && (error.status === 503 || error.status === 429);
+}
+
+/** 同一目录多久不重复校验。太短会把限流额度烧在反复切页上；跨进程保留，重开应用也算数 */
+const LIST_TTL_MS = 60_000;
+/** 后台校验的并行度。整树遍历一次会甩出上百个目录，不限住会撞穿限流 */
+const CHECK_CONCURRENCY = 2;
+/** 两次后台校验之间的最小间隔 */
+const CHECK_GAP_MS = 150;
+/** 撞上限流后停多久 */
+const CHECK_COOLDOWN_MS = 5 * 60_000;
+
+/** 服务端 mtime 只到秒，本地写入给的是毫秒，比较前一律压到秒 */
+function sameSecond(a: number, b: number): boolean {
+  return a !== 0 && b !== 0 && Math.floor(a / 1000) === Math.floor(b / 1000);
 }
 
 export class CachedStorage implements StorageAdapter {
@@ -55,10 +87,22 @@ export class CachedStorage implements StorageAdapter {
 
   private meta: CacheMeta = emptyMeta('');
   private folders = new Set<string>();
+  /** 已经成功列过的目录。只有列过，才敢拿它的结果删本地多出来的条目 */
+  private listed = new Set<string>();
   private ready: Promise<void>;
   private saveTimer: ReturnType<typeof setTimeout> | null = null;
+  private dataTimer: ReturnType<typeof setTimeout> | null = null;
   private offline = false;
   private inflight = new Set<string>();
+  /** 每个目录上次校验完成的时刻 */
+  private checkedAt = new Map<string, number>();
+  /** 后台校验队列（去重 + 限并发） */
+  private queue: string[] = [];
+  private queued = new Set<string>();
+  private checking = 0;
+  private cooldownUntil = 0;
+  private netHandler: (() => void) | null = null;
+  private lifeHandler: (() => void) | null = null;
 
   constructor(
     private inner: StorageAdapter,
@@ -66,12 +110,18 @@ export class CachedStorage implements StorageAdapter {
     private root: string,
   ) {
     this.meta = emptyMeta(root);
-    this.ready = this.hydrate();
+    this.ready = this.hydrate().then(() => {
+      this.watchNetwork();
+      this.watchLifecycle();
+    });
   }
 
   private async hydrate(): Promise<void> {
     this.meta = await loadMeta(this.store, this.root);
-    for (const folder of await loadFolders(this.store)) this.folders.add(folder);
+    const folders = await loadFolders(this.store);
+    for (const folder of folders.items) this.folders.add(folder);
+    for (const folder of folders.listed) this.listed.add(folder);
+    for (const [dir, at] of Object.entries(folders.checked)) this.checkedAt.set(dir, at);
   }
 
   /* ------------------------------ 元数据维护 ------------------------------ */
@@ -89,9 +139,23 @@ export class CachedStorage implements StorageAdapter {
     if (this.saveTimer) return;
     this.saveTimer = setTimeout(() => {
       this.saveTimer = null;
-      void saveMeta(this.store, this.meta);
-      void saveFolders(this.store, [...this.folders]);
+      void this.persist();
     }, 500);
+  }
+
+  /**
+   * 页面要走（跳转 / 关闭）时，把还压在防抖里的索引落下去。
+   *
+   * `scheduleSave()` 排的是 500ms 后的写入，定时器随页面一起销毁 —— 这一笔就丢了。
+   * 丢的后果不小：刚写完的笔记已经进了内存索引，但没落盘；下一页读到的是**旧索引**，
+   * 而目录级 60 秒 TTL 又拦住了重新校验，于是列表里看不到那篇笔记。
+   * （实测：创建笔记后立刻重载，不修这一笔就稳定复现空列表。）
+   */
+  private flushIndex(): void {
+    if (!this.saveTimer) return;
+    clearTimeout(this.saveTimer);
+    this.saveTimer = null;
+    void this.persist();
   }
 
   /** 立刻落盘（退出前或关键节点用） */
@@ -100,8 +164,25 @@ export class CachedStorage implements StorageAdapter {
       clearTimeout(this.saveTimer);
       this.saveTimer = null;
     }
+    if (this.dataTimer) {
+      clearTimeout(this.dataTimer);
+      this.dataTimer = null;
+    }
+    this.queue = [];
+    this.queued.clear();
+    await this.persist();
+  }
+
+  private async persist(): Promise<void> {
     await saveMeta(this.store, this.meta);
-    await saveFolders(this.store, [...this.folders]);
+    await saveFolders(this.store, [...this.folders], [...this.listed], this.checkedAt);
+  }
+
+  /** 「立即同步」用：把校验时间全部作废，下一轮把整棵树重新对一遍账 */
+  invalidateChecks(): void {
+    this.checkedAt.clear();
+    this.queue = [];
+    this.queued.clear();
   }
 
   private async readCache(rel: string): Promise<string | null> {
@@ -128,12 +209,15 @@ export class CachedStorage implements StorageAdapter {
 
   /* ------------------------------ 连接状态 ------------------------------ */
 
+  /** 只在状态真的翻转时通知，免得每次读都抖一下界面 */
   private markOnline(): void {
+    if (!this.offline) return;
     this.offline = false;
     this.notify();
   }
 
   private markOffline(): void {
+    if (this.offline) return;
     this.offline = true;
     this.notify();
   }
@@ -157,6 +241,27 @@ export class CachedStorage implements StorageAdapter {
     return this.readCache(rel);
   }
 
+  /**
+   * 浏览器给的断网信号。有它，顶栏能在**不花一次请求**的前提下立刻转灰 ——
+   * 否则「刚断网但目录还在 TTL 内」这段窗口里，界面只能一直显示已连接。
+   * 网络回来时只作废校验时刻，不动状态点：绿色仍然只表示「请求真的成功过」。
+   */
+  private watchNetwork(): void {
+    if (typeof window === 'undefined' || this.netHandler) return;
+    this.netHandler = (): void => {
+      if (navigator.onLine) this.invalidateChecks();
+      else this.markOffline();
+    };
+    window.addEventListener('online', this.netHandler);
+    window.addEventListener('offline', this.netHandler);
+    if (!navigator.onLine) this.markOffline();
+  }
+
+  private watchLifecycle(): void {
+    if (typeof window === 'undefined' || this.lifeHandler) return;
+    this.lifeHandler = (): void => this.flushIndex();
+    window.addEventListener('pagehide', this.lifeHandler);
+  }
   /** 冲突时选「用云端」：把云端正文覆盖到副本上，清掉 dirty */
   async acceptRemote(rel: string): Promise<void> {
     const text = await this.inner.read(rel);
@@ -188,6 +293,7 @@ export class CachedStorage implements StorageAdapter {
   /* ------------------------------ 变更通知 ------------------------------ */
 
   private listeners = new Set<() => void>();
+  private dataListeners = new Set<() => void>();
 
   /** 订阅「离线态 / dirty 数」变化，给状态点用。返回退订函数 */
   subscribe(fn: () => void): () => void {
@@ -197,6 +303,27 @@ export class CachedStorage implements StorageAdapter {
 
   private notify(): void {
     for (const fn of this.listeners) fn();
+  }
+
+  /**
+   * 订阅「云端数据变了」。只有后台校验真的对出差异时才发 ——
+   * 状态点的翻转不走这条，否则视图会被每次读操作引起的状态抖动带着刷。
+   */
+  subscribeData(fn: () => void): () => void {
+    this.dataListeners.add(fn);
+    return () => this.dataListeners.delete(fn);
+  }
+
+  /**
+   * 一次遍历会给好几个目录对账，每个目录都可能报「变了」。
+   * 合并成一次通知：界面只需要知道「现在该重取一次数据」，不需要知道变了几处。
+   */
+  private notifyData(): void {
+    if (this.dataTimer) return;
+    this.dataTimer = setTimeout(() => {
+      this.dataTimer = null;
+      for (const fn of this.dataListeners) fn();
+    }, 200);
   }
 
   /* ------------------------------ 生命周期 ------------------------------ */
@@ -213,6 +340,11 @@ export class CachedStorage implements StorageAdapter {
 
   async disconnect(): Promise<void> {
     await this.flush();
+    if (this.netHandler && typeof window !== 'undefined') {
+      window.removeEventListener('online', this.netHandler);
+      window.removeEventListener('offline', this.netHandler);
+      this.netHandler = null;
+    }
     await this.inner.disconnect();
   }
 
@@ -252,7 +384,11 @@ export class CachedStorage implements StorageAdapter {
     }
   }
 
-  /** 后台校验：etag（服务端不给就退回 mtime）不一致时重拉全文覆盖副本 */
+  /**
+   * 后台校验一篇笔记：指纹不一致就重拉全文覆盖副本，并把「数据变了」发给界面。
+   * 指纹优先用 etag（坚果云给文件发真 etag，内容变就变）；没有 etag 时退回 mtime，
+   * 按秒比较 —— 本地刚写完的 mtime 是 Date.now() 毫秒值，只有压到秒才对得上服务端。
+   */
   private async revalidate(path: string): Promise<void> {
     if (this.inflight.has(path)) return;
     this.inflight.add(path);
@@ -260,15 +396,20 @@ export class CachedStorage implements StorageAdapter {
       const stat = await this.inner.stat(path);
       const row = this.row(path);
       this.markOnline();
-      // 服务端给 etag 就用 etag，不给就退回 mtime
-      const unchanged = row.etag ? row.etag === stat.etag : row.mtime === stat.mtime;
-      if (unchanged) return;
-      const text = await this.inner.read(path);
-      row.etag = stat.etag;
+      const same = row.etag && stat.etag ? row.etag === stat.etag : sameSecond(row.mtime, stat.mtime);
+      // 顺手把本地记的指纹校正成服务端的值（本地写入留下的是毫秒值）
       row.mtime = stat.mtime;
+      row.etag = stat.etag;
+      if (same) {
+        this.scheduleSave();
+        return;
+      }
+      const text = await this.inner.read(path);
       await this.writeCache(path, text);
+      this.notifyData();
     } catch (error) {
       if (isOffline(error)) this.markOffline();
+      else if (isRateLimited(error)) this.cooldownUntil = Date.now() + CHECK_COOLDOWN_MS;
     } finally {
       this.inflight.delete(path);
     }
@@ -284,6 +425,8 @@ export class CachedStorage implements StorageAdapter {
         await this.writeCache(path, content);
         const row = this.row(path);
         row.dirty = false;
+        // 本地刚写过，手上的 etag 已经不作数：清掉，等下一轮 PROPFIND 领新的
+        row.etag = '';
         if (result.mtime) row.mtime = result.mtime;
         this.scheduleSave();
       }
@@ -307,28 +450,84 @@ export class CachedStorage implements StorageAdapter {
 
   /* ------------------------------ 列目录 / 状态 ------------------------------ */
 
-  async list(path: string): Promise<DirEntry[]> {
+  /**
+   * 列目录：本地已经有这一层的快照就直接返回，同时把校验排进后台队列。
+   * 只有「从没列过这一层」才等网络 —— 那种情况下本地确实不知道有什么。
+   *
+   * `fresh` 跳过缓存直接问云端：调用方要拿这份列表决定名字或是否覆盖时（重名检查、搬运避让），
+   * 用旧列表等于没查。
+   */
+  async list(path: string, options?: ListOptions): Promise<DirEntry[]> {
     await this.ready;
+    if (options?.fresh) return this.fetchDir(path);
+    const cached = this.cachedEntries(path);
+    if (cached.length || this.listed.has(path)) {
+      this.enqueue(path);
+      return cached;
+    }
     try {
-      const entries = await this.inner.list(path);
-      this.merge(entries);
-      this.markOnline();
-      return entries;
+      return await this.fetchDir(path);
     } catch (error) {
-      if (isOffline(error)) {
-        const cached = this.cachedEntries(path);
-        if (cached.length) {
-          this.markOffline();
-          return cached;
-        }
-      }
+      if (isOffline(error)) this.markOffline();
       throw error;
     }
   }
 
-  private merge(entries: DirEntry[]): void {
+  /** 真去云端列一次并写进索引 */
+  private async fetchDir(path: string): Promise<DirEntry[]> {
+    const entries = await this.inner.list(path);
+    const changed = this.reconcile(path, entries);
+    this.checkedAt.set(path, Date.now());
+    this.markOnline();
+    if (changed) this.notifyData();
+    return entries;
+  }
+
+  /* ---------- 后台校验队列：限并发 + 冷却，别把限流额度撞穿 ---------- */
+
+  private enqueue(path: string): void {
+    if (this.queued.has(path)) return;
+    if (Date.now() < this.cooldownUntil) return;
+    const last = this.checkedAt.get(path) ?? 0;
+    if (Date.now() - last < LIST_TTL_MS) return;
+    this.queued.add(path);
+    this.queue.push(path);
+    void this.drain();
+  }
+
+  private async drain(): Promise<void> {
+    while (this.checking < CHECK_CONCURRENCY && this.queue.length) {
+      const path = this.queue.shift() as string;
+      this.checking++;
+      try {
+        await this.fetchDir(path);
+      } catch (error) {
+        if (isOffline(error)) this.markOffline();
+        else if (isRateLimited(error)) {
+          // 被限流就把队列清掉，别跟服务端对着干
+          this.cooldownUntil = Date.now() + CHECK_COOLDOWN_MS;
+          this.queue = [];
+        }
+      } finally {
+        this.checking--;
+        this.queued.delete(path);
+      }
+      await new Promise((resolve) => setTimeout(resolve, CHECK_GAP_MS));
+    }
+  }
+
+  /**
+   * 用一次 PROPFIND 的结果给这一层的索引对账：
+   *   新出现 / 指纹变了的 → 写进索引；
+   *   云端已经没有的 → 删掉索引条目（只有「列过这一层」才敢删，见 listed）。
+   * 返回索引是否真的变了 —— 变了才通知界面，没变就静默。
+   */
+  private reconcile(dir: string, entries: DirEntry[]): boolean {
     let changed = false;
+    const seen = new Set<string>();
+
     for (const entry of entries) {
+      seen.add(entry.path);
       if (entry.isDirectory) {
         if (!this.folders.has(entry.path)) {
           this.folders.add(entry.path);
@@ -352,15 +551,38 @@ export class CachedStorage implements StorageAdapter {
         changed = true;
       }
       if (!row.title) {
-        const name = entry.name;
-        row.title = name.toLowerCase().endsWith('.md') ? name.slice(0, -3) : name;
+        row.title = stemOf(entry.name);
         changed = true;
       }
     }
+
+    if (this.listed.has(dir)) {
+      const prefix = dir ? `${dir}/` : '';
+      const directChild = (rel: string): boolean => {
+        if (!rel.startsWith(prefix)) return false;
+        const rest = rel.slice(prefix.length);
+        return Boolean(rest) && !rest.includes('/');
+      };
+      for (const rel of Object.keys(this.meta.notes)) {
+        if (directChild(rel) && !seen.has(rel)) {
+          delete this.meta.notes[rel];
+          changed = true;
+        }
+      }
+      for (const folder of [...this.folders]) {
+        if (directChild(folder) && !seen.has(folder)) {
+          this.folders.delete(folder);
+          changed = true;
+        }
+      }
+    }
+
+    this.listed.add(dir);
     if (changed) this.scheduleSave();
+    return changed;
   }
 
-  /** 断网时用 meta.json 里的记录把这一层的目录列出来 */
+  /** 用本地索引把某一层的目录列出来 */
   private cachedEntries(dir: string): DirEntry[] {
     const prefix = dir ? `${dir}/` : '';
     const out: DirEntry[] = [];
@@ -411,34 +633,81 @@ export class CachedStorage implements StorageAdapter {
     await this.forget(path);
   }
 
+  /**
+   * 从本地索引里摘掉一个条目及其整棵子树。
+   * 删目录时里面的东西会跟着在云端消失，索引必须一起清，否则列表会留下幽灵条目。
+   */
   private async forget(path: string): Promise<void> {
+    const prefix = `${path}/`;
+    const inSubtree = (rel: string): boolean => rel === path || rel.startsWith(prefix);
+
+    await this.forgetCopy(path);
+    for (const rel of Object.keys(this.meta.notes)) {
+      if (rel === path || !rel.startsWith(prefix)) continue;
+      await this.forgetCopy(rel);
+      delete this.meta.notes[rel];
+    }
+    delete this.meta.notes[path];
+    for (const dir of [...this.folders]) if (inSubtree(dir)) this.folders.delete(dir);
+    for (const dir of [...this.listed]) if (inSubtree(dir)) this.listed.delete(dir);
+
+    // 父目录的结构变了，让它下一轮重新对账
+    this.checkedAt.delete(parentOf(path));
+    this.scheduleSave();
+  }
+
+  private async forgetCopy(rel: string): Promise<void> {
     try {
-      await this.store.remove(noteFile(path));
+      await this.store.remove(noteFile(rel));
     } catch {
       // 缓存删不掉不影响云端已经删掉的事实
     }
-    delete this.meta.notes[path];
-    this.scheduleSave();
   }
 
   async move(from: string, to: string): Promise<void> {
     await this.inner.move(from, to);
-    try {
-      const text = await this.readCache(from);
-      if (text !== null) {
-        await this.store.write(noteFile(to), text);
-        await this.store.remove(noteFile(from));
-      }
-    } catch {
-      // 副本搬不过去下次读云端补上
-    }
-    const row = this.meta.notes[from];
-    delete this.meta.notes[from];
-    if (row) {
-      row.folder = parentOf(to);
-      this.meta.notes[to] = row;
-    }
+    await this.repath(from, to);
     this.scheduleSave();
+  }
+
+  /**
+   * 把 from 及其整棵子树在本地索引里改写成 to —— 改名就是移动的特例。
+   * 笔记行、目录集合、已列过的目录、以及已经落盘的正文副本都要跟着走，
+   * 否则缓存优先后列表会同时显示新旧两个位置。
+   */
+  private async repath(from: string, to: string): Promise<void> {
+    const fromPrefix = `${from}/`;
+    const inSubtree = (rel: string): boolean => rel === from || rel.startsWith(fromPrefix);
+
+    for (const rel of Object.keys(this.meta.notes)) {
+      if (!inSubtree(rel)) continue;
+      const next = to + rel.slice(from.length);
+      const row = this.meta.notes[rel];
+      delete this.meta.notes[rel];
+      row.folder = parentOf(next);
+      this.meta.notes[next] = row;
+      if (!row.cached) continue;
+      try {
+        const body = await this.store.read(noteFile(rel));
+        if (body !== null) {
+          await this.store.write(noteFile(next), body);
+          await this.store.remove(noteFile(rel));
+        }
+      } catch {
+        // 副本搬不过去下次读云端补上
+      }
+    }
+
+    for (const set of [this.folders, this.listed]) {
+      for (const dir of [...set]) {
+        if (!inSubtree(dir)) continue;
+        set.delete(dir);
+        set.add(to + dir.slice(from.length));
+      }
+    }
+
+    this.checkedAt.delete(parentOf(from));
+    this.checkedAt.delete(parentOf(to));
   }
 
   async mkdir(path: string): Promise<void> {

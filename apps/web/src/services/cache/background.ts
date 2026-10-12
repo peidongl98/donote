@@ -170,11 +170,12 @@ export class BackgroundWork {
     return worked;
   }
 
-  /** 手动触发一次（设置页的「立即同步」用） */
+  /** 手动触发一次（设置页的「立即同步」用）。顺手把校验时间作废，下一轮重新对账整棵树 */
   async runNow(): Promise<void> {
     if (this.busy) return;
     this.busy = true;
     try {
+      this.cache.invalidateChecks();
       await this.flushDirty();
       await this.prefetchRound();
     } finally {

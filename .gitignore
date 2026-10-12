@@ -5,6 +5,9 @@ node_modules/
 # build output
 dist/
 dist-ssr/
+# 构建时把 dist 让开而生成的副本（dist.before-cache / dist.keep / dist.building …），
+# 与 dist/ 同类：都是可再生成的产物，不该出现在 git status 里
+dist.*/
 *.local
 
 # cloudflare

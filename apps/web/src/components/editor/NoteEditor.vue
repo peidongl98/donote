@@ -16,7 +16,7 @@
 import { nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue';
 import type { Ctx } from '@milkdown/kit/ctx';
 import type { Editor } from '@milkdown/kit/core';
-import { editorViewCtx } from '@milkdown/kit/core';
+import { editorViewCtx, serializerCtx } from '@milkdown/kit/core';
 import { createNoteEditor } from './create-editor';
 import { EMPTY_SNAPSHOT, insertImage, snapshotOf, type ToolbarSnapshot } from './commands';
 import EditorToolbar from './EditorToolbar.vue';
@@ -54,6 +54,9 @@ const float = ref<{ x: number; y: number } | null>(null);
 
 let lastCtx: Ctx | null = null;
 
+/** 浮条渲染宽度约 167px（5 个 28px 按钮 + 分隔线 + 内边距），取一半用来夹位置 */
+const FLOAT_HALF_W = 84;
+
 function refresh(ctx: Ctx): void {
   lastCtx = ctx;
   const view = ctx.get(editorViewCtx);
@@ -68,7 +71,14 @@ function refresh(ctx: Ctx): void {
   }
   const start = view.coordsAtPos(selection.from);
   const end = view.coordsAtPos(selection.to);
-  float.value = { x: (start.left + end.right) / 2, y: Math.min(start.top, end.top) - 8 };
+  // 位置按选区中点算，但必须夹在正文栏内：选中**行首**几个字时中点会很靠左，
+  // 浮条左端就钻进侧栏底下；侧栏 z-index 20 比浮条 16 高，左端会被切掉看不见。
+  const column = view.dom.getBoundingClientRect();
+  const mid = (start.left + end.right) / 2;
+  float.value = {
+    x: Math.min(Math.max(mid, column.left + FLOAT_HALF_W), column.right - FLOAT_HALF_W),
+    y: Math.min(start.top, end.top) - 8,
+  };
 }
 
 function report(markdown: string): void {
@@ -126,9 +136,24 @@ function onSurfaceScroll(): void {
   float.value = null;
 }
 
-/** 上层上传完图片后调这里，把图插到当前光标处 */
-function placeImage(src: string, alt: string): void {
-  insertImage(editorRef.value, src, alt);
+/** 当前正文的 Markdown。序列化要 ctx，而 ctx 在刷新回调里存过一份，这里同步取得到 */
+function currentMarkdown(): string | null {
+  const view = lastCtx?.get(editorViewCtx);
+  if (!lastCtx || !view?.state) return null;
+  return lastCtx.get(serializerCtx)(view.state.doc);
+}
+
+/**
+ * 上层上传完图片后调这里，把图插到当前光标处。
+ *
+ * 🔴 返回前必须把新正文上报出去，不能等 listener 插件那 200ms 序列化防抖。
+ * 这段窗口里 `modelValue` 还是旧正文、上层 status 还停在「已保存」，
+ * 于是「插图后马上点别的笔记」会落盘成**不带图**的旧正文 —— 附件已经传上去了，图就丢了。
+ */
+async function placeImage(src: string, alt: string): Promise<void> {
+  await insertImage(editorRef.value, src, alt);
+  const markdown = currentMarkdown();
+  if (markdown !== null && markdown !== props.modelValue) report(markdown);
 }
 
 defineExpose({ getEditor: () => editorRef.value, placeImage });

@@ -1,10 +1,15 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import type { NoteSummaryDTO } from '@donote/shared';
+import type { FolderDTO, NoteSummaryDTO } from '@donote/shared';
 import { foldersApi, notesApi } from '@/storage/notes';
+import { useSelectionStore } from '@/stores/selection';
+import { useSyncStore } from '@/stores/sync';
 import { useUiStore } from '@/stores/ui';
+import { flattenFolders } from '@/utils/folder-tree';
+import { useLongPress } from '@/utils/long-press';
 import AppHeader from '@/components/AppHeader.vue';
+import BatchToolbar from '@/components/BatchToolbar.vue';
 import NoteCard from '@/components/NoteCard.vue';
 import NoteActionMenu from '@/components/NoteActionMenu.vue';
 import EmptyState from '@/components/EmptyState.vue';
@@ -12,9 +17,12 @@ import EmptyState from '@/components/EmptyState.vue';
 const route = useRoute();
 const router = useRouter();
 const ui = useUiStore();
+const sync = useSyncStore();
+const sel = useSelectionStore();
 
 const folderId = String(route.params.id);
 const folderName = ref('文件夹');
+const folders = ref<FolderDTO[]>([]);
 const notes = ref<NoteSummaryDTO[]>([]);
 const loading = ref(true);
 /** 右键 / 「更多」打开的那篇笔记 */
@@ -22,21 +30,42 @@ const menuNote = ref<NoteSummaryDTO | null>(null);
 
 const subtitle = computed(() => `${notes.value.length} 篇笔记`);
 
+/* ------------------------------ 多选 ------------------------------ */
+
+const selectedIds = computed(() => notes.value.map((n) => n.id).filter((id) => sel.has(id)));
+const allIds = computed(() => notes.value.map((n) => n.id));
+const batchTargets = computed(() => flattenFolders(folders.value));
+const labelOf = (id: string): string => notes.value.find((n) => n.id === id)?.title ?? '这篇笔记';
+
+const pressId = ref('');
+const press = useLongPress(() => enterSelect(pressId.value));
+
+function startPress(id: string, event: PointerEvent): void {
+  pressId.value = id;
+  press.start(event);
+}
+
+function enterSelect(id: string): void {
+  if (!sel.selecting) sel.enterSelecting('notes');
+  if (id) sel.toggle(id);
+}
+
 async function load(): Promise<void> {
   loading.value = true;
   try {
-    const [folders, list] = await Promise.all([
+    const [list, noteList] = await Promise.all([
       foldersApi.list(),
       notesApi.list({ folder_id: folderId }),
     ]);
-    const folder = folders.items.find((f) => f.id === folderId);
+    const folder = list.items.find((f) => f.id === folderId);
     if (!folder) {
       ui.toast('文件夹不存在');
       await router.replace('/folders');
       return;
     }
+    folders.value = list.items;
     folderName.value = folder.name;
-    notes.value = list.items;
+    notes.value = noteList.items;
   } catch {
     ui.toast('加载失败');
   } finally {
@@ -54,6 +83,9 @@ async function create(): Promise<void> {
 }
 
 onMounted(load);
+
+/** 缓存层在后台校验出云端有更新，列表跟着刷一次 */
+watch(() => sync.dataVersion, load);
 </script>
 
 <template>
@@ -94,10 +126,25 @@ onMounted(load);
           v-for="note in notes"
           :key="note.id"
           :note="note"
+          :selectable="sel.selecting"
+          :selected="sel.has(note.id)"
           @menu="menuNote = $event"
+          @enter="enterSelect"
+          @toggle="(id) => sel.toggle(id)"
+          @longpress="enterSelect($event.id)"
         />
       </div>
     </div>
+
+    <BatchToolbar
+      v-if="sel.selecting"
+      context="notes"
+      :ids="selectedIds"
+      :all-ids="allIds"
+      :label-of="labelOf"
+      :targets="batchTargets"
+      @done="load"
+    />
 
     <NoteActionMenu
       :note="menuNote"

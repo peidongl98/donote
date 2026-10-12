@@ -83,9 +83,13 @@ function sanitize(name: string): string {
 
 /* ------------------------------ 适配器包装 ------------------------------ */
 
-/** 列目录。适配器返回的 mtime 是可选的，这里补齐成数字，后续不用到处判空 */
-async function listDir(rel: string): Promise<DirEntry[]> {
-  const entries = await getStorage().list(rel);
+/**
+ * 列目录。适配器返回的 mtime 是可选的，这里补齐成数字，后续不用到处判空。
+ * fresh=true 跳过本地缓存 —— 凡是用这份列表决定「叫什么名字 / 会不会覆盖」的地方都要传，
+ * 否则缓存里的旧列表会让查重失效（数据层不加缓存时它一直是新鲜的）。
+ */
+async function listDir(rel: string, fresh = false): Promise<DirEntry[]> {
+  const entries = await getStorage().list(rel, fresh ? { fresh: true } : undefined);
   return entries.map((entry) => ({ ...entry, mtime: entry.mtime ?? 0 }));
 }
 
@@ -141,23 +145,34 @@ async function walkTree(): Promise<Tree> {
       }
     });
 
-    frontier = next;
+    frontier = frontier.concat(next);
   }
   return acc;
 }
 
 /** 一次页面加载会同时要列表和文件夹，这里合并成一次遍历 */
 let treeCache: { at: number; data: Tree } | null = null;
+/** 正在跑的那次遍历。同时要列表和文件夹时共用它，不重复走一遍目录树 */
+let treePending: Promise<Tree> | null = null;
 
-function invalidateTree(): void {
+/** 缓存层在后台校验出差异时，由 stores/sync 调这个把遍历结果作废 */
+export function invalidateTree(): void {
   treeCache = null;
 }
 
 async function tree(force = false): Promise<Tree> {
   if (!force && treeCache && Date.now() - treeCache.at < 3000) return treeCache.data;
-  const data = await walkTree();
-  treeCache = { at: Date.now(), data };
-  return data;
+  if (!treePending) {
+    treePending = walkTree()
+      .then((data) => {
+        treeCache = { at: Date.now(), data };
+        return data;
+      })
+      .finally(() => {
+        treePending = null;
+      });
+  }
+  return treePending;
 }
 
 /* ------------------------------ 摘要缓存 ------------------------------ */
@@ -267,7 +282,7 @@ function noteOf(rel: string, meta: NoteMeta, body: string): NoteDTO {
 
 /** 目标目录下挑一个没被占用的文件名 */
 async function uniqueRel(dir: string, stem: string, ext: string, exclude?: string): Promise<string> {
-  const entries = await listDir(dir);
+  const entries = await listDir(dir, true);
   const taken = new Set(
     entries.filter((entry) => entry.path !== exclude).map((entry) => entry.name),
   );
@@ -300,8 +315,9 @@ async function moveAssets(fromDir: string, toDir: string): Promise<void> {
     await getStorage().move(fromDir, toDir);
     return;
   }
-  const taken = new Set((await listDir(toDir)).map((entry) => entry.name));
-  for (const entry of await listDir(fromDir)) {
+  // 目标与来源都取新鲜的列表：这里要拿名字去避让，用旧列表会把同名附件覆盖掉
+  const taken = new Set((await listDir(toDir, true)).map((entry) => entry.name));
+  for (const entry of await listDir(fromDir, true)) {
     const name = uniqueName(entry.name, taken);
     taken.add(name);
     await getStorage().move(entry.path, `${toDir}/${name}`);
@@ -331,7 +347,8 @@ async function listTrash(): Promise<NoteSummaryDTO[]> {
 
   const rows = await mapLimited(entries, 4, async (entry): Promise<NoteSummaryDTO | null> => {
     try {
-      const raw = await readOrNull(entry.path);
+      // 回收站的正文在软删那一刻就落过本地副本，优先用副本 —— 打开回收站不再逐篇 GET
+      const raw = await readOrNull(entry.path, true);
       if (raw === null) return null;
       const parsed = parseNote(raw, baseName(entry.path), entry.mtime ?? 0);
       const deletedAt = parsed.deleted_at ?? entry.mtime ?? 0;
@@ -364,12 +381,11 @@ export const notesApi = {
       rows = notes.map(summaryOf);
 
       if (query.folder_id) {
+        // 只算直系子级：与 FolderDTO.note_count 一个口径。
+        // 含后代会让「这个文件夹有几篇」和「点进去看到几篇」对不上，
+        // 批次 4 的 index.md 模型下递归更是错的。
         const folder = query.folder_id === 'root' ? '' : decodeId(query.folder_id);
-        rows = rows.filter((row) => {
-          if (!row.folder_id) return folder === '';
-          const rel = decodeId(row.folder_id);
-          return rel === folder || rel.startsWith(`${folder}/`);
-        });
+        rows = rows.filter((row) => (row.folder_id ? decodeId(row.folder_id) : '') === folder);
       }
     }
 
@@ -588,8 +604,9 @@ export const foldersApi = {
 
   async create(input: { name: string; parent_id?: string | null }) {
     const parent = input.parent_id ? decodeId(input.parent_id) : '';
-    const name = sanitize(input.name);
-    const rel = parent ? `${parent}/${name}` : name;
+    // 与 rename 同一套查重：撞名自动补「 2」后缀，不再静默复用既有目录
+    // （mkdir 把 405 当成功，原来撞名会悄悄指向已有目录）
+    const rel = await uniqueRel(parent, sanitize(input.name), '');
     await getStorage().mkdir(rel);
     invalidateTree();
     const parentFull = parentOf(rel);
@@ -597,7 +614,8 @@ export const foldersApi = {
       folder: {
         id: encodeId(rel),
         parent_id: parentFull ? encodeId(parentFull) : null,
-        name,
+        // 真实落盘的末段名（查重可能补过后缀），不能拿用户输入的原名糊弄调用方
+        name: rel.slice(rel.lastIndexOf('/') + 1),
         created_at: Date.now(),
         updated_at: Date.now(),
         note_count: 0,
@@ -624,11 +642,54 @@ export const foldersApi = {
     };
   },
 
+  /**
+   * 把整个目录搬到另一个父目录下 —— 子目录、笔记、`.assets` 都跟着走。
+   *
+   * 与 rename 是同一段逻辑，只差目标父目录。搬家用 WebDAV 的 MOVE，**一个请求搬完整棵子树**
+   * （服务器侧是集合的递归移动），所以不像 remove() 那样要逐个子项搬；
+   * 本地索引由缓存层的 repath() 整体换前缀，笔记行的 folder、目录集合都会跟着改。
+   *
+   * 目标父目录必然已存在（要么是根、要么是列表里选中的文件夹），所以不 ensureDir。
+   */
+  async move(id: string, parentId: string | null) {
+    const from = decodeId(id);
+    if (!from) throw new StorageError('other', '根目录不能移动', 400);
+
+    const to = parentId ? decodeId(parentId) : '';
+    if (to === from) throw new StorageError('other', '不能移动到它自己里面', 400);
+    // 防环：目标落在自己的子树里，搬过去等于把自己连根摘掉。
+    // 这条必须在数据层挡（UI 里不列出子目录只是顺手，不能当唯一防线）。
+    if (to.startsWith(`${from}/`)) {
+      throw new StorageError('other', '不能移动到它自己的子目录里', 400);
+    }
+
+    const stem = from.slice(from.lastIndexOf('/') + 1);
+    // exclude 传自己：目标就是当前父目录时，自己不该被算成「重名」
+    const target = await uniqueRel(to, stem, '', from);
+    if (target !== from) await getStorage().move(from, target);
+    invalidateTree();
+
+    const parent = parentOf(target);
+    return {
+      newPath: target,
+      newFolderId: encodeId(target),
+      folder: {
+        id: encodeId(target),
+        parent_id: parent ? encodeId(parent) : null,
+        // 落盘的才是真名：撞名时查重会补「 2」后缀，不能拿原名糊弄调用方
+        name: target.slice(target.lastIndexOf('/') + 1),
+        created_at: Date.now(),
+        updated_at: Date.now(),
+        note_count: 0,
+      } satisfies FolderDTO,
+    };
+  },
+
   /** 只解散文件夹：里面内容逐个上移到父级，再删掉这个空目录 */
   async remove(id: string) {
     const rel = decodeId(id);
     const parent = parentOf(rel);
-    const children = (await listDir(rel)).filter((entry) => !entry.name.startsWith('.'));
+    const children = (await listDir(rel, true)).filter((entry) => !entry.name.startsWith('.'));
 
     await mapLimited(children, 3, async (child) => {
       const ext = child.isDirectory ? '' : '.md';

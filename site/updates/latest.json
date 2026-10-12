@@ -1,11 +1,11 @@
 {
-  "version": "0.2.3",
-  "notes": "新增本地缓存：读过的笔记会存一份在本机，断网也能打开；离线时的改动先存在本地，顶栏会提示还有几篇没同步。窗口去掉系统原生标题栏，改为应用内自绘标题栏（Win11 圆角，边缘缩放与窗口贴靠照常可用）。修复若干界面元素互相遮挡、内容被底栏压住的问题。",
-  "pub_date": "2026-10-12T05:17:07Z",
+  "version": "0.2.4",
+  "notes": "侧栏改成文件夹树，目录结构一眼可见，点开就能跳转；笔记、文件夹、回收站都支持多选，可批量删除 / 移动 / 恢复（桌面悬停勾选，手机长按）。文件夹现在可以移动到其它目录。另修了三个既有问题：偶发的列表空白、插入图片后立刻切走会丢掉那张图、桌面端窄窗口下漂浮工具栏会压住侧边栏。",
+  "pub_date": "2026-10-12T17:06:19Z",
   "platforms": {
     "windows-x86_64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSWTRLN1pZbGY4NHAzODNqS3NScTZ5MzkybzNSUUZsak9WSDgwa2grTitiRUt1WUJTWXlaUkc3Z3NYYy9OY0xYSkZ1Vnl1MkpIbkRnbitsa09oYTNZZC9Ba2M4TzZvYWdBPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkxNzgyMTkyCWZpbGU6RG9Ob3RlXzAuMi4zX3g2NC1zZXR1cC5leGUJdmVyc2lvbjowLjIuMwp3azNpZDRTcG1DZVNiVzNpUDBtYm1wSHR5NnI4TTF5Yk1HSVY3R3BaeHVPK0dMZVJ6QmtQWm5tdzNORzZhajEvK0xnSnFJOHlPR2NDZmRKZHUvS0dDdz09Cg==",
-      "url": "https://donote.pages.dev/downloads/DoNote-0.2.3-win-x64.exe"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSWTRLN1pZbGY4NHFqaUdHaW1PZDBwS0J2SEVIM1FnMWhmOUt4ZUQxK0NGWk42YkRGVFRzUy8yOG11RWNYcWhkanZVNHFhY0F4ZUVyYUJLNlh5M0NMOThsTkNabTNlMEFNPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkxODI0NzY1CWZpbGU6RG9Ob3RlXzAuMi40X3g2NC1zZXR1cC5leGUJdmVyc2lvbjowLjIuNAoreUJVSE11R3Y1MEliQWZTN0VSOE90bnltQnprRTA0Tkt2MGh5Sk12a0lZWWdVUjEvby9sNWZib293ci9jNVpyVDNWYXViVjljZUdhdUNDbDhBUlBDZz09Cg==",
+      "url": "https://donote.pages.dev/downloads/DoNote-0.2.4-win-x64.exe"
     }
   }
 }

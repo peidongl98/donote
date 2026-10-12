@@ -22,6 +22,7 @@ import {
   type ConnectResult,
   type DirEntry,
   type FileStat,
+  type ListOptions,
   type StorageAdapter,
   type StorageConfig,
   type WriteContent,
@@ -287,7 +288,8 @@ export class WebdavAdapter implements StorageAdapter {
 
   /* ------------------------------ 单文件 / 单目录 ------------------------------ */
 
-  async list(path: string): Promise<DirEntry[]> {
+  /** 本层实现没有缓存，options 只为满足接口 —— 每次都是真发 PROPFIND */
+  async list(path: string, _options?: ListOptions): Promise<DirEntry[]> {
     const res = await this.send(this.url(path), {
       method: 'PROPFIND',
       headers: {

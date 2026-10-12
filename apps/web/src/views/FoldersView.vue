@@ -1,15 +1,22 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
 import type { FolderDTO } from '@donote/shared';
 import { DavError, foldersApi } from '@/storage/notes';
+import { useSelectionStore } from '@/stores/selection';
+import { useSyncStore } from '@/stores/sync';
 import { useUiStore } from '@/stores/ui';
+import { flattenFolders, pickableFolders } from '@/utils/folder-tree';
+import { useLongPress } from '@/utils/long-press';
 import AppHeader from '@/components/AppHeader.vue';
 import AppDialog from '@/components/AppDialog.vue';
+import BatchToolbar from '@/components/BatchToolbar.vue';
 import EmptyState from '@/components/EmptyState.vue';
 
 const folders = ref<FolderDTO[]>([]);
 const loading = ref(true);
 const ui = useUiStore();
+const sync = useSyncStore();
+const sel = useSelectionStore();
 
 const createOpen = ref(false);
 const createParent = ref<string | null>(null);
@@ -24,26 +31,68 @@ const deleteTarget = ref<FolderDTO | null>(null);
 const sheetTarget = ref<FolderDTO | null>(null);
 const busy = ref(false);
 
-/** 按 parent_id 组树后再拉平，带缩进层级 */
-const rows = computed(() => {
-  const byParent = new Map<string | null, FolderDTO[]>();
-  for (const f of folders.value) {
-    const list = byParent.get(f.parent_id) ?? [];
-    list.push(f);
-    byParent.set(f.parent_id, list);
-  }
-  const out: { folder: FolderDTO; depth: number }[] = [];
-  const walk = (parent: string | null, depth: number): void => {
-    for (const f of byParent.get(parent) ?? []) {
-      out.push({ folder: f, depth });
-      walk(f.id, depth + 1);
-    }
-  };
-  walk(null, 0);
-  return out;
-});
+/* 移动到… */
+const moveOpen = ref(false);
+const moveTarget = ref<FolderDTO | null>(null);
+
+/** 按 parent_id 组树后再拉平，带缩进层级（与批量移动共用 utils/folder-tree） */
+const rows = computed(() => flattenFolders(folders.value));
 
 const totalNotes = computed(() => folders.value.reduce((sum, f) => sum + f.note_count, 0));
+
+/**
+ * 「移动到…」里可选的目标：排掉自己和自己的整棵子树。
+ * 数据层的 `foldersApi.move` 另有同样的拒绝逻辑 —— 这里只是不把死路摆到用户面前，
+ * 不是唯一防线。
+ */
+const moveOptions = computed(() =>
+  pickableFolders(folders.value, moveTarget.value ? [moveTarget.value.id] : []),
+);
+
+/* ------------------------------ 多选 ------------------------------ */
+
+/** 选中，但只认当前列表里还在的 */
+const selectedIds = computed(() =>
+  folders.value.map((f) => f.id).filter((id) => sel.has(id)),
+);
+const allIds = computed(() => folders.value.map((f) => f.id));
+/** 批量移动的目标：同样要排掉**每一个**选中的文件夹及其子树（单条规则取并集） */
+const batchTargets = computed(() => pickableFolders(folders.value, selectedIds.value));
+const labelOf = (id: string): string =>
+  folders.value.find((f) => f.id === id)?.name ?? '这个文件夹';
+
+/** 长按：一次只可能有一条被按住，所以复用同一个计时器 */
+const pressId = ref('');
+const press = useLongPress(() => enterSelect(pressId.value));
+
+function startPress(id: string, event: PointerEvent): void {
+  pressId.value = id;
+  press.start(event);
+}
+
+function enterSelect(id: string): void {
+  if (!sel.selecting) sel.enterSelecting('folders');
+  if (id) sel.toggle(id);
+}
+
+function onPick(folder: FolderDTO): void {
+  if (sel.selecting) sel.toggle(folder.id);
+  else enterSelect(folder.id);
+}
+
+/**
+ * 多选态和长按都要拦掉跳转。
+ * 🔴 必须在**捕获阶段**：`RouterLink` 自己的 onClick 挂在 `<a>` 上、在目标阶段跑，
+ * 比模板里的冒泡处理器更早，靠冒泡 `preventDefault` 拦不住（实测会照跳）。
+ */
+function onRowCapture(event: MouseEvent, folder: FolderDTO): void {
+  if ((event.target as HTMLElement | null)?.closest('button')) return;
+  const long = press.consume();
+  if (!sel.selecting && !long) return;
+  event.preventDefault();
+  event.stopPropagation();
+  if (sel.selecting && !long) sel.toggle(folder.id);
+}
 
 async function load(): Promise<void> {
   loading.value = true;
@@ -112,6 +161,39 @@ function openDelete(folder: FolderDTO): void {
   deleteOpen.value = true;
 }
 
+function openMove(folder: FolderDTO): void {
+  // 与其它 open* 一样先关掉列表 sheet：它在 z-index 25，比 AppDialog(22) 高，
+  // 不关的话对话框会被它盖住。
+  sheetTarget.value = null;
+  moveTarget.value = folder;
+  moveOpen.value = true;
+}
+
+async function submitMove(parentId: string | null): Promise<void> {
+  const target = moveTarget.value;
+  if (!target) return;
+  busy.value = true;
+  try {
+    const res = await foldersApi.move(target.id, parentId);
+    moveOpen.value = false;
+    const where = parentId
+      ? (folders.value.find((f) => f.id === parentId)?.name ?? '目标文件夹')
+      : '根目录';
+    // 撞名时查重补过后缀，此时说清楚落盘的名字，别让用户以为没生效
+    ui.toast(
+      res.folder.name === target.name
+        ? `已移动到「${where}」`
+        : `「${where}」已有同名，已存为「${res.folder.name}」`,
+    );
+    await load();
+  } catch (err) {
+    // 防环等拒绝理由由数据层给出，直接透传
+    ui.toast(err instanceof DavError ? err.message : '移动失败');
+  } finally {
+    busy.value = false;
+  }
+}
+
 async function submitDelete(): Promise<void> {
   const target = deleteTarget.value;
   if (!target) return;
@@ -129,6 +211,9 @@ async function submitDelete(): Promise<void> {
 }
 
 onMounted(load);
+
+/** 缓存层在后台校验出云端有更新，列表跟着刷一次 */
+watch(() => sync.dataVersion, load);
 </script>
 
 <template>
@@ -163,10 +248,35 @@ onMounted(load);
           v-for="row in rows"
           :key="row.folder.id"
           class="folder-row"
+          :class="{ 'is-selectable': sel.selecting, 'is-selected': sel.has(row.folder.id) }"
           :style="{ paddingLeft: `calc(var(--sp-2) + ${row.depth * 18}px)` }"
+          @click.capture="onRowCapture($event, row.folder)"
+          @pointerdown="startPress(row.folder.id, $event)"
+          @pointerup="press.cancel"
+          @pointercancel="press.cancel"
+          @pointerleave="press.cancel"
         >
+          <button
+            type="button"
+            class="pick"
+            :aria-pressed="sel.has(row.folder.id)"
+            :aria-label="sel.has(row.folder.id) ? '取消选择' : '选择'"
+            @click.stop="onPick(row.folder)"
+          >
+            <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
+              <path
+                d="m5 12.5 4.5 4.5L19 7.5"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2.6"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
+            </svg>
+          </button>
+
           <RouterLink class="folder-link" :to="`/folders/${row.folder.id}`">
-            <span class="folder-name">{{ row.folder.name }}</span>
+            <span class="folder-name">📁 {{ row.folder.name }}</span>
             <span class="folder-count mono">{{ row.folder.note_count }}</span>
           </RouterLink>
           <button class="folder-more" type="button" aria-label="更多" @click="sheetTarget = row.folder">
@@ -180,6 +290,16 @@ onMounted(load);
       </div>
     </div>
 
+    <BatchToolbar
+      v-if="sel.selecting"
+      context="folders"
+      :ids="selectedIds"
+      :all-ids="allIds"
+      :label-of="labelOf"
+      :targets="batchTargets"
+      @done="load"
+    />
+
     <!-- 行内操作 -->
     <Teleport to="body">
       <Transition name="sheet">
@@ -188,6 +308,7 @@ onMounted(load);
             <p class="sheet-title">{{ sheetTarget.name }}</p>
             <button type="button" class="sheet-item" @click="openCreate(sheetTarget.id)">新建子文件夹</button>
             <button type="button" class="sheet-item" @click="openRename(sheetTarget)">重命名</button>
+            <button type="button" class="sheet-item" @click="openMove(sheetTarget)">移动到…</button>
             <button type="button" class="sheet-item is-danger" @click="openDelete(sheetTarget)">删除文件夹</button>
             <button type="button" class="sheet-item is-cancel" @click="sheetTarget = null">取消</button>
           </div>
@@ -230,6 +351,31 @@ onMounted(load);
         「{{ deleteTarget?.name }}」里的 {{ deleteTarget?.note_count ?? 0 }} 篇笔记和子文件夹会移动到上一级，笔记不会被删除。
       </p>
     </AppDialog>
+
+    <AppDialog
+      :open="moveOpen"
+      title="移动到"
+      confirm-label="关闭"
+      :busy="busy"
+      @close="moveOpen = false"
+      @confirm="moveOpen = false"
+    >
+      <div class="folder-list">
+        <button
+          v-for="row in [{ folder: null, depth: 0 }, ...moveOptions]"
+          :key="row.folder ? row.folder.id : '__root__'"
+          type="button"
+          class="folder-pick"
+          :data-id="row.folder ? row.folder.id : '__root__'"
+          :disabled="busy"
+          :style="{ paddingLeft: `calc(var(--sp-2) + ${row.depth * 18}px)` }"
+          @click="submitMove(row.folder ? row.folder.id : null)"
+        >
+          <template v-if="row.folder">📁 {{ row.folder.name }}</template>
+          <template v-else>根目录</template>
+        </button>
+      </div>
+    </AppDialog>
   </div>
 </template>
 
@@ -243,18 +389,69 @@ onMounted(load);
 }
 
 .folder-row {
+  position: relative;
   display: flex;
   align-items: center;
   border-radius: var(--r-lg);
   background: var(--surface);
   border: 1px solid var(--surface-border);
-  transition: transform var(--dur) var(--ease-spring);
+  transition:
+    transform var(--dur) var(--ease-spring),
+    background-color var(--dur-fast) var(--ease-smooth);
 }
 
 .folder-row:hover {
   transform: translateY(-1px);
 }
 
+.folder-row.is-selected {
+  background: var(--accent-soft);
+}
+
+/* 悬停勾选框：桌面端进多选的入口；收起时不占点击，不挡名字上的跳转 */
+.pick {
+  position: absolute;
+  top: 50%;
+  left: 8px;
+  transform: translateY(-50%);
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 6px;
+  border: 1.5px solid var(--surface-border);
+  background: var(--surface);
+  color: transparent;
+  opacity: 0;
+  pointer-events: none;
+  transition:
+    opacity var(--dur-fast) var(--ease-smooth),
+    background-color var(--dur-fast) var(--ease-smooth),
+    border-color var(--dur-fast) var(--ease-smooth),
+    color var(--dur-fast) var(--ease-smooth);
+}
+
+.folder-row:hover .pick,
+.folder-row.is-selectable .pick,
+.pick:focus-visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.pick:hover {
+  border-color: var(--accent);
+}
+
+.pick[aria-pressed='true'] {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--on-accent);
+}
+
+/* 「移动到…」的候选清单样式在 styles/app.css —— 批量移动复用同一套。
+   勾选框固定在最左、不参与行内缩进；名字的起点（行 padding + link padding）本来就够它让位。 */
 .folder-link {
   flex: 1 1 auto;
   min-width: 0;
@@ -311,9 +508,15 @@ onMounted(load);
   color: var(--text-2);
 }
 
+/*
+ * 遮罩铺满视口，内容盒收进**内容列**（padding-left = 侧栏让出的宽度），
+ * 里面的 .sheet 就居中于内容区而不是视口 —— 否则窄窗口下面板会压到侧栏。
+ * 用 padding 而不是给 .sheet 加 translateX：面板的进出场动画占用了 transform。
+ */
 .sheet-mask {
   position: fixed;
   inset: 0;
+  padding-left: var(--content-offset);
   z-index: 25;
   display: flex;
   align-items: flex-end;

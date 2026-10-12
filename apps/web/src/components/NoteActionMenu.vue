@@ -230,7 +230,7 @@ async function hardDelete(): Promise<void> {
         class="folder-pick"
         @click="moveTo(f.id)"
       >
-        {{ f.name }}
+        📁 {{ f.name }}
       </button>
     </div>
   </AppDialog>
@@ -261,11 +261,26 @@ async function hardDelete(): Promise<void> {
 </template>
 
 <style scoped>
-/* 比 AppDialog 的 20 低，对话框才能盖在菜单上面 */
+/*
+ * 层级（2026-10-12 修右键菜单被侧栏遮挡时理清，别改乱）：
+ *   .rail（AppSidebar，侧栏 / 移动端抽屉）= 20
+ *   本菜单 = 21   ← 必须**高于侧栏**，否则桌面端右侧栏、移动端抽屉会把它压住
+ *   AppDialog（重命名 / 移动 / 删除的确认框）= 22  ← 必须**高于本菜单**，对话框要盖在菜单上面
+ *   .toast = 30
+ * 注意：菜单是 <Teleport to="body"> 的，不存在「被父级层叠上下文关住」的问题 ——
+ * 之前的问题是 z-index 给了 18，比侧栏的 20 低。
+ */
+/*
+ * 遮罩铺满视口（scrim 本来就该盖住全屏），但内容盒收进**内容列** ——
+ * 加一条 padding-left = 侧栏让出的宽度，里面的 .sheet 就自然居中于内容区。
+ * 不这么写的话，窄窗口（< ~1180px）720px 的面板会左移压到侧栏上。
+ * 用 padding 而不是给 .sheet 加 translateX：面板的进出场动画占用了 transform。
+ */
 .sheet-mask {
   position: fixed;
   inset: 0;
-  z-index: 18;
+  padding-left: var(--content-offset);
+  z-index: 21;
   display: flex;
   align-items: flex-end;
   background: rgba(0, 0, 0, 0.38);

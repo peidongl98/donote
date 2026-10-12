@@ -67,14 +67,21 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
+/*
+ * 22 = 比侧栏（.rail 20）和笔记动作菜单（NoteActionMenu 21）都高。
+ * 原先是 20，与侧栏同层、只靠 DOM 顺序取胜，纯属侥幸；一旦菜单也要抬到侧栏之上，
+ * 「菜单之上、其它都之下」就必须用明确的数字表达。
+ */
 .mask {
   position: fixed;
   inset: 0;
-  z-index: 20;
+  z-index: 22;
   display: flex;
   align-items: center;
   justify-content: center;
   padding: var(--sp-2);
+  /* 面板居中于**内容列**而不是视口（桌面端侧栏让出的宽度由 --content-offset 表达） */
+  padding-left: calc(var(--sp-2) + var(--content-offset));
   background: rgba(0, 0, 0, 0.42);
 }
 

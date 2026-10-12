@@ -11,7 +11,7 @@ import { computed, ref } from 'vue';
 import type { CachedStorage } from '@/services/cache/cached-adapter';
 import { BackgroundWork } from '@/services/cache/background';
 import { cacheStore } from '@/services/cache/store';
-import { decodeId, notesApi } from '@/storage/notes';
+import { decodeId, invalidateTree, notesApi } from '@/storage/notes';
 
 export interface Conflict {
   path: string;
@@ -30,6 +30,12 @@ export const useSyncStore = defineStore('sync', () => {
   const fallback = ref(false);
   /** 每次缓存层有变化就 +1，用来让下面那些 computed 重新算 */
   const version = ref(0);
+  /**
+   * 后台校验对出差异才 +1。视图监听它重取一次数据。
+   * 和 version 分开是必要的：status 的翻转（每次读都可能触发）不能带着列表一起刷，
+   * 否则 load → list → notify → load 会成环。
+   */
+  const dataVersion = ref(0);
 
   const usable = computed(() => cache.value !== null);
 
@@ -60,6 +66,11 @@ export const useSyncStore = defineStore('sync', () => {
     if (cache.value) return;
     cache.value = next;
     next.subscribe(refresh);
+    // 后台校验发现云端变了：作废遍历缓存，并让在屏的视图重取一次
+    next.subscribeData(() => {
+      invalidateTree();
+      dataVersion.value++;
+    });
     void cacheStore()
       .location()
       .then((info) => {
@@ -112,6 +123,9 @@ export const useSyncStore = defineStore('sync', () => {
 
   async function syncNow(): Promise<void> {
     await work.value?.runNow();
+    // 校验时间已被 runNow 作废，作废遍历缓存并让在屏视图重取一次，整棵树重新对账
+    invalidateTree();
+    dataVersion.value++;
     refresh();
   }
 
@@ -135,6 +149,7 @@ export const useSyncStore = defineStore('sync', () => {
     conflicts,
     dir,
     fallback,
+    dataVersion,
     attach,
     detach,
     hasCopy,

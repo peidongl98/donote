@@ -3,8 +3,13 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import type { FolderDTO, NoteSummaryDTO } from '@donote/shared';
 import { foldersApi, hydrateExcerpts, notesApi } from '@/storage/notes';
+import { useSelectionStore } from '@/stores/selection';
+import { useSyncStore } from '@/stores/sync';
 import { useUiStore } from '@/stores/ui';
+import { flattenFolders } from '@/utils/folder-tree';
+import { useLongPress } from '@/utils/long-press';
 import AppHeader from '@/components/AppHeader.vue';
+import BatchToolbar from '@/components/BatchToolbar.vue';
 import NoteCard from '@/components/NoteCard.vue';
 import NoteActionMenu from '@/components/NoteActionMenu.vue';
 import EmptyState from '@/components/EmptyState.vue';
@@ -21,6 +26,41 @@ const menuNote = ref<NoteSummaryDTO | null>(null);
 
 const router = useRouter();
 const ui = useUiStore();
+const sync = useSyncStore();
+const sel = useSelectionStore();
+
+/* ------------------------------ 多选 ------------------------------ */
+
+/** 选中，但只认当前列表里还在的（搜索过滤 / 缓存刷新之后要忽略残留的 id） */
+const selectedIds = computed(() => notes.value.map((n) => n.id).filter((id) => sel.has(id)));
+const allIds = computed(() => notes.value.map((n) => n.id));
+/** 笔记本身没有子树，任何文件夹都能当目标 */
+const batchTargets = computed(() => flattenFolders(folders.value));
+const labelOf = (id: string): string =>
+  notes.value.find((n) => n.id === id)?.title ?? '这篇笔记';
+
+/** 长按：一次只可能有一条被按住，所以复用同一个计时器 */
+const pressId = ref('');
+const press = useLongPress(() => enterSelect(pressId.value));
+
+function startPress(id: string, event: PointerEvent): void {
+  pressId.value = id;
+  press.start(event);
+}
+
+function enterSelect(id: string): void {
+  if (!sel.selecting) sel.enterSelecting('notes');
+  if (id) sel.toggle(id);
+}
+
+function onPick(id: string): void {
+  if (sel.selecting) sel.toggle(id);
+  else enterSelect(id);
+}
+
+function onToggle(id: string): void {
+  sel.toggle(id);
+}
 
 const subtitle = computed(() =>
   total.value ? `${total.value} 篇笔记` : '在这里写下第一条笔记',
@@ -85,6 +125,9 @@ function refresh(): void {
   void loadFolders();
 }
 
+/** 缓存层在后台校验出云端有更新（别的设备改过），列表跟着刷一次 */
+watch(() => sync.dataVersion, refresh);
+
 onMounted(() => {
   loadFolders();
   load().then(hydrate);
@@ -148,19 +191,34 @@ onBeforeUnmount(() => {
             :key="note.id"
             :note="note"
             :folder-name="note.folder_id ? folderNames[note.folder_id] : null"
+            :selectable="sel.selecting"
+            :selected="sel.has(note.id)"
             :style="{ animationDelay: `${Math.min(index, 8) * 45}ms` }"
             class="pop"
             @menu="menuNote = $event"
+            @enter="enterSelect"
+            @toggle="onToggle"
+            @longpress="enterSelect($event.id)"
           />
         </div>
       </div>
     </div>
 
-    <button class="fab" type="button" aria-label="新建笔记" @click="create">
+    <button v-if="!sel.selecting" class="fab" type="button" aria-label="新建笔记" @click="create">
       <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
         <path d="M12 6v12M6 12h12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
       </svg>
     </button>
+
+    <BatchToolbar
+      v-if="sel.selecting"
+      context="notes"
+      :ids="selectedIds"
+      :all-ids="allIds"
+      :label-of="labelOf"
+      :targets="batchTargets"
+      @done="refresh"
+    />
 
     <NoteActionMenu :note="menuNote" @close="menuNote = null" @done="refresh" />
   </div>

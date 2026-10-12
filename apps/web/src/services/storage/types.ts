@@ -86,6 +86,18 @@ export interface ReadOptions {
   preferCache?: boolean;
 }
 
+export interface ListOptions {
+  /**
+   * 跳过本地缓存，直接问云端。
+   *
+   * 判据：**这次列目录的结果被用来决定「叫什么名字 / 会不会覆盖 / 要不要删」时用 true**
+   * （新建重名检查、搬运时的重名避让、解散文件夹前点清里面有什么）；
+   * 拿旧列表去查重等于没查，拿去判断「能不能删」会误删。
+   * 纯粹拿来显示的列表一律不传，走本地优先。
+   */
+  fresh?: boolean;
+}
+
 export type BatchOperation =
   | { type: 'write'; path: string; content: string; etag?: string }
   | { type: 'delete'; path: string }
@@ -149,7 +161,7 @@ export interface StorageAdapter {
   delete(path: string): Promise<void>;
   move(from: string, to: string): Promise<void>;
   stat(path: string): Promise<FileStat>;
-  list(path: string): Promise<DirEntry[]>;
+  list(path: string, options?: ListOptions): Promise<DirEntry[]>;
   /** 创建单层目录。已存在视为成功 */
   mkdir(path: string): Promise<void>;
   /** 逐级创建目录，等价于对每一级连续调用 mkdir。业务层建深层路径时用 */

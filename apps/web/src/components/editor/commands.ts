@@ -316,10 +316,15 @@ export function removeLink(e: Editor | null): void {
   });
 }
 
-/** 在光标处插入一张图片（阶段 5 上传完成后调用） */
-export function insertImage(e: Editor | null, src: string, alt: string): void {
+/**
+ * 在光标处插入一张图片（阶段 5 上传完成后调用）。
+ *
+ * 返回 Promise：派发文档变更是一次异步 action，调用方要等它落地才能读到新正文
+ * （插图之后紧接着上报 / 保存，见 NoteEditor.placeImage）。
+ */
+export async function insertImage(e: Editor | null, src: string, alt: string): Promise<void> {
   if (!e || !src) return;
-  void e.action((ctx) => {
+  await e.action((ctx) => {
     const view = ctx.get(editorViewCtx);
     const { state } = view;
     const image = state.schema.nodes.image;
