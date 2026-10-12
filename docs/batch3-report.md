@@ -182,8 +182,52 @@ DOM / IPC / 行为（CDP）：
 | NSIS 静默安装后 exe 不存在 | 安装器异步返回 → 改成轮询 30×2 秒等 `donote.exe` 落盘 |
 | `apps/web/dist.building`（临时挪开的旧 dist）删不掉也移不动：OS 回收站操作失败 + 目录被占用 | **未处理**，保持原位。它们（还有 `apps/web/dist.keep`）在 `.gitignore` 之外但**未被追踪**，不会进 GitHub，`dist/` 会在下次构建时被 Vite 重建 |
 
-## 五、下一步
+## 五、回归（9 个既有套件）
 
-- 回归用例的完整结果见本轮汇报（`notes-e2e` / `attach-e2e` 等）。
+| 套件 | 用例 / 通过 / 失败 | 远端目录 |
+|---|---|---|
+| `attach-e2e.cjs` | 39 / 39 / 0 | `/DoNote` 根（E2E附件*、E2E嵌套*、E2E扫描* 及 `.assets`，自清） |
+| `notes-e2e.cjs` | 47 / 47 / 0 | `/DoNote` 根 + `E2E目录*` + `.trash`（自清） |
+| `life-e2e.cjs` | 25 / 25 / 0 | `/DoNote` 根 + `E2Da*` + `.trash`（自清） |
+| `stage2-editor.cjs` | 24 / 24 / 0 | `S2所见即所得*.md`（自删） |
+| `stage4-toolbar.cjs` | 45 / 45 / 0 | `S4工具栏*.md`（自删） |
+| `stage5-image.cjs` | 11 / 11 / 0 | `S5图片*.md` + `.assets`（自删） |
+| `stage6-source.cjs` | 24 / 24 / 0 | `S6源码*.md`（自删） |
+| `stage7-walk.cjs` | 27 / 27 / 0 | `S7走查*.md`、`S7目录*/`（自删） |
+| `actions-e2e.cjs` | 23 / 23 / 0（需改一处等待方式，见下） | `E2E动作*`、`E2E改名*`、`E2E*.assets` |
+
+跑法：临时 vite dev（5173）+ 托管 node + playwright-core（msedge headless），`BASE=http://localhost:5173 node <脚本>`。
+
+### 两个假失败，归因都有直接证据
+
+1. **`actions-e2e.cjs` 原脚本崩在 124 行**：它点 `.sheet-mask` 的 (8,8) 来关菜单，那一点被常驻侧栏盖住
+   （实测 `elementFromPoint(8,8) = ASIDE.rail`，mask box `{0,0,1280,900}`）。
+   `AppSidebar.vue` / `NoteActionMenu.vue` / `stores/layout.ts` / `App.vue` / `HomeView.vue` 自 0.2.2 起**未改动**
+   （0.2.3 只动了 `AppHeader.vue` 与 `NoteCard.vue`）→ **脚本老化**。
+2. **改坐标后只剩「列表里已是新标题」偶发失败**。量测：重命名成功后列表重新渲染出新标题耗时
+   **2103 / 2107 / 3429 ms**（三次），而脚本只 `waitForTimeout(2500)` → 处在临界。
+   改成轮询等待后 23/23 全过 → 功能正确，是**列表刷新耗时本身偏慢**（在线时 `list()` 每次都回源到坚果云）。
+
+### 坚果云限流是这轮的主要干扰源
+
+`503 BlockedTemporarily`「Too many requests are received recently」，**直连与 `/nutdav` 代理都一样**；
+连跑 2~3 个套件即被锁，单次封锁可持续 10~20 分钟。它直接造成 `life` 首次 0/0、`stage7` 首次第 17 项后崩、
+`actions` 一批 5 项失败（列表/文件夹请求被 503 吞掉，`FoldersView` catch 后不提示 → 看着像「列表没刷新出来」）。
+**解封后重跑全部转绿 → 限流假失败，不是产品回归。**
+
+### 一条正面结论
+
+缓存层在线时 `list()` **每次回源、不返回陈旧数据**，未发现缓存层引入的陈旧读。
+
+## 六、观察项（本轮没动，属设计取舍，等用户定）
+
+1. **503 时列表静默失败**：收到 503（限流，不是断网）时列表/文件夹请求失败且不给任何提示，
+   `HomeView` 在 loading 期间会隐藏全部卡片 → 界面看起来像「笔记都没了」。
+   离线兜底按设计只认 `unreachable`，不把 503 当断网。是否让 `list()` 在 503 时也用缓存兜住并提示，待定。
+2. **菜单操作后列表刷新 2.1~3.4 秒**（在线回源）。是否做乐观更新，待定。
+3. 打开操作菜单后，左上角 (8,8) 那一点被侧栏压住，点不掉菜单（既有现象，非本轮引入）。
+
+## 七、下一步
+
 - 想验「恢复联网后自动回推 dirty」，需要一个指向本地假 WebDAV 的测试配置（要动连接配置，需用户同意）。
 - 编辑器里公式仍未渲染（显示 LaTeX 原文，未接 KaTeX），属批次 2 遗留。
