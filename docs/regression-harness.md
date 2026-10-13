@@ -1,6 +1,10 @@
 # 回归脚手架：两层（mock / 真实）
 
 > 2026-10-12 订。起因：9 套连跑必撞坚果云限流，「跑完全绿」这件事一直被环境问题打断。
+>
+> **2026-10-13 补充**：套件本体已入库（`scripts/regression/suites/`），本机配置走 `local.json`；
+> 日常 / 提交前 / 发版前三种场景怎么跑、改哪块代码该跑哪几套，见
+> [regression-workflow.md](./regression-workflow.md)。`run-all.sh` 不再是唯一入口，日常走 `pnpm regress`。
 
 ## 一、一句话
 
@@ -8,19 +12,26 @@
 
 | 层 | 命令 | 数据源 | 花坚果云额度 | 用在哪 |
 |---|---|---|---|---|
-| **mock**（默认） | `bash harness/run-all.sh` | 进程内的假 WebDAV | 否 | 每次改代码后 |
-| **real** | `bash harness/run-all.sh --real` | 真坚果云 | 是 | 发版前跑一次 |
+| **mock**（默认） | `pnpm regress`（或 `bash scripts/regression/harness/run-all.sh`） | 进程内的假 WebDAV | 否 | 每次改代码后 |
+| **real** | `pnpm regress --real`（或 `bash scripts/regression/harness/run-all.sh --real`） | 真坚果云 | 是 | 发版前跑一次 |
 
-文件都在 `D:\design-website\.workbuddy\tmp\donote\`（回归脚本的既有落点，不入库）：
+**2026-10-13 起，套件本体已入库**：`scripts/regression/suites/`（9 套 `.cjs`）、
+`scripts/regression/harness/`（`davmock.cjs`、`davmode.cjs`、旧入口 `run-all.sh`）。
+日志与截图落在 `scripts/regression/.logs/`、`scripts/regression/.artifacts/`（都不入库）。
+本机相关的路径与账号走 `scripts/regression/local.json`（模板 `local.example.json`，不入库）或环境变量。
 
-| 文件 | 作用 |
-|---|---|
-| `harness/davmock.cjs` | 假 WebDAV 内核：内存文件系统 + 协议实现 + 两条入口 |
-| `harness/davmode.cjs` | 两层开关：`USE_REAL_DAV`、常量、密码、`attach()` / `finish()` |
-| `harness/run-all.sh` | 唯一入口，两种模式 + 可选只跑指定套件 |
-| `harness/patch-suites.cjs` | 批量给套件接开关（可 dry / revert） |
-| `harness/probe-routing.cjs` | 定方案用的探针（Q1/Q2/Q3），改脚手架前先跑它 |
-| `harness/_orig/` | 9 套接入前的原始文件，回退用 |
+| 文件 | 位置 | 作用 |
+|---|---|---|
+| `scripts/regression/suites/*.cjs` | 仓库 | 9 套套件本体 |
+| `scripts/regression/harness/davmock.cjs` | 仓库 | 假 WebDAV 内核：内存文件系统 + 协议实现 + 两条入口 |
+| `scripts/regression/harness/davmode.cjs` | 仓库 | 两层开关：`USE_REAL_DAV`、常量、密码、`attach()` / `finish()`、产物目录 `ART` |
+| `scripts/regression/harness/run-all.sh` | 仓库 | 旧入口（fallback），全套 / `--real` 仍可用 |
+| `scripts/regression/run-regression.cjs` | 仓库 | 主入口：按套件 / 模块 / git 改动选择要跑哪些 |
+| `scripts/regression/regression-map.json` | 仓库 | 依赖映射表：模块 → 代码路径 → 套件 |
+| `scripts/regression/local.json` | 本机（不入库） | node_modules 路径 / 密钥文件 / 账号 |
+
+> 原先在 `.workbuddy/tmp/donote/` 的一次性脚本（`patch-suites.cjs`、`probe-routing.cjs`、
+> `_orig/`、各种探针与截图）留在原处，属排查过程产物，不随套件入库。
 
 ## 二、为什么必须分层
 
@@ -72,21 +83,26 @@
 ## 五、怎么切换
 
 ```bash
-# 单套
-node notes-e2e.cjs                    # mock（默认）
-USE_REAL_DAV=1 node notes-e2e.cjs     # 真坚果云
+# 单套（在 scripts/regression/suites/ 下，或直接用运行器）
+pnpm regress --suites=notes               # mock（默认）
+pnpm regress --real --suites=notes        # 真坚果云
 
 # 全套
-bash harness/run-all.sh               # mock，套件之间不停
-bash harness/run-all.sh --real        # 真坚果云，每套之间停 60 秒
+pnpm regress                              # mock，套件之间不停
+pnpm regress --real                       # 真坚果云，每套之间停 60 秒
+bash scripts/regression/harness/run-all.sh [--real]   # 旧入口，等价
 ```
 
-环境变量：
+环境变量（也可以写进 `scripts/regression/local.json`，键名同名去 `DONOTE_` 前缀）：
 
 | 变量 | 作用 |
 |---|---|
 | `USE_REAL_DAV=1` | 切到真实坚果云；**不设就是 mock**（默认永不碰真服务器） |
 | `BASE` | dev server 地址，默认 `http://localhost:5173` |
+| `DONOTE_ACCOUNT` | 登录账号。mock 下只是界面字面量，随便填；real 下必须给真账号 |
+| `DONOTE_SECRETS` | 密钥文件（key=value），默认仓库上一级的 `.deploy-secrets` |
+| `DONOTE_ARTIFACTS_DIR` | 截图与 `.out` 的落点，默认 `scripts/regression/.artifacts` |
+| `DONOTE_NODE_PATH` | `playwright-core` 所在 `node_modules`（仓库没装时用） |
 | `MOCK_LOG=1` | 打印假 DAV 的每条请求与状态（排查用） |
 
 两种模式都要求 dev server 已经在跑（`pnpm --filter @donote/web dev`）。
@@ -97,7 +113,7 @@ bash harness/run-all.sh --real        # 真坚果云，每套之间停 60 秒
 
 ```js
 // 1) 顶部
-const H = require('./harness/davmode.cjs');
+const H = require('../harness/davmode.cjs');
 
 // 2) 常量与密码
 const ACCOUNT = H.ACCOUNT;
@@ -112,13 +128,8 @@ await H.attach(page, ctx);
 H.finish();
 ```
 
-已有 9 套是脚本批量打的补丁，可复查 / 可回退：
-
-```bash
-node harness/patch-suites.cjs --dry     # 只看会改什么
-node harness/patch-suites.cjs           # 落盘（原始文件备份到 harness/_orig/）
-node harness/patch-suites.cjs --revert  # 回退
-```
+> 账号 / 密钥文件 / 产物目录**不要写死在本套件里**：账号取 `H.ACCOUNT`，产物写到 `H.ART`。
+> `patch-suites.cjs`（批量打补丁的脚本）是入库前的一次性工具，留在 `.workbuddy/tmp/donote/`，不再随仓库走。
 
 ## 七、能测到 / 测不到
 
@@ -163,7 +174,7 @@ node harness/patch-suites.cjs --revert  # 回退
 
 ### 真实（2026-10-12）
 
-`bash harness/run-all.sh --real notes-e2e.cjs attach-e2e.cjs stage5-image.cjs`：
+`bash scripts/regression/harness/run-all.sh --real notes-e2e.cjs attach-e2e.cjs stage5-image.cjs`：
 
 | 套件 | PASS | FAIL | 用时 |
 |---|---|---|---|

@@ -10,6 +10,8 @@ import { useUiStore } from '@/stores/ui';
 import AppHeader from '@/components/AppHeader.vue';
 import AppDialog from '@/components/AppDialog.vue';
 import NoteEditor from '@/components/editor/NoteEditor.vue';
+import { EMPTY_SNAPSHOT, redo, undo } from '@/components/editor/commands';
+import { buildExportHtml, saveExportHtml } from '@/services/export-html';
 
 type SaveStatus = 'idle' | 'dirty' | 'saving' | 'saved' | 'error';
 
@@ -76,6 +78,9 @@ const busy = ref(false);
 
 /** 正文编辑器实例，用来在光标处插图 */
 const editorRef = ref<InstanceType<typeof NoteEditor> | null>(null);
+/** 编辑器快照（撤销 / 重做按钮的可用状态）。源码模式下编辑器不存在，会退回全禁用 */
+const editorState = computed(() => editorRef.value?.state ?? EMPTY_SNAPSHOT);
+const editor = computed(() => editorRef.value?.getEditor() ?? null);
 /** 插图失败时的内联提示（不弹层，就地说明为什么没插进去） */
 const imageError = ref('');
 let picking = false;
@@ -224,6 +229,73 @@ async function flush(): Promise<void> {
   await done;
 }
 
+/* --------------------------- 标签 --------------------------- */
+
+/**
+ * 标签只落在 frontmatter 的 `tags: [...]` 上 —— 直接 `notesApi.update(id, { tags })`，
+ * 它内部是「读回原文件 → 用同一份 body 重新序列化」，所以正文与其它字段一个字节不动。
+ * 不碰正文结构，也不引入第二条写文件的路径。
+ */
+const tags = ref<string[]>([]);
+const tagDraft = ref('');
+
+function normalizeTag(raw: string): string {
+  return raw.trim().replace(/^#+/, '').trim();
+}
+
+async function saveTags(next: string[]): Promise<void> {
+  const unique = [...new Set(next.map(normalizeTag).filter(Boolean))].slice(0, 20);
+  try {
+    const res = await notesApi.update(noteId.value, { tags: unique });
+    tags.value = res.note.tags;
+    ui.toast('标签已更新');
+  } catch {
+    ui.toast('标签没保存上');
+  }
+}
+
+function addTag(): void {
+  const tag = normalizeTag(tagDraft.value);
+  tagDraft.value = '';
+  if (!tag || tags.value.includes(tag)) return;
+  void saveTags([...tags.value, tag]);
+}
+
+function removeTag(tag: string): void {
+  void saveTags(tags.value.filter((item) => item !== tag));
+}
+
+/* --------------------------- 导出 --------------------------- */
+
+const exporting = ref(false);
+
+/**
+ * 导出这篇笔记为自包含 HTML。
+ *
+ * 导出前先 flush：标题/正文还在防抖窗口里的话，导出的会是上一次的内容。
+ */
+async function exportHtml(): Promise<void> {
+  if (exporting.value) return;
+  exporting.value = true;
+  try {
+    await flush();
+    const result = await buildExportHtml({
+      path: decodeId(noteId.value),
+      title: title.value.trim() || '无标题笔记',
+      content: content.value,
+    });
+    const saved = await saveExportHtml(`${title.value.trim() || '无标题笔记'}.html`, result.html);
+    if (saved === 'canceled') return;
+    const miss = result.missed ? `，${result.missed} 张图片没读出来（保留了原引用）` : '';
+    ui.toast(`已导出 HTML（内嵌 ${result.inlined} 张图片${miss}）`, 3600);
+  } catch (err) {
+    ui.toast(err instanceof Error ? `导出失败：${err.message}` : '导出失败', 3600);
+  } finally {
+    exporting.value = false;
+    sheetOpen.value = false;
+  }
+}
+
 /* --------------------------- 移动 --------------------------- */
 
 async function moveTo(folderId: string | null): Promise<void> {
@@ -317,6 +389,36 @@ onBeforeUnmount(() => {
         <button
           class="icon-btn"
           type="button"
+          aria-label="撤销"
+          title="撤销 (Ctrl+Z)"
+          :disabled="!editorState.canUndo"
+          @mousedown.prevent
+          @click="undo(editor)"
+        >
+          <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none"
+            stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M9 14 4 9l5-5" />
+            <path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11" />
+          </svg>
+        </button>
+        <button
+          class="icon-btn"
+          type="button"
+          aria-label="重做"
+          title="重做 (Ctrl+Y)"
+          :disabled="!editorState.canRedo"
+          @mousedown.prevent
+          @click="redo(editor)"
+        >
+          <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none"
+            stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+            <path d="m15 14 5-5-5-5" />
+            <path d="M20 9H9.5a5.5 5.5 0 0 0 0 11H13" />
+          </svg>
+        </button>
+        <button
+          class="icon-btn"
+          type="button"
           :aria-label="mode === 'wysiwyg' ? '源码' : '所见即所得'"
           :title="mode === 'wysiwyg' ? '切到源码模式' : '切回所见即所得模式'"
           :disabled="loading"
@@ -361,6 +463,24 @@ onBeforeUnmount(() => {
         @input="scheduleSave"
       />
 
+      <!-- 标签：只改 frontmatter 的 tags，正文一个字节不动 -->
+      <div class="tag-bar">
+        <span v-for="tag in tags" :key="tag" class="tag-chip">
+          #{{ tag }}
+          <button type="button" :aria-label="`移除标签 ${tag}`" @click="removeTag(tag)">×</button>
+        </span>
+        <input
+          v-model="tagDraft"
+          class="tag-input"
+          type="text"
+          placeholder="加标签，回车"
+          aria-label="添加标签"
+          :disabled="loading || isTrashed"
+          @keydown.enter.prevent="addTag"
+          @keydown.esc.prevent="tagDraft = ''"
+        />
+      </div>
+
       <div v-if="loading" class="skeleton" />
 
       <template v-else>
@@ -390,6 +510,14 @@ onBeforeUnmount(() => {
               @click="sheetOpen = false; moveOpen = true"
             >
               移动到文件夹
+            </button>
+            <button
+              type="button"
+              class="sheet-item"
+              :disabled="isTrashed || loading || exporting"
+              @click="exportHtml"
+            >
+              {{ exporting ? '导出中…' : '导出 HTML' }}
             </button>
             <button
               v-if="!isTrashed"
@@ -757,5 +885,57 @@ onBeforeUnmount(() => {
 .sheet-enter-from .sheet,
 .sheet-leave-to .sheet {
   transform: translateY(100%);
+}
+
+.tag-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: var(--sp-1);
+}
+
+.tag-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 26px;
+  padding: 0 6px 0 9px;
+  border-radius: var(--r-pill);
+  font-size: var(--fs-xs);
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.tag-chip button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: var(--r-pill);
+  font-size: 13px;
+  line-height: 1;
+  color: inherit;
+}
+
+.tag-chip button:hover {
+  background: var(--surface);
+}
+
+.tag-input {
+  width: 132px;
+  height: 26px;
+  padding: 0 6px;
+  border-radius: var(--r-xs);
+  font-size: var(--fs-xs);
+  color: var(--text);
+  background: transparent;
+  border: 1px dashed var(--surface-border);
+}
+
+.tag-input:focus {
+  border-style: solid;
+  border-color: var(--accent-ring);
 }
 </style>

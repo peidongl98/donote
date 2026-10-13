@@ -327,6 +327,14 @@ export class WebdavAdapter implements StorageAdapter {
     return res.text();
   }
 
+  /** 读原始字节。与 read 同一条传输通道，只是不按文本解码。 */
+  async readBytes(path: string): Promise<ArrayBuffer> {
+    const res = await this.send(this.url(path), { headers: { Authorization: this.auth() } });
+    if (res.status === 404) throw new StorageError('not_found', '文件不存在', 404);
+    if (!res.ok) throw new StorageError('other', `读取文件失败（HTTP ${res.status}）`, res.status);
+    return res.arrayBuffer();
+  }
+
   async write(path: string, content: WriteContent, etag?: string): Promise<WriteResult> {
     // etag 通道已预留但本批次不启用：传了也不发 If-Match，保持请求与改造前一致
     void etag;

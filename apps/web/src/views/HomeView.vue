@@ -20,11 +20,18 @@ const notes = ref<NoteSummaryDTO[]>([]);
 const folders = ref<FolderDTO[]>([]);
 const loading = ref(true);
 const keyword = ref(String(route.query.q ?? '').trim());
+/** 侧栏点标签进来的：只看带这个标签的 */
+const activeTag = ref(String(route.query.tag ?? '').trim());
 const total = ref(0);
 /** 右键 / 「更多」打开的那篇笔记 */
 const menuNote = ref<NoteSummaryDTO | null>(null);
 
 const router = useRouter();
+
+function clearTag(): void {
+  activeTag.value = '';
+  void router.replace({ path: '/', query: keyword.value ? { q: keyword.value } : {} });
+}
 const ui = useUiStore();
 const sync = useSyncStore();
 const sel = useSelectionStore();
@@ -72,7 +79,10 @@ const folderNames = computed<Record<string, string>>(() =>
 async function load(): Promise<void> {
   loading.value = true;
   try {
-    const res = await notesApi.list({ q: keyword.value.trim() || undefined });
+    const res = await notesApi.list({
+      q: keyword.value.trim() || undefined,
+      tag: activeTag.value || undefined,
+    });
     notes.value = res.items;
     total.value = res.total;
   } catch {
@@ -142,6 +152,15 @@ watch(
   },
 );
 
+// 侧栏换标签时路由变了但组件没重建，得跟着重取
+watch(
+  () => route.query.tag,
+  (tag) => {
+    activeTag.value = String(tag ?? '').trim();
+    void load();
+  },
+);
+
 onBeforeUnmount(() => {
   if (searchTimer) clearTimeout(searchTimer);
 });
@@ -152,6 +171,15 @@ onBeforeUnmount(() => {
     <AppHeader :crumbs="[{ label: '全部笔记' }]" />
 
     <div class="page-body">
+      <!-- 侧栏点了标签：顶上挂一条筛选条，点 × 回到全部 -->
+      <div v-if="activeTag" class="tag-filter">
+        <span class="tag-filter-label">标签</span>
+        <span class="tag-chip">
+          #{{ activeTag }}
+          <button type="button" aria-label="清除标签筛选" @click="clearTag">×</button>
+        </span>
+      </div>
+
       <div class="search">
         <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
           <circle cx="11" cy="11" r="6.5" fill="none" stroke="currentColor" stroke-width="1.6" />
@@ -278,5 +306,45 @@ onBeforeUnmount(() => {
 
 .fab:active {
   transform: scale(0.94);
+}
+
+.tag-filter {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: var(--sp-1);
+}
+
+.tag-filter-label {
+  font-size: var(--fs-xs);
+  color: var(--text-2);
+}
+
+.tag-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 8px 0 10px;
+  border-radius: var(--r-pill);
+  font-size: var(--fs-sm);
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.tag-chip button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: var(--r-pill);
+  font-size: 14px;
+  line-height: 1;
+  color: inherit;
+}
+
+.tag-chip button:hover {
+  background: var(--surface);
 }
 </style>

@@ -187,6 +187,8 @@ const HYDRATE_BATCH = 40;
 interface CacheRow {
   m: number;
   e: string;
+  /** 顺手存下来的标签：补摘要时已经读过整篇，不额外发请求 */
+  t?: string[];
 }
 
 let excerptCache: Record<string, CacheRow> | null = null;
@@ -214,6 +216,11 @@ function cachedExcerpt(entry: DirEntry): string {
   return row && row.m === entry.mtime ? row.e : '';
 }
 
+function cachedTags(entry: DirEntry): string[] {
+  const row = cache()[entry.path];
+  return row && row.m === entry.mtime ? (row.t ?? []) : [];
+}
+
 /** 并发受限的 map，避免一次甩出上百个请求被服务端限流 */
 async function mapLimited<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
   const out: R[] = [];
@@ -238,9 +245,11 @@ export async function hydrateExcerpts(limit = HYDRATE_BATCH): Promise<number> {
     try {
       const raw = await readOrNull(entry.path);
       if (raw === null) return;
+      const parsed = parseNote(raw, entry.name, entry.mtime ?? 0);
       filled[entry.path] = {
         m: entry.mtime ?? 0,
-        e: excerptOf(parseNote(raw, entry.name, entry.mtime ?? 0).body),
+        e: excerptOf(parsed.body),
+        t: parsed.tags,
       };
       done++;
     } catch {
@@ -263,6 +272,7 @@ function summaryOf(entry: DirEntry): NoteSummaryDTO {
     created_at: entry.mtime ?? 0,
     updated_at: entry.mtime ?? 0,
     deleted_at: null,
+    tags: cachedTags(entry),
   };
 }
 
@@ -277,6 +287,7 @@ function noteOf(rel: string, meta: NoteMeta, body: string): NoteDTO {
     updated_at: meta.updated,
     deleted_at: meta.deleted_at ?? null,
     version: 1,
+    tags: meta.tags,
   };
 }
 
@@ -331,6 +342,8 @@ export interface NoteListQuery {
   /** 省略 = 全部；'root' 或空 = 未归类；其它 = 文件夹 id（含其子文件夹） */
   folder_id?: string;
   q?: string;
+  /** 只看带这个标签的（侧栏点标签进来） */
+  tag?: string;
   trash?: boolean;
   limit?: number;
   offset?: number;
@@ -357,6 +370,7 @@ async function listTrash(): Promise<NoteSummaryDTO[]> {
         folder_id: null,
         title: parsed.title,
         excerpt: excerptOf(parsed.body),
+        tags: parsed.tags,
         created_at: parsed.created,
         updated_at: deletedAt,
         deleted_at: deletedAt,
@@ -388,6 +402,9 @@ export const notesApi = {
         rows = rows.filter((row) => (row.folder_id ? decodeId(row.folder_id) : '') === folder);
       }
     }
+
+    const tag = query.tag?.trim();
+    if (tag) rows = rows.filter((row) => row.tags.includes(tag));
 
     const keyword = query.q?.trim().toLowerCase();
     if (keyword) {
@@ -443,9 +460,25 @@ export const notesApi = {
    * 保存。标题即文件名：标题变了就顺带移动文件（自动补重名后缀），
    * 因此返回的 note.id 可能和传入的 id 不同，调用方需要跟上。
    */
+  /** 出现过哪些标签（侧栏用）。先补一次摘要缓存 —— 标签就是从那份缓存里来的，不额外发请求 */
+  async tags(): Promise<Array<{ name: string; count: number }>> {
+    // 把还没补过的补上：一次读回来的正文顺带解析出 tags，与列表摘要同一份缓存
+    for (let round = 0; round < 20; round += 1) {
+      if ((await hydrateExcerpts()) === 0) break;
+    }
+    const { notes } = await tree();
+    const count = new Map<string, number>();
+    for (const entry of notes) {
+      for (const tag of cachedTags(entry)) count.set(tag, (count.get(tag) ?? 0) + 1);
+    }
+    return [...count.entries()]
+      .map(([name, n]) => ({ name, count: n }))
+      .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name, 'zh'));
+  },
+
   async update(
     id: string,
-    patch: { title?: string; content?: string; folder_id?: string | null },
+    patch: { title?: string; content?: string; folder_id?: string | null; tags?: string[] },
   ) {
     const rel = decodeId(id);
     const raw = await readOrNull(rel);
@@ -483,7 +516,7 @@ export const notesApi = {
       title,
       created: parsed.created,
       updated: Date.now(),
-      tags: parsed.tags,
+      tags: patch.tags ?? parsed.tags,
     };
     await getStorage().write(target, serializeNote(meta, body));
 

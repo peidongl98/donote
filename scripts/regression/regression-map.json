@@ -1,0 +1,335 @@
+{
+  "$comment": "回归依赖映射表：功能模块（代码位置）→ 需要跑的套件。由 scripts/regression/run-regression.cjs 读取。改这张表不用改运行器。estSeconds 是 2026-10-13 实测（本机空闲、mock、9 套连跑），只用于选完之后的预估，不参与任何判断。表里只有仓库内的相对路径；本机相关的东西（node_modules、密钥文件、账号）在 scripts/regression/local.json（模板见 local.example.json，不入库）。",
+  "suitesDir": "scripts/regression/suites",
+  "logDir": "scripts/regression/.logs",
+  "baseUrl": "http://localhost:5173",
+  "suites": {
+    "notes": {
+      "file": "notes-e2e.cjs",
+      "title": "笔记数据层",
+      "covers": "连接 / 新建 / 编辑自动保存 / 改名 / 移动进文件夹 / 软删 / 回收站 / 恢复 / 彻底删除 / 删文件夹 / 断开",
+      "estSeconds": 95,
+      "checks": 47
+    },
+    "attach": {
+      "file": "attach-e2e.cjs",
+      "title": "附件工具层",
+      "covers": "路径推导 / 名称净化 / 引用改写的纯函数，加 upload / list / has / delete 真机联调",
+      "estSeconds": 13,
+      "checks": 39
+    },
+    "life": {
+      "file": "life-e2e.cjs",
+      "title": "附件生命周期联动",
+      "covers": "五场景 × 三种附件状态（有附件 / 无附件 / 空附件目录），含恢复时原位被占用",
+      "estSeconds": 13,
+      "checks": 25
+    },
+    "stage2": {
+      "file": "stage2-editor.cjs",
+      "title": "编辑器集成",
+      "covers": "Milkdown 挂载 / 输入规则 / 自动保存 / 落盘是 Markdown / 刷新不丢 / 源码模式字节精确",
+      "estSeconds": 23,
+      "checks": 24
+    },
+    "stage4": {
+      "file": "stage4-toolbar.cjs",
+      "title": "编辑器工具栏",
+      "covers": "15 项工具栏：每一项既看 DOM 变化，也看最终落盘的 Markdown",
+      "estSeconds": 31,
+      "checks": 45
+    },
+    "stage5": {
+      "file": "stage5-image.cjs",
+      "title": "图片上传插入",
+      "covers": "图片按钮 → 选文件 → 上传附件 → 插入引用；走浏览器退化路径",
+      "estSeconds": 16,
+      "checks": 11
+    },
+    "stage6": {
+      "file": "stage6-source.cjs",
+      "title": "源码 / 所见即所得开关",
+      "covers": "顶栏开关位置与图标、源码模式裸 textarea + 预览、切回时的规范化提示与「不再提示」",
+      "estSeconds": 19,
+      "checks": 24
+    },
+    "stage7": {
+      "file": "stage7-walk.cjs",
+      "title": "布局与交互走查",
+      "covers": "桌面 / 移动两套布局、侧栏与抽屉、底栏、浮动层不跨栏等必须手工确认的交互",
+      "estSeconds": 47,
+      "checks": 27
+    },
+    "actions": {
+      "file": "actions-e2e.fixed.cjs",
+      "title": "笔记动作菜单",
+      "covers": "右键 /「更多」菜单 → 重命名 / 移动 / 删除；回收站菜单 → 恢复 / 彻底删除；编辑态标记",
+      "estSeconds": 57,
+      "checks": 23
+    }
+  },
+  "modules": {
+    "cache": {
+      "title": "缓存层",
+      "paths": [
+        "apps/web/src/services/cache/**"
+      ],
+      "suites": [
+        "notes",
+        "life",
+        "attach"
+      ]
+    },
+    "storage": {
+      "title": "WebDAV 存储适配",
+      "paths": [
+        "apps/web/src/services/storage/**"
+      ],
+      "suites": [
+        "notes",
+        "attach",
+        "life",
+        "actions",
+        "stage7"
+      ]
+    },
+    "attachments": {
+      "title": "附件工具",
+      "paths": [
+        "apps/web/src/services/attachments.ts"
+      ],
+      "suites": [
+        "attach",
+        "life",
+        "stage5"
+      ]
+    },
+    "batch": {
+      "title": "批量操作",
+      "paths": [
+        "apps/web/src/services/batch.ts"
+      ],
+      "suites": [
+        "actions",
+        "life"
+      ]
+    },
+    "pick-image": {
+      "title": "选图",
+      "paths": [
+        "apps/web/src/services/pick-image.ts"
+      ],
+      "suites": [
+        "stage5"
+      ]
+    },
+    "editor": {
+      "title": "编辑器内核（含工具栏 / 浮条 / 源码模式）",
+      "paths": [
+        "apps/web/src/components/editor/**"
+      ],
+      "suites": [
+        "stage2",
+        "stage4",
+        "stage5",
+        "stage6"
+      ]
+    },
+    "sidebar": {
+      "title": "侧栏与文件夹树",
+      "paths": [
+        "apps/web/src/components/AppSidebar.vue",
+        "apps/web/src/components/SidebarTree.vue"
+      ],
+      "suites": [
+        "stage7"
+      ]
+    },
+    "chrome": {
+      "title": "顶栏与底栏外壳",
+      "paths": [
+        "apps/web/src/components/AppHeader.vue",
+        "apps/web/src/components/BottomTabs.vue",
+        "apps/web/src/components/ThemeToggle.vue"
+      ],
+      "suites": [
+        "stage6",
+        "stage7"
+      ]
+    },
+    "overlays": {
+      "title": "浮层与动作面板",
+      "paths": [
+        "apps/web/src/components/AppDialog.vue",
+        "apps/web/src/components/NoteActionMenu.vue",
+        "apps/web/src/components/BatchToolbar.vue",
+        "apps/web/src/components/EmptyState.vue"
+      ],
+      "suites": [
+        "actions",
+        "stage7"
+      ]
+    },
+    "ui-kit": {
+      "title": "通用组件",
+      "paths": [
+        "apps/web/src/components/GlassButton.vue",
+        "apps/web/src/components/GlassCard.vue",
+        "apps/web/src/components/GlassTextField.vue",
+        "apps/web/src/components/MarkdownView.vue",
+        "apps/web/src/components/WebdavGuide.vue"
+      ],
+      "suites": [
+        "notes",
+        "stage7"
+      ]
+    },
+    "views-home": {
+      "title": "列表页",
+      "paths": [
+        "apps/web/src/views/HomeView.vue",
+        "apps/web/src/components/NoteCard.vue"
+      ],
+      "suites": [
+        "notes",
+        "actions",
+        "life"
+      ]
+    },
+    "views-note": {
+      "title": "详情页",
+      "paths": [
+        "apps/web/src/views/NoteEditView.vue"
+      ],
+      "suites": [
+        "stage2",
+        "stage4",
+        "stage5",
+        "stage6"
+      ]
+    },
+    "views-folders": {
+      "title": "文件夹页",
+      "paths": [
+        "apps/web/src/views/FoldersView.vue",
+        "apps/web/src/views/FolderDetailView.vue"
+      ],
+      "suites": [
+        "notes",
+        "actions",
+        "life",
+        "stage7"
+      ]
+    },
+    "views-trash": {
+      "title": "回收站页",
+      "paths": [
+        "apps/web/src/views/TrashView.vue"
+      ],
+      "suites": [
+        "notes",
+        "actions",
+        "life"
+      ]
+    },
+    "views-login": {
+      "title": "连接页",
+      "paths": [
+        "apps/web/src/views/LoginView.vue"
+      ],
+      "suites": [
+        "notes"
+      ]
+    },
+    "views-settings": {
+      "title": "设置页",
+      "paths": [
+        "apps/web/src/views/SettingsView.vue"
+      ],
+      "suites": [
+        "notes"
+      ]
+    },
+    "stores": {
+      "title": "状态（Pinia）",
+      "paths": [
+        "apps/web/src/stores/**"
+      ],
+      "suites": [
+        "notes",
+        "actions",
+        "stage7"
+      ]
+    },
+    "styles": {
+      "title": "全局样式与设计变量",
+      "paths": [
+        "apps/web/src/styles/**"
+      ],
+      "suites": [
+        "stage7"
+      ]
+    },
+    "router": {
+      "title": "路由",
+      "paths": [
+        "apps/web/src/router/**"
+      ],
+      "suites": [
+        "notes",
+        "stage7"
+      ]
+    },
+    "utils": {
+      "title": "工具函数",
+      "paths": [
+        "apps/web/src/utils/**"
+      ],
+      "suites": [
+        "notes",
+        "attach",
+        "stage7"
+      ]
+    },
+    "web-entry": {
+      "title": "Web 入口",
+      "paths": [
+        "apps/web/src/main.ts",
+        "apps/web/src/App.vue",
+        "apps/web/index.html"
+      ],
+      "suites": [
+        "notes",
+        "stage7"
+      ]
+    }
+  },
+  "fullRunTriggers": {
+    "$comment": "命中任意一条 → 直接跑全套。这些位置的影响面横跨所有套件，逐个列模块不如全跑。",
+    "paths": [
+      "packages/shared/**",
+      "apps/web/vite.config.ts",
+      "apps/web/src/services/storage/types.ts",
+      "pnpm-lock.yaml",
+      "pnpm-workspace.yaml",
+      "package.json",
+      "apps/web/tsconfig*.json",
+      "apps/desktop/src/**",
+      "apps/desktop/src-tauri/src/**",
+      "apps/desktop/src-tauri/tauri.conf.json",
+      "apps/desktop/src-tauri/Cargo.toml"
+    ]
+  },
+  "ignorePaths": {
+    "$comment": "改动这些文件不触发任何套件（文档 / 站点 / 记忆 / 脚本本身；锁文件只随版本号变）。",
+    "paths": [
+      "docs/**",
+      "site/**",
+      "scripts/**",
+      ".workbuddy/**",
+      "**/*.md",
+      ".gitignore",
+      "apps/desktop/src-tauri/Cargo.lock"
+    ]
+  }
+}

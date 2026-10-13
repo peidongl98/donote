@@ -1,0 +1,8 @@
+{
+  "$comment": "回归脚手架的本机配置模板。复制成 local.json 后按本机情况改；local.json 不入库（.gitignore）。全部字段可选：缺省时用映射表默认值 / 环境变量。",
+  "nodePath": "C:/Users/<你>/.workbuddy/binaries/node/workspace/node_modules",
+  "secretsFile": "D:/design-website/.deploy-secrets",
+  "account": "you@example.com",
+  "base": "http://localhost:5173",
+  "artifactsDir": "scripts/regression/.artifacts"
+}

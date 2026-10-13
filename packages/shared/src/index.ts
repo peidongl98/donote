@@ -16,6 +16,8 @@ export interface NoteDTO {
   updated_at: number;
   deleted_at: number | null;
   version: number;
+  /** frontmatter 里的 tags，没有就是空数组 */
+  tags: string[];
 }
 
 /** 列表项不含正文，只带摘要 */
@@ -27,6 +29,8 @@ export interface NoteSummaryDTO {
   created_at: number;
   updated_at: number;
   deleted_at: number | null;
+  /** 来自摘要缓存（后台补齐时顺手解析的 frontmatter） */
+  tags: string[];
 }
 
 export interface NoteListResult {

@@ -79,7 +79,15 @@ function closeWindow(): void {
 </script>
 
 <template>
-  <header class="topbar" data-tauri-drag-region>
+  <!--
+    drag-region 用 "deep"：Tauri 的拖拽脚本沿 composedPath 向上找，但**裸属性
+    （无值 / "true"）只认被直接点到的那个元素**（`return el === composedPath[0]`），
+    所以把裸属性挂在 .titles 上时，点到里面的 <h1> 就整块拖不动。
+    "deep" 表示「子树里任何位置都算拖拽区」，内层的按钮 / 链接 / 输入框仍会自己拦住
+    （脚本对 A / BUTTON / INPUT … 这些可点元素直接返回 false），不影响点击。
+    注意：**不要**在内层再挂裸属性，裸属性会短路整条向上查找，反而把 "deep" 挡掉。
+  -->
+  <header class="topbar" data-tauri-drag-region="deep">
     <button class="icon-btn" type="button" aria-label="收起或展开侧边栏" @click="layout.toggle()">
       <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
         <path
@@ -105,12 +113,10 @@ function closeWindow(): void {
       </svg>
     </button>
 
-    <!-- drag-region 只认「被点到的那个元素」，所以每块非交互区域都要自己带上 -->
     <nav
       v-if="crumbs.length"
       class="crumbs"
       aria-label="位置"
-      data-tauri-drag-region
     >
       <template v-for="(crumb, i) in crumbs" :key="`${crumb.label}-${i}`">
         <span v-if="i" class="sep" aria-hidden="true">/</span>
@@ -119,7 +125,7 @@ function closeWindow(): void {
       </template>
     </nav>
 
-    <div v-else class="titles" data-tauri-drag-region>
+    <div v-else class="titles">
       <h1 class="title">{{ title }}</h1>
       <p v-if="subtitle" class="subtitle">{{ subtitle }}</p>
     </div>

@@ -357,6 +357,11 @@ export class CachedStorage implements StorageAdapter {
 
   /* ------------------------------ 读 ------------------------------ */
 
+  /** 读原始字节：缓存层不掺和（图片是二进制，缓存只存文本），直接透传。 */
+  readBytes(path: string): Promise<ArrayBuffer> {
+    return this.inner.readBytes(path);
+  }
+
   async read(path: string, options?: ReadOptions): Promise<string> {
     await this.ready;
 

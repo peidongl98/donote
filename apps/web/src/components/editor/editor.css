@@ -151,26 +151,69 @@
 
 /* ---------------------------- 表格 ---------------------------- */
 
+/*
+ * Notion 风。三档颜色分暗 / 亮两套，就挂在这一段的选择器上，不往全局 tokens 里加
+ * （只有编辑器里的表格用得上）。无斑马纹。
+ * 这里写的是色值不是 --surface-border：表格线要比面板边框更明显一点，
+ * 表头底色也要跟单元格拉开一档。
+ */
+.donote-surface .ProseMirror {
+  --tbl-line: rgba(0, 0, 0, 0.06);
+  --tbl-head-bg: #f5f5f7;
+  --tbl-row-hover: rgba(0, 0, 0, 0.02);
+}
+
+html[data-theme='dark'] .donote-surface .ProseMirror {
+  --tbl-line: rgba(255, 255, 255, 0.08);
+  --tbl-head-bg: #1a2130;
+  --tbl-row-hover: rgba(255, 255, 255, 0.03);
+}
+
+/*
+ * 用 separate + 只画右/下边线，而不是 collapse：
+ * collapse 下浏览器不认 border-radius（外框圆角出不来），separate 才能让
+ * 「圆角 8px + 溢出隐藏」真的生效，网格线也不会变成双线。
+ */
 .donote-surface .ProseMirror table {
-  border-collapse: collapse;
+  border-collapse: separate;
+  border-spacing: 0;
   margin: 0.9em 0;
   width: 100%;
   table-layout: fixed;
+  border: 1px solid var(--tbl-line);
+  border-radius: 8px;
   overflow: hidden;
 }
 
 .donote-surface .ProseMirror th,
 .donote-surface .ProseMirror td {
-  border: 1px solid var(--surface-border);
+  border: none;
+  border-right: 1px solid var(--tbl-line);
+  border-bottom: 1px solid var(--tbl-line);
   padding: 6px 10px;
   vertical-align: top;
   position: relative;
 }
 
+.donote-surface .ProseMirror th:last-child,
+.donote-surface .ProseMirror td:last-child {
+  border-right: none;
+}
+
+.donote-surface .ProseMirror tr:last-child > td,
+.donote-surface .ProseMirror tr:last-child > th {
+  border-bottom: none;
+}
+
 .donote-surface .ProseMirror th {
-  background: var(--surface);
+  background: var(--tbl-head-bg);
   font-weight: 600;
   text-align: left;
+}
+
+/* 行 hover：只淡一格，不整行换色 */
+.donote-surface .ProseMirror tr:not([data-is-header]):hover > td {
+  background: var(--tbl-row-hover);
 }
 
 .donote-surface .ProseMirror td > p,
@@ -178,12 +221,12 @@
   margin: 0;
 }
 
-/* 被选中的单元格描边，方便看清当前在哪一格 */
+/* 被选中的单元格：品牌蓝描边（--accent 就是 #4A6FA5），不再铺底色 */
 .donote-surface .ProseMirror .selectedCell::after {
   content: '';
   position: absolute;
   inset: 0;
-  background: var(--accent-soft);
+  border: 2px solid var(--accent);
   pointer-events: none;
 }
 

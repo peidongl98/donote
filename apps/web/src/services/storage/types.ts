@@ -157,6 +157,9 @@ export interface StorageAdapter {
 
   /* 单文件 / 单目录 */
   read(path: string, options?: ReadOptions): Promise<string>;
+
+  /** 读原始字节（导出 HTML 时把图片内嵌成 base64 用）。不走缓存，直接问云端。 */
+  readBytes(path: string): Promise<ArrayBuffer>;
   write(path: string, content: WriteContent, etag?: string): Promise<WriteResult>;
   delete(path: string): Promise<void>;
   move(from: string, to: string): Promise<void>;

@@ -21,6 +21,8 @@ import { createNoteEditor } from './create-editor';
 import { EMPTY_SNAPSHOT, insertImage, snapshotOf, type ToolbarSnapshot } from './commands';
 import EditorToolbar from './EditorToolbar.vue';
 import FloatingToolbar from './FloatingToolbar.vue';
+import BlockHandle from './BlockHandle.vue';
+import SlashMenu from './SlashMenu.vue';
 import MarkdownView from '@/components/MarkdownView.vue';
 import './editor.css';
 
@@ -109,6 +111,8 @@ async function teardown(): Promise<void> {
   editorRef.value = null;
   float.value = null;
   lastCtx = null;
+  // 复位快照：切到源码模式后编辑器没了，顶栏的撤销/重做不能还挂着上一次的「可撤销」
+  toolbarState.value = { ...EMPTY_SNAPSHOT };
   if (instance) await instance.destroy();
 }
 
@@ -156,7 +160,12 @@ async function placeImage(src: string, alt: string): Promise<void> {
   if (markdown !== null && markdown !== props.modelValue) report(markdown);
 }
 
-defineExpose({ getEditor: () => editorRef.value, placeImage });
+defineExpose({
+  getEditor: () => editorRef.value,
+  placeImage,
+  /** 工具栏快照（顶栏的撤销 / 重做按钮据此判断能不能按） */
+  state: toolbarState,
+});
 </script>
 
 <template>
@@ -174,6 +183,15 @@ defineExpose({ getEditor: () => editorRef.value, placeImage });
       ref="host"
       class="donote-surface"
       @scroll="onSurfaceScroll"
+    />
+
+    <!-- 块级手柄：悬停块左侧的 ⋮⋮（fixed 定位，不能放进 .donote-surface，会被 overflow 裁掉） -->
+    <BlockHandle v-if="mode === 'wysiwyg' && !readonly" :editor="editorRef" />
+    <!-- `/` 命令菜单：同样 fixed 定位 -->
+    <SlashMenu
+      v-if="mode === 'wysiwyg' && !readonly"
+      :editor="editorRef"
+      @pick-image="emit('pick-image')"
     />
 
     <div v-else class="split">
@@ -224,9 +242,10 @@ defineExpose({ getEditor: () => editorRef.value, placeImage });
   transition: background-color var(--dur) var(--ease-smooth);
 }
 
-/* 正文为空时告诉用户这里可以写 */
+/* 正文为空时告诉用户这里可以写。所见即所得里不该提 Markdown —— 正文根本不出现符号，
+   提了反而让人以为要手写 # 和 **。源码模式那句（textarea 的 placeholder）是对的，保留。 */
 .donote-surface::before {
-  content: '用 Markdown 写点什么…';
+  content: '写点什么吧';
   position: absolute;
   top: var(--sp-3);
   left: var(--sp-4);

@@ -83,6 +83,48 @@ fn read_image(path: String) -> Result<tauri::ipc::Response, String> {
     Ok(tauri::ipc::Response::new(bytes))
 }
 
+/// 拖放导入 / 导出用的纯文本读写。
+///
+/// 只用 std::fs —— 没引 fs 插件（能力面越小越好，这些路径都来自用户自己拖进来的文件或
+/// 自己选的保存位置）。列表用 `list_dir` 递归，目录判定交给调用方。
+#[tauri::command]
+fn read_text(path: String) -> Result<String, String> {
+    std::fs::read_to_string(&path).map_err(|e| format!("读不到这个文件：{e}"))
+}
+
+#[tauri::command]
+fn write_text(path: String, contents: String) -> Result<(), String> {
+    std::fs::write(&path, contents).map_err(|e| format!("写不进去这个位置：{e}"))
+}
+
+#[derive(Serialize)]
+pub struct DirEntryDto {
+    pub path: String,
+    pub name: String,
+    pub is_dir: bool,
+}
+
+/// 列一层目录（不递归）。调用方自己按 is_dir 往下走。
+#[tauri::command]
+fn list_dir(path: String) -> Result<Vec<DirEntryDto>, String> {
+    let entries = std::fs::read_dir(&path).map_err(|e| format!("打不开这个目录：{e}"))?;
+    let mut out = Vec::new();
+    for entry in entries.flatten() {
+        let name = entry.file_name().to_string_lossy().to_string();
+        // 隐藏文件跳过：拖进来的目录里 .DS_Store / Thumbs.db 这类不该变成笔记
+        if name.starts_with('.') {
+            continue;
+        }
+        let is_dir = entry.file_type().map(|t| t.is_dir()).unwrap_or(false);
+        out.push(DirEntryDto {
+            path: entry.path().to_string_lossy().to_string(),
+            name,
+            is_dir,
+        });
+    }
+    Ok(out)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -109,6 +151,9 @@ pub fn run() {
             secret_write,
             secret_clear,
             read_image,
+            read_text,
+            write_text,
+            list_dir,
             cache::cache_dir,
             cache::cache_read,
             cache::cache_write,

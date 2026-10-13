@@ -33,6 +33,11 @@ Thumbs.db
 npm-debug.log*
 pnpm-debug.log*
 
+# 回归脚手架：本机配置（含账号 / 密钥文件路径）与产物
+scripts/regression/local.json
+scripts/regression/.artifacts/
+scripts/regression/.logs/
+
 # scratch
 .workbuddy/tmp/
 

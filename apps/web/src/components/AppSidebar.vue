@@ -5,9 +5,10 @@
  * 宽度由 CSS 变量 --sidebar-w 定，主内容让位靠 <html data-sidebar> 推导出的
  * --content-offset，两侧不会各算各的。
  */
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { RouterLink, useRoute, useRouter } from 'vue-router';
 import { notesApi } from '@/storage/notes';
+import { useSyncStore } from '@/stores/sync';
 import { useLayoutStore } from '@/stores/layout';
 import { useUiStore } from '@/stores/ui';
 import SidebarTree from '@/components/SidebarTree.vue';
@@ -95,6 +96,33 @@ const entries: NavEntry[] = [
   settingsItem,
 ];
 const isMobileDrawer = computed(() => !layout.desktop);
+
+/**
+ * 标签清单。数据变了（新建 / 改名 / 存盘 / 后台校验出云端有更新）就重算一次 ——
+ * 用 sync store 已有的 dataVersion 当信号，不再自己订阅一次 subscribeData。
+ * 标签是从摘要那份缓存里来的，重算不额外发请求。
+ */
+const allTags = ref<Array<{ name: string; count: number }>>([]);
+const sync = useSyncStore();
+
+async function loadTags(): Promise<void> {
+  if (!layout.open) {
+    allTags.value = [];
+    return;
+  }
+  try {
+    allTags.value = await notesApi.tags();
+  } catch {
+    // 标签拉不到不影响导航
+  }
+}
+
+onMounted(async () => {
+  await loadTags();
+  watch(() => sync.dataVersion, () => void loadTags());
+});
+watch(() => layout.open, () => void loadTags());
+watch(() => route.fullPath, () => void loadTags());
 
 async function create(): Promise<void> {
   if (creating.value) return;
@@ -231,6 +259,24 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey));
           {{ entry.label }}
         </RouterLink>
       </template>
+
+      <!-- 标签：列出所有出现过的标签，点一个就只看带它的笔记。
+           数据取 notesApi.tags()（走摘要那份缓存，不额外发请求），列表变了跟着刷。 -->
+      <div v-if="layout.open && allTags.length" class="tag-block">
+        <p class="tag-title">标签</p>
+        <RouterLink
+          v-for="tag in allTags"
+          :key="tag.name"
+          class="tag-item"
+          :class="{ 'is-active': route.query.tag === tag.name }"
+          :to="{ path: '/', query: { tag: tag.name } }"
+          @click="onNavigate"
+        >
+          <span class="tag-hash">#</span>
+          <span class="tag-name">{{ tag.name }}</span>
+          <span class="tag-count">{{ tag.count }}</span>
+        </RouterLink>
+      </div>
     </nav>
 
     <div class="rail-foot">
@@ -447,5 +493,58 @@ html[data-sidebar='closed'] .rail {
   font-size: var(--fs-xs);
   color: var(--text-2);
   opacity: 0.75;
+}
+
+/* 标签块：与树同一档缩进，行内三段（# / 名字 / 计数） */
+.tag-block {
+  margin: 10px 0 2px;
+  padding: 0 8px;
+}
+
+.tag-title {
+  margin: 0 0 4px 4px;
+  font-size: var(--fs-xs);
+  color: var(--text-2);
+  opacity: 0.8;
+}
+
+.tag-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 8px;
+  border-radius: var(--r-xs);
+  font-size: var(--fs-sm);
+  color: var(--text-2);
+  text-decoration: none;
+  transition: background-color var(--dur-fast) var(--ease-smooth);
+}
+
+.tag-item:hover {
+  background: var(--surface);
+  color: var(--text);
+}
+
+.tag-item.is-active {
+  background: var(--rail-active);
+  color: var(--accent);
+}
+
+.tag-hash {
+  opacity: 0.6;
+}
+
+.tag-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tag-count {
+  font-size: var(--fs-xs);
+  opacity: 0.7;
 }
 </style>

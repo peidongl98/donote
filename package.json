@@ -1,6 +1,6 @@
 {
   "name": "donote",
-  "version": "0.2.4",
+  "version": "0.2.5",
   "private": true,
   "type": "module",
   "packageManager": "pnpm@9.15.9",
@@ -9,7 +9,9 @@
     "build:web": "pnpm --filter @donote/web build",
     "dev:desktop": "pnpm --filter @donote/desktop dev",
     "build:desktop": "pnpm --filter @donote/desktop build",
-    "typecheck": "pnpm -r typecheck"
+    "typecheck": "pnpm -r typecheck",
+    "regress": "node scripts/regression/run-regression.cjs",
+    "release": "node scripts/release.mjs"
   },
   "devDependencies": {
     "typescript": "^5.9.3"

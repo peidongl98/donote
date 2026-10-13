@@ -3,6 +3,7 @@ import { computed, onMounted } from 'vue';
 import { RouterView, useRoute } from 'vue-router';
 import AppSidebar from '@/components/AppSidebar.vue';
 import BottomTabs from '@/components/BottomTabs.vue';
+import DropOverlay from '@/components/DropOverlay.vue';
 import { useLayoutStore } from '@/stores/layout';
 import { useUiStore } from '@/stores/ui';
 
@@ -28,6 +29,9 @@ onMounted(() => layout.init());
   </RouterView>
 
   <BottomTabs v-if="showTabs" />
+
+  <!-- 拖放导入：连上以后整窗都是投放区 -->
+  <DropOverlay v-if="showShell" />
 
   <Transition name="toast">
     <div v-if="ui.message" class="toast glass">{{ ui.message }}</div>
