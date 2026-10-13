@@ -1,19 +1,23 @@
 <script setup lang="ts">
 /**
- * 块级手柄：鼠标悬停在任意块上时，在该块左侧出现 ⋮⋮，点击弹菜单。
+ * 块级手柄：鼠标悬停在任意块上时，在该块左侧出现 ⋮⋮。
+ * - 点一下 → 弹菜单：删除本块 / 复制本块 / 转为（文本、标题 1–3、引用、代码块、无序 / 有序列表）
+ * - 按住拖 → 把这一整块挪到别的块之间（落点有指示线）
  *
- * 菜单三项：删除本块 / 复制本块 / 转为（文本、标题 1–3、引用、代码块、无序 / 有序列表）。
- *
- * 两条实现约束：
+ * 三条实现约束：
  * 1. **必须 `position: fixed`**。正文的滚动容器（`.donote-surface`）是 `overflow-y: auto`，
  *    手柄若作为它的子元素会被裁掉（另一轴会一并变成 auto），所以按视口坐标定位、滚动时收起。
  * 2. 手柄在正文盒子之外，鼠标从块移到手柄的途中会离开正文 → 不能「一离开就收」，
  *    要留一个短暂延迟，手柄自己的 mouseenter 会把它取消掉。
+ * 3. 拖动走**指针事件自己算落点**，不用 HTML5 drag-and-drop：
+ *    拖的是「文档里的一个块」而不是一段 DOM，落点必须由 `posAtCoords` 换算成文档位置，
+ *    而且一次拖放要在**一个事务**里删+插（一次撤销回到原位）—— 这些 DnD 都给不了。
  */
 import { onBeforeUnmount, ref, watch } from 'vue';
 import type { Editor } from '@milkdown/kit/core';
 import { editorViewCtx } from '@milkdown/kit/core';
-import { convertBlockAt, deleteBlockAt, duplicateBlockAt, type BlockKind } from './commands';
+import type { EditorView } from '@milkdown/kit/prose/view';
+import { convertBlockAt, deleteBlockAt, duplicateBlockAt, moveBlock, type BlockKind } from './commands';
 
 const props = defineProps<{ editor: Editor | null }>();
 
@@ -21,6 +25,8 @@ const props = defineProps<{ editor: Editor | null }>();
 const HANDLE_W = 22;
 /** 菜单宽度，用来夹住不越出右边界 */
 const MENU_W = 200;
+/** 超过这个位移才算拖动，否则当点按（不然手一抖菜单就开不出来） */
+const DRAG_SLOP = 4;
 
 const visible = ref(false);
 const menuOpen = ref(false);
@@ -28,6 +34,13 @@ const top = ref(0);
 const left = ref(0);
 /** 当前指向的顶层块起点 */
 const blockStart = ref(-1);
+
+/** 拖动中（指针按下并已越过阈值） */
+const dragging = ref(false);
+/** 落点所在的块边界（文档位置）；null = 指针不在正文上 */
+const dropAt = ref<number | null>(null);
+/** 落点指示线的视口位置 */
+const dropLine = ref<{ top: number; left: number; width: number } | null>(null);
 
 const CONVERT: Array<{ kind: BlockKind; label: string }> = [
   { kind: 'paragraph', label: '文本' },
@@ -40,8 +53,11 @@ const CONVERT: Array<{ kind: BlockKind; label: string }> = [
   { kind: 'ordered', label: '有序列表' },
 ];
 
+let view: EditorView | null = null;
 let detach: (() => void) | null = null;
 let hideTimer: ReturnType<typeof setTimeout> | null = null;
+
+/* ------------------------------- 悬停 / 收起 ------------------------------- */
 
 function cancelHide(): void {
   if (hideTimer) {
@@ -50,12 +66,12 @@ function cancelHide(): void {
   }
 }
 
-/** 收起手柄。菜单开着时不收（否则鼠标一移向菜单，锚点就没了） */
+/** 收起手柄。菜单开着、正在拖动时不收（否则鼠标一移开，锚点就没了） */
 function scheduleHide(): void {
   cancelHide();
-  if (menuOpen.value) return;
+  if (menuOpen.value || dragging.value) return;
   hideTimer = setTimeout(() => {
-    if (!menuOpen.value) visible.value = false;
+    if (!menuOpen.value && !dragging.value) visible.value = false;
   }, 240);
 }
 
@@ -76,32 +92,139 @@ function onOutside(event: MouseEvent): void {
   hideNow();
 }
 
+/* --------------------------------- 拖动 --------------------------------- */
+
+/** 按下起点（判断点按还是拖动） */
+let press: { x: number; y: number } | null = null;
+/** 按下的那一块。拖动全程用它 —— 手柄往正文里挪的途中，`mousemove` 可能已经把
+ *  `blockStart` 换成别的块了（阈值以下还不算拖动），不冻结就会挪错块 */
+let dragFrom = -1;
+/** 拖完紧跟的那次 click 要吞掉（否则松手就弹菜单） */
+let suppressClick = false;
+/** 顶层块边界的位置表，按文档对象缓存（拖动期间文档不会变） */
+let offsetsCache: { doc: unknown; list: number[] } | null = null;
+
+function offsetsOf(v: EditorView): number[] {
+  const doc = v.state.doc;
+  if (offsetsCache?.doc === doc) return offsetsCache.list;
+  const list = [0];
+  doc.forEach((child) => list.push(list[list.length - 1] + child.nodeSize));
+  offsetsCache = { doc, list };
+  return list;
+}
+
+/**
+ * 指针落在哪两个块之间。横向不管（块是整行的），只看纵向在目标块的哪半截。
+ * 返回的 `pos` 是**当前文档**里的块边界位置，直接交给 `moveBlock`。
+ */
+function boundaryFor(
+  v: EditorView,
+  clientX: number,
+  clientY: number,
+): { pos: number; line: { top: number; left: number; width: number } } | null {
+  const hit = v.posAtCoords({ left: clientX, top: clientY });
+  if (!hit) return null;
+  const doc = v.state.doc;
+  const offsets = offsetsOf(v);
+  const $pos = doc.resolve(Math.min(hit.pos, doc.content.size));
+  const index = Math.min($pos.index(0), doc.childCount - 1);
+  const el = v.nodeDOM(offsets[index]);
+  if (!(el instanceof HTMLElement)) return null;
+  const rect = el.getBoundingClientRect();
+  const after = clientY > rect.top + rect.height / 2;
+  const box = (v.dom as HTMLElement).getBoundingClientRect();
+  return {
+    pos: offsets[after ? index + 1 : index],
+    line: { top: after ? rect.bottom : rect.top, left: box.left, width: box.width },
+  };
+}
+
+function onPointerMove(event: PointerEvent): void {
+  if (!press || !view) return;
+  if (!dragging.value) {
+    if (Math.hypot(event.clientX - press.x, event.clientY - press.y) < DRAG_SLOP) return;
+    dragging.value = true;
+    menuOpen.value = false;
+    cancelHide();
+  }
+  const hit = boundaryFor(view, event.clientX, event.clientY);
+  dropAt.value = hit ? hit.pos : null;
+  dropLine.value = hit ? hit.line : null;
+}
+
+/** 拖动的收摊（Esc 取消 / 正常松手都走这里） */
+function endDrag(): void {
+  dragging.value = false;
+  dropAt.value = null;
+  dropLine.value = null;
+  press = null;
+  dragFrom = -1;
+  offsetsCache = null;
+  window.removeEventListener('pointermove', onPointerMove);
+  window.removeEventListener('pointerup', onPointerUp);
+  window.removeEventListener('keydown', onDragEscape, true);
+}
+
+function onPointerUp(): void {
+  const wasDragging = dragging.value;
+  const target = dropAt.value;
+  const from = dragFrom;
+  endDrag();
+  if (!wasDragging) return;
+  suppressClick = true;
+  visible.value = false; // 块挪走了，手柄留在原地没意义；鼠标一动会重新贴上去
+  if (target !== null) moveBlock(props.editor, from, target);
+}
+
+function onDragEscape(event: KeyboardEvent): void {
+  if (event.key !== 'Escape' || !dragging.value) return;
+  event.stopPropagation();
+  endDrag();
+  suppressClick = true;
+  visible.value = false;
+}
+
+function onPointerDown(event: PointerEvent): void {
+  if (event.button !== 0 || blockStart.value < 0 || !view) return;
+  suppressClick = false;
+  dragFrom = blockStart.value;
+  press = { x: event.clientX, y: event.clientY };
+  window.addEventListener('pointermove', onPointerMove);
+  window.addEventListener('pointerup', onPointerUp);
+  window.addEventListener('keydown', onDragEscape, true);
+}
+
+/* --------------------------------- 挂载 --------------------------------- */
+
 function attach(editor: Editor | null): void {
   detach?.();
   detach = null;
   if (!editor) return;
 
   void editor.action((ctx) => {
-    const view = ctx.get(editorViewCtx);
-    const dom = view?.dom as HTMLElement | undefined;
-    if (!dom) return;
+    const instance = ctx.get(editorViewCtx);
+    const dom = instance?.dom as HTMLElement | undefined;
+    if (!instance || !dom) return;
+    view = instance;
     const scroller = (dom.parentElement ?? dom) as HTMLElement;
 
     const onMove = (event: MouseEvent): void => {
+      // 从按下到松手，手柄钉在原地不动（拖动期间更要钉住，免得跟着指针乱跑）
+      if (press) return;
       cancelHide();
-      const hit = view.posAtCoords({ left: event.clientX, top: event.clientY });
+      const hit = instance.posAtCoords({ left: event.clientX, top: event.clientY });
       if (!hit) {
         if (!menuOpen.value) visible.value = false;
         return;
       }
-      const $pos = view.state.doc.resolve(hit.pos);
+      const $pos = instance.state.doc.resolve(hit.pos);
       // 只有顶层块（depth 1）才有手柄
       if ($pos.depth < 1) {
         if (!menuOpen.value) visible.value = false;
         return;
       }
       const start = $pos.before(1);
-      const el = view.nodeDOM(start);
+      const el = instance.nodeDOM(start);
       if (!(el instanceof HTMLElement)) {
         if (!menuOpen.value) visible.value = false;
         return;
@@ -125,6 +248,8 @@ function attach(editor: Editor | null): void {
       scroller.removeEventListener('scroll', hideNow);
       window.removeEventListener('keydown', onEscape);
       window.removeEventListener('mousedown', onOutside, true);
+      if (dragging.value || press) endDrag();
+      view = null;
     };
   });
 }
@@ -136,6 +261,10 @@ onBeforeUnmount(() => {
 });
 
 function toggleMenu(): void {
+  if (suppressClick) {
+    suppressClick = false;
+    return;
+  }
   menuOpen.value = !menuOpen.value;
 }
 
@@ -152,12 +281,14 @@ const menuTop = (): number => Math.min(top.value, window.innerHeight - 260);
   <button
     v-if="visible"
     class="block-handle"
+    :class="{ 'is-dragging': dragging }"
     type="button"
     aria-label="块操作"
-    title="块操作"
+    title="块操作（按住可拖动排序）"
     :style="{ top: `${top}px`, left: `${left}px` }"
     @mouseenter="cancelHide"
     @mouseleave="scheduleHide"
+    @pointerdown="onPointerDown"
     @mousedown.prevent
     @click="toggleMenu"
   >
@@ -170,6 +301,17 @@ const menuTop = (): number => Math.min(top.value, window.innerHeight - 260);
       <circle cx="7.5" cy="13" r="1.15" fill="currentColor" />
     </svg>
   </button>
+
+  <!-- 拖动落点：一条品牌蓝细线，卡在目标块的上下缝里 -->
+  <div
+    v-if="dropLine"
+    class="drop-line"
+    :style="{
+      top: `${dropLine.top - 1}px`,
+      left: `${dropLine.left}px`,
+      width: `${dropLine.width}px`,
+    }"
+  />
 
   <div
     v-if="menuOpen && blockStart >= 0"
@@ -226,6 +368,7 @@ const menuTop = (): number => Math.min(top.value, window.innerHeight - 260);
   border-radius: var(--r-xs);
   color: var(--text-2);
   opacity: 0.55;
+  cursor: grab;
   transition:
     background-color var(--dur-fast) var(--ease-smooth),
     color var(--dur-fast) var(--ease-smooth),
@@ -236,6 +379,22 @@ const menuTop = (): number => Math.min(top.value, window.innerHeight - 260);
   background: var(--surface-2);
   color: var(--text);
   opacity: 1;
+}
+
+.block-handle.is-dragging {
+  cursor: grabbing;
+  background: var(--accent-soft);
+  color: var(--accent);
+  opacity: 1;
+}
+
+.drop-line {
+  position: fixed;
+  z-index: 16;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--accent);
+  pointer-events: none;
 }
 
 .block-menu {

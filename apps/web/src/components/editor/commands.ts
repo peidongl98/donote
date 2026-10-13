@@ -663,3 +663,31 @@ export function convertBlockAt(e: Editor | null, start: number, kind: BlockKind)
     view.focus();
   });
 }
+
+/**
+ * 把一整块挪到另一个块边界上（块级手柄拖动排序用）。
+ *
+ * `target` 是**当前文档**里的一个顶层块边界（0 = 最前，`doc.content.size` = 最后），
+ * 由调用方从 `posAtCoords` 换算出来。落点在自己内部或原地 → 不动作。
+ *
+ * 删 + 插放在**同一个事务**里：中间那一瞬文档是空的也不会有别的东西看到它；
+ * 撤销一次就整体退回原位，不会留下「删掉了但没插回去」的中间态。
+ */
+export function moveBlock(e: Editor | null, start: number, target: number): void {
+  if (!e) return;
+  void e.action((ctx) => {
+    const view = ctx.get(editorViewCtx);
+    const { state } = view;
+    const node = blockAt(state, start);
+    if (!node) return;
+    const end = start + node.nodeSize;
+    if (target > start && target < end) return; // 落在自己身上
+    if (target === start || target === end) return; // 原地
+
+    const tr = state.tr.delete(start, end);
+    // 删掉之后，后面的位置整体前移了 nodeSize
+    tr.insert(target > end ? target - node.nodeSize : target, node);
+    view.dispatch(tr.scrollIntoView());
+    view.focus();
+  });
+}
