@@ -29,6 +29,13 @@ export interface ImportResult {
   skipped: string[];
 }
 
+export interface ImportOptions {
+  /** 进度回调（给「3/10」这种提示用） */
+  onProgress?: (done: number, total: number) => void;
+  /** 都导到哪个文件夹下；null / 省略 = 同步根 */
+  baseFolderId?: string | null;
+}
+
 interface DirEntryDto {
   path: string;
   name: string;
@@ -92,12 +99,16 @@ export function itemsFromFiles(files: File[]): ImportItem[] {
  * 文件夹按需建：同一次导入里出现过的相对目录缓存成 id，避免重复建。
  * 撞名交给 `foldersApi.create` 自己补后缀。
  * 非 .md 在这里统一挡掉（两条取数路径各自也会先筛一遍，这里兜底）。
+ *
+ * `baseFolderId` 给了就把整包导到那个文件夹下（侧栏「在此导入」）；
+ * 它是这棵「导入树」的根，`item.rel` 里的目录一层层建在它下面。
  */
 export async function importItems(
   items: ImportItem[],
-  onProgress?: (done: number, total: number) => void,
+  options: ImportOptions = {},
 ): Promise<ImportResult> {
-  const folderIds = new Map<string, string | null>([['', null]]);
+  const { onProgress, baseFolderId = null } = options;
+  const folderIds = new Map<string, string | null>([['', baseFolderId]]);
   const pending = items.filter((item) => MARKDOWN.test(item.rel));
   const skipped = items.filter((item) => !MARKDOWN.test(item.rel)).map((item) => item.rel);
   let folders = 0;
@@ -119,7 +130,8 @@ export async function importItems(
   for (const item of pending) {
     const parts = item.rel.split('/');
     const file = parts.pop() as string;
-    const folder = parts.length ? await ensureFolder(parts.join('/')) : null;
+    // 没有目录层时落到 baseFolderId（侧栏「在此导入」指定的那一层），不是根目录
+    const folder = parts.length ? await ensureFolder(parts.join('/')) : baseFolderId;
     const { title, body } = splitFrontmatter(await item.read());
     await notesApi.create({
       title: title ?? file.replace(MARKDOWN, ''),

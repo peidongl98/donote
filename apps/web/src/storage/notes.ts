@@ -568,42 +568,7 @@ export const notesApi = {
    * WebDAV 没有多步原子操作，附件失败时按 best-effort 回滚。
    */
   async restore(id: string) {
-    const rel = decodeId(id);
-    const raw = await readOrNull(rel);
-    if (raw === null) throw new StorageError('not_found', '笔记不存在', 404);
-
-    const parsed = parseNote(raw, baseName(rel), Date.now());
-    const target = parsed.deleted_from;
-    if (!target) throw new StorageError('other', '这个文件不在回收站里', 400);
-
-    // 前置校验：原路径上不能已经有东西，否则什么都不动
-    if (await pathExists(target)) {
-      throw new StorageError('conflict', '原位置已有同名文件，恢复已放弃', 409);
-    }
-
-    const dir = parentOf(target);
-    if (dir) await getStorage().ensureDir(dir);
-
-    const meta: NoteMeta = {
-      title: parsed.title,
-      created: parsed.created,
-      updated: Date.now(),
-      tags: parsed.tags,
-    };
-    await getStorage().write(target, serializeNote(meta, parsed.body));
-
-    // 附件目录跟着回来；失败就把刚恢复的笔记撤回去，不留半截状态
-    try {
-      await moveAssets(trashAssetsPath(rel), getAssetsDirPath(target));
-    } catch (error) {
-      await getStorage().delete(target);
-      const reason = error instanceof Error ? error.message : String(error);
-      throw new StorageError('other', `附件恢复失败，已回滚：${reason}`, 0);
-    }
-
-    await getStorage().delete(rel);
-    invalidateTree();
-    return { note: noteOf(target, meta, parsed.body) };
+    return restoreNoteFile(decodeId(id));
   },
 };
 
@@ -734,4 +699,339 @@ export const foldersApi = {
     invalidateTree();
     return { moved_to: parent ? encodeId(parent) : null };
   },
+
+  /**
+   * 删除文件夹：**整棵子树作为一个整体**进 `.trash`。
+   *
+   * 一次 WebDAV MOVE 搬完整棵（服务端递归移动集合），所以不像解散那样要逐个子项搬。
+   * 落点叫 `YYYYMMDD-HHMMSS_原名`：时间戳既是给人看的，也是回收站排序 / 30 天计时用的。
+   * 原路径写进条目里的 `.donote-origin` —— 恢复时靠它回原位（目录名本身只有一个末段名，
+   * 光看名字不知道它原来挂在谁下面）。
+   */
+  async trash(id: string) {
+    const rel = decodeId(id);
+    if (!rel) throw new StorageError('other', '根目录不能删除', 400);
+
+    await getStorage().ensureDir(TRASH_DIR);
+    const entry = await uniqueTrashEntry(`${stampName()}_${rel.slice(rel.lastIndexOf('/') + 1)}`);
+    const at = `${TRASH_DIR}/${entry}`;
+
+    await getStorage().move(rel, at);
+    await getStorage().write(`${at}/${ORIGIN_FILE}`, rel);
+    invalidateTree();
+    return { entry, path: at };
+  },
 };
+
+/* ------------------------------ 单篇恢复（笔记 / 文件夹条目共用） ------------------------------ */
+
+/** 把 `.trash` 下的一个 .md 恢复回 frontmatter 记的原路径 */
+async function restoreNoteFile(rel: string): Promise<{ note: NoteDTO }> {
+  const raw = await readOrNull(rel);
+  if (raw === null) throw new StorageError('not_found', '笔记不存在', 404);
+
+  const parsed = parseNote(raw, baseName(rel), Date.now());
+  const target = parsed.deleted_from;
+  if (!target) throw new StorageError('other', '这个文件不在回收站里', 400);
+
+  // 前置校验：原路径上不能已经有东西，否则什么都不动
+  if (await pathExists(target)) {
+    throw new StorageError('conflict', '原位置已有同名文件，恢复已放弃', 409);
+  }
+
+  const dir = parentOf(target);
+  if (dir) await getStorage().ensureDir(dir);
+
+  const meta: NoteMeta = {
+    title: parsed.title,
+    created: parsed.created,
+    updated: Date.now(),
+    tags: parsed.tags,
+  };
+  await getStorage().write(target, serializeNote(meta, parsed.body));
+
+  // 附件目录跟着回来；失败就把刚恢复的笔记撤回去，不留半截状态
+  try {
+    await moveAssets(trashAssetsPath(rel), getAssetsDirPath(target));
+  } catch (error) {
+    await getStorage().delete(target);
+    const reason = error instanceof Error ? error.message : String(error);
+    throw new StorageError('other', `附件恢复失败，已回滚：${reason}`, 0);
+  }
+
+  await getStorage().delete(rel);
+  invalidateTree();
+  return { note: noteOf(target, meta, parsed.body) };
+}
+
+/* ------------------------------ 回收站：顶层条目 + 树 ------------------------------ */
+
+/**
+ * 回收站里的东西按**顶层条目**组织：一次删除动作产生一个条目。
+ *
+ *   删一篇笔记 → `.trash/1791950000000-ab12-标题.md`        （既有方案，时间在 frontmatter）
+ *   删一个文件夹 → `.trash/20261014-143022_框架笔记/`        （整棵子树，时间在条目名里）
+ *                   框架笔记.md / 子笔记A.assets/ / 子笔记B/子笔记B.md
+ *
+ * 时间只有顶层条目有，下面的子项全都继承它 —— 30 天到期是**整条一起清**。
+ * 单独恢复 / 单独彻底删除一个子项之后，剩下的子项仍然按原来的时间算（不重新计时）。
+ */
+const ORIGIN_FILE = '.donote-origin';
+
+export type TrashKind = 'note' | 'folder';
+
+export interface TrashChild {
+  /** 相对所属顶层条目的路径，例如 `子笔记B/子笔记B.md` */
+  rel: string;
+  /** 相对同步根的路径，例如 `.trash/20261014-143022_框架/子笔记B/子笔记B.md` */
+  path: string;
+  kind: TrashKind;
+  title: string;
+  children: TrashChild[];
+}
+
+export interface TrashEntry {
+  /** `.trash` 下的名字 */
+  entry: string;
+  /** 相对同步根的路径，即 `.trash/<entry>` */
+  path: string;
+  kind: TrashKind;
+  title: string;
+  /** 顶层条目的删除时间 */
+  deletedAt: number;
+  /** 恢复后回到哪（相对同步根） */
+  origin: string;
+  children: TrashChild[];
+}
+
+/** `YYYYMMDD-HHMMSS`，本地时间。给用户看的，也是文件夹条目的时间来源 */
+function stampName(date = new Date()): string {
+  const pad = (n: number): string => String(n).padStart(2, '0');
+  return (
+    `${date.getFullYear()}${pad(date.getMonth() + 1)}${pad(date.getDate())}` +
+    `-${pad(date.getHours())}${pad(date.getMinutes())}${pad(date.getSeconds())}`
+  );
+}
+
+/** 从文件夹条目名里读回时间。认不出来（老条目 / 手改名）就用目录自身的 mtime */
+function parseStamp(name: string): number | null {
+  const hit = /^(\d{4})(\d{2})(\d{2})-(\d{2})(\d{2})(\d{2})_/.exec(name);
+  if (!hit) return null;
+  const at = new Date(
+    Number(hit[1]),
+    Number(hit[2]) - 1,
+    Number(hit[3]),
+    Number(hit[4]),
+    Number(hit[5]),
+    Number(hit[6]),
+  ).getTime();
+  return Number.isFinite(at) ? at : null;
+}
+
+/** 同一秒删两个同名文件夹时不覆盖：补 ` 2`、` 3`… */
+async function uniqueTrashEntry(base: string): Promise<string> {
+  const taken = new Set((await listDir(TRASH_DIR, true)).map((entry) => entry.name));
+  let candidate = base;
+  let n = 2;
+  while (taken.has(candidate)) {
+    candidate = `${base} ${n}`;
+    n += 1;
+  }
+  return candidate;
+}
+
+function lastSegment(rel: string): string {
+  return rel.slice(rel.lastIndexOf('/') + 1);
+}
+
+/** 读子项（跳过点开头的与 .assets —— 附件跟着它那篇笔记走，不单独成节点） */
+async function readTrashChildren(dir: string, prefix = '', depth = 0): Promise<TrashChild[]> {
+  if (depth > 6) return [];
+  const entries = (await listDir(dir)).filter((entry) => !entry.name.startsWith('.'));
+  const out: TrashChild[] = [];
+
+  for (const entry of entries) {
+    const rel = prefix ? `${prefix}/${entry.name}` : entry.name;
+    if (entry.isDirectory) {
+      if (isAssetsDir(entry.name)) continue;
+      out.push({
+        rel,
+        path: entry.path,
+        kind: 'folder',
+        title: entry.name,
+        children: await readTrashChildren(entry.path, rel, depth + 1),
+      });
+    } else if (entry.name.toLowerCase().endsWith('.md')) {
+      out.push({ rel, path: entry.path, kind: 'note', title: stemOf(entry.name), children: [] });
+    }
+  }
+
+  out.sort((a, b) =>
+    a.kind === b.kind ? a.title.localeCompare(b.title, 'zh') : a.kind === 'folder' ? -1 : 1,
+  );
+  return out;
+}
+
+/**
+ * 列回收站顶层条目（新的在前）。笔记条目的标题 / 时间取自 frontmatter ——
+ * 与既有的 `list({trash:true})` 同一口径，两个视图不会各说各话。
+ */
+export async function listTrashEntries(): Promise<TrashEntry[]> {
+  let entries: DirEntry[];
+  try {
+    entries = await listDir(TRASH_DIR);
+  } catch {
+    return [];
+  }
+
+  const rows = await mapLimited(entries, 4, async (entry): Promise<TrashEntry | null> => {
+    if (entry.name.startsWith('.')) return null;
+
+    if (entry.isDirectory) {
+      // 笔记的附件目录也躺在 .trash 里（`<前缀>.assets`），它不是独立条目
+      if (isAssetsDir(entry.name)) return null;
+      const origin = (await readOrNull(`${entry.path}/${ORIGIN_FILE}`))?.trim();
+      const title = entry.name.replace(/^\d{8}-\d{6}_/, '') || entry.name;
+      return {
+        entry: entry.name,
+        path: entry.path,
+        kind: 'folder',
+        title,
+        deletedAt: parseStamp(entry.name) ?? entry.mtime ?? 0,
+        origin: origin || title,
+        children: await readTrashChildren(entry.path),
+      };
+    }
+
+    if (!entry.name.toLowerCase().endsWith('.md')) return null;
+    const raw = await readOrNull(entry.path, true);
+    const parsed = raw ? parseNote(raw, baseName(entry.path), entry.mtime ?? 0) : null;
+    return {
+      entry: entry.name,
+      path: entry.path,
+      kind: 'note',
+      title: parsed?.title ?? baseName(entry.path),
+      deletedAt: parsed?.deleted_at ?? entry.mtime ?? 0,
+      origin: parsed?.deleted_from ?? baseName(entry.path),
+      children: [],
+    };
+  });
+
+  return rows.filter((row): row is TrashEntry => row !== null).sort((a, b) => b.deletedAt - a.deletedAt);
+}
+
+/**
+ * 一篇被删的笔记是否带着有内容的附件目录。
+ *
+ * 单独恢复这样的笔记要**先问一句**：用户不一定知道附件会跟着回去。
+ * 只看「目录在不在、里面有没有东西」，不判断附件有没有被正文引用 —— 那要读正文，
+ * 而「.assets 里躺着一张图」本身就是「这一篇带附件」最直接的证据。
+ */
+export async function trashNoteHasAssets(entryPath: string): Promise<boolean> {
+  const dir = trashAssetsPath(entryPath);
+  try {
+    return (await listDir(dir)).length > 0;
+  } catch {
+    return false;
+  }
+}
+
+async function restoreFolderEntry(entry: TrashEntry): Promise<void> {
+  const target = entry.origin;
+  // 与单篇恢复一个口径：原位置被占了就放弃，不自动改名也不落到别处
+  if (await pathExists(target)) {
+    throw new StorageError('conflict', `「${lastSegment(target)}」已存在，恢复已放弃`, 409);
+  }
+  const parent = parentOf(target);
+  if (parent) await getStorage().ensureDir(parent);
+
+  await getStorage().move(entry.path, target);
+  // 条目里的记账文件不该留在用户目录里；删不掉也不影响内容
+  try {
+    await getStorage().delete(`${target}/${ORIGIN_FILE}`);
+  } catch {
+    /* 点开头的文件不进任何列表，留着也无害 */
+  }
+  invalidateTree();
+}
+
+/** 恢复整条（笔记 → 回 frontmatter 记的原路径；文件夹 → 整棵回原位） */
+export async function restoreTrashEntry(entry: TrashEntry): Promise<void> {
+  if (entry.kind === 'note') {
+    await restoreNoteFile(entry.path);
+    return;
+  }
+  await restoreFolderEntry(entry);
+}
+
+/**
+ * 恢复顶层条目里的**单个子项**。
+ *
+ * 原父目录还在就回原处，不在（多半是它所属的文件夹还在回收站里）就落到根 —— 这是任务书
+ * 定的规则，不自动造父目录。笔记带着同名 `.assets` 一起走。
+ * 恢复出去的这一项离开回收站，时间约束随之解除。
+ */
+export async function restoreTrashChild(entry: TrashEntry, child: TrashChild): Promise<void> {
+  const from = child.path;
+  const wanted = `${entry.origin}/${child.rel}`;
+  const parent = parentOf(wanted);
+  const target = parent && (await pathExists(parent)) ? wanted : lastSegment(wanted);
+
+  if (await pathExists(target)) {
+    throw new StorageError('conflict', `「${lastSegment(target)}」已存在，恢复已放弃`, 409);
+  }
+  const targetDir = parentOf(target);
+  if (targetDir) await getStorage().ensureDir(targetDir);
+
+  await getStorage().move(from, target);
+
+  if (child.kind === 'note') {
+    try {
+      await moveAssets(getAssetsDirPath(from), getAssetsDirPath(target));
+    } catch (error) {
+      await getStorage().delete(target);
+      const reason = error instanceof Error ? error.message : String(error);
+      throw new StorageError('other', `附件恢复失败，已回滚：${reason}`, 0);
+    }
+  }
+  invalidateTree();
+}
+
+/** 彻底删除整条（文件夹条目连同整棵子树） */
+export async function purgeTrashEntry(entry: TrashEntry): Promise<void> {
+  await getStorage().delete(entry.path);
+  if (entry.kind === 'note') await getStorage().delete(trashAssetsPath(entry.path));
+  invalidateTree();
+}
+
+/** 彻底删除顶层条目里的单个子项 */
+export async function purgeTrashChild(child: TrashChild): Promise<void> {
+  await getStorage().delete(child.path);
+  if (child.kind === 'note') await getStorage().delete(trashAssetsPath(child.path));
+  invalidateTree();
+}
+
+/**
+ * 按顶层条目的 deletedAt 清掉到期的东西（设置页的「回收站自动清理」）。
+ *
+ * 静默：能删几条删几条，被限流（503）就停下 —— 下一次触发时接着清，不当成错误报给用户。
+ * 一次清多项之间留间隔，别把免费版的 600 请求 / 30 分钟撞满。
+ */
+export async function purgeExpiredTrash(days: number): Promise<number> {
+  if (!(days > 0)) return 0;
+  const deadline = Date.now() - days * 24 * 60 * 60 * 1000;
+  const expired = (await listTrashEntries()).filter((entry) => entry.deletedAt <= deadline);
+
+  let done = 0;
+  for (const entry of expired) {
+    try {
+      await purgeTrashEntry(entry);
+      done += 1;
+    } catch (error) {
+      // 限流（503 BlockedTemporarily）停下等下次；其它错误也不打断后续条目
+      if (error instanceof StorageError && error.status === 503) break;
+    }
+    if (done) await new Promise((resolve) => setTimeout(resolve, 200));
+  }
+  return done;
+}

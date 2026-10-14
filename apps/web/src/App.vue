@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { computed, onMounted } from 'vue';
+import { computed, onMounted, watch } from 'vue';
 import { RouterView, useRoute } from 'vue-router';
 import AppSidebar from '@/components/AppSidebar.vue';
 import BottomTabs from '@/components/BottomTabs.vue';
 import DropOverlay from '@/components/DropOverlay.vue';
+import { runTrashAutoClean } from '@/services/trash-auto';
 import { useLayoutStore } from '@/stores/layout';
 import { useUiStore } from '@/stores/ui';
 
@@ -17,6 +18,20 @@ const showTabs = computed(() => route.meta.tabs === true);
 const showShell = computed(() => route.meta.requiresAuth === true);
 
 onMounted(() => layout.init());
+
+/**
+ * 回收站自动清理的**启动检查**：侧栏一出现（也就是连上之后）跑一次。
+ * 用 watch 而不是 onMounted：启动瞬间还没连上，showShell 是 false；
+ * 连上之后它才翻成 true，那一刻才是真正的「应用启动」。
+ * 另一个触发点在 TrashView（打开回收站时），两边共用一个 60 秒节流。
+ */
+watch(
+  () => showShell.value,
+  (on) => {
+    if (on) void runTrashAutoClean();
+  },
+  { immediate: true },
+);
 </script>
 
 <template>

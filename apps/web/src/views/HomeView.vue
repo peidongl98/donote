@@ -13,6 +13,7 @@ import BatchToolbar from '@/components/BatchToolbar.vue';
 import NoteCard from '@/components/NoteCard.vue';
 import NoteActionMenu from '@/components/NoteActionMenu.vue';
 import EmptyState from '@/components/EmptyState.vue';
+import ImportButton from '@/components/ImportButton.vue';
 
 const route = useRoute();
 
@@ -168,7 +169,12 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="page">
-    <AppHeader :crumbs="[{ label: '全部笔记' }]" />
+    <AppHeader :crumbs="[{ label: '全部笔记' }]">
+      <template #actions>
+        <!-- 顶栏也放一个导入：拖放之外还得有个明确入口（触屏尤其） -->
+        <ImportButton label="导入" @done="refresh" />
+      </template>
+    </AppHeader>
 
     <div class="page-body">
       <!-- 侧栏点了标签：顶上挂一条筛选条，点 × 回到全部 -->

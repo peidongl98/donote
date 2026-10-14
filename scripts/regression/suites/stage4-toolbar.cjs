@@ -257,22 +257,62 @@ function check(name, ok, detail = '') {
       `${cols1} → ${await surface.locator('table tr:first-child th, table tr:first-child td').count()}`,
     );
 
+    // 表头行删不掉：gfm 的表是 `table_header_row table_row+`，表头行是独立节点类型、
+    // 而且必须存在。prosemirror-tables 的 deleteRow 不认识它，直接删会把表头清空、
+    // 表格凭空多出一行（插入表格后光标就落在表头行，一插完就点「删除本行」必现）。
+    await surface.locator('table tr').nth(0).locator('td, th').first().click();
+    await page.waitForTimeout(250);
+    const rowsBeforeHeaderDel = await surface.locator('table tr').count();
+    await page.locator('.toolbar .row.is-table .chip', { hasText: '删除本行' }).click();
+    await page.waitForTimeout(400);
+    check(
+      '7 光标在表头行时「删除本行」不动表格',
+      (await surface.locator('table tr').count()) === rowsBeforeHeaderDel,
+      `${rowsBeforeHeaderDel} → ${await surface.locator('table tr').count()}`,
+    );
+    check(
+      '7 表头行删不掉时给出提示',
+      await page.locator('.toast').isVisible(),
+      (await page.locator('.toast').innerText().catch(() => '')).trim(),
+    );
+
     await page.locator('.toolbar .row.is-table .chip', { hasText: '删除表格' }).click();
     await page.waitForTimeout(300);
     check('7 删除表格', (await surface.locator('table').count()) === 0);
 
-    // ---------- 8. 思维导图 ----------
+    // ---------- 8. 思维导图（NodeView + 源码面板） ----------
+    // 块自己就是那张图：正文里不该再出现源码，也不该有 <pre data-language="mermaid">。
     await freshParagraph();
     await tool('思维导图').click();
-    await page.waitForTimeout(400);
-    check('8 插入了 mermaid 代码块', (await surface.locator('pre[data-language="mermaid"]').count()) === 1);
-    const block = surface.locator('pre[data-language="mermaid"]');
-    check('8 预填了 mindmap 模板', (await block.innerText()).includes('mindmap'), (await block.innerText()).split('\n')[0]);
-    await page.waitForTimeout(6000);
+    await page.waitForTimeout(7000); // 首次要把 mermaid 本体动态拉下来
+    check('8 插入后只看到图，看不到源码', (await surface.locator('pre[data-language]').count()) === 0);
     const svgCount = await surface.locator('.donote-mermaid svg').count();
     const boxText = (await surface.locator('.donote-mermaid').first().innerText()).trim();
-    check('8 代码块下方渲染出思维导图', svgCount === 1, svgCount ? 'svg 已生成' : `未生成，框内文字：${boxText}`);
+    check('8 渲染出思维导图', svgCount === 1, svgCount ? 'svg 已生成' : `未生成，框内文字：${boxText}`);
+    check('8 正文里没有源码文字', !(await surface.innerText()).includes('mindmap'));
     await page.screenshot({ path: path.join(SHOTS, '03-mermaid.png'), fullPage: true });
+
+    // 点图 → 源码面板
+    await surface.locator('.donote-mermaid').first().click();
+    await page.waitForTimeout(500);
+    const panel = page.locator('.panel[aria-label="编辑思维导图"]');
+    const panelSource = page.locator('.source[aria-label="Mermaid 源码"]');
+    check('8 点图弹出源码面板', await panel.isVisible());
+    check('8 面板里能看到预填模板', (await panelSource.inputValue()).includes('mindmap'));
+
+    // 面板里改源码 → 实时预览跟着变
+    const edited = 'mindmap\n  root((改过的中心))\n    甲\n    乙';
+    await panelSource.fill(edited);
+    await page.waitForTimeout(1600);
+    const previewText = await page.locator('.preview-svg').innerText().catch(() => '');
+    check('8 面板里的预览实时更新', previewText.includes('改过的中心'), previewText.replace(/\n+/g, ' ').slice(0, 40));
+
+    // 关闭（完成）→ 块内容更新
+    await page.locator('.foot button.major').click();
+    await page.waitForTimeout(2200);
+    check('8 关闭后面板收起', !(await panel.isVisible().catch(() => false)));
+    const afterText = (await surface.locator('.donote-mermaid').first().innerText()).trim();
+    check('8 关闭后块内容已更新', afterText.includes('改过的中心'), afterText.replace(/\n+/g, ' ').slice(0, 40));
 
     // ---------- 9. 悬浮工具栏 ----------
     await freshParagraph();

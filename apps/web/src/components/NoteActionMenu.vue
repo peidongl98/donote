@@ -1,21 +1,22 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
-import type { FolderDTO, NoteSummaryDTO } from '@donote/shared';
-import { DavError, foldersApi, notesApi } from '@/storage/notes';
+import type { NoteSummaryDTO } from '@donote/shared';
+import { DavError, notesApi } from '@/storage/notes';
 import { useEditingStore } from '@/stores/editing';
 import { useUiStore } from '@/stores/ui';
 import AppDialog from '@/components/AppDialog.vue';
+import MoveDialog from '@/components/MoveDialog.vue';
 
 /**
  * 笔记动作菜单：右键卡片或点卡片右上角「更多」都会开它。
- * mode='trash' 时换成回收站的两项（恢复 / 彻底删除）。
+ * 回收站里那套（恢复 / 彻底删除）由 `TrashView` 自己出 —— 那边是树，节点层级不一样，
+ * 共用一个组件反而要塞 mode 开关和两种目标。
  *
  * 菜单本身的 z-index 压得比 AppDialog 低，这样点开重命名 / 移动时，
  * 对话框盖在菜单上面，不需要先把菜单关掉。
  */
 const props = defineProps<{
   note: NoteSummaryDTO | null;
-  mode?: 'normal' | 'trash';
 }>();
 
 const emit = defineEmits<{ close: []; done: [] }>();
@@ -27,13 +28,10 @@ const renameOpen = ref(false);
 const renameName = ref('');
 const moveOpen = ref(false);
 const deleteOpen = ref(false);
-const hardOpen = ref(false);
 const busy = ref(false);
-const folders = ref<FolderDTO[]>([]);
 
 /** 这篇正在编辑中（详情页开着它），重命名 / 移动 / 删除先禁掉 */
 const locked = computed(() => Boolean(props.note) && editing.editingNoteId === props.note?.id);
-const inTrash = computed(() => props.mode === 'trash');
 
 watch(
   () => props.note,
@@ -69,13 +67,8 @@ async function submitRename(): Promise<void> {
   }
 }
 
-async function openMove(): Promise<void> {
+function openMove(): void {
   moveOpen.value = true;
-  try {
-    folders.value = (await foldersApi.list()).items;
-  } catch {
-    // 拉不到文件夹就只留「未归类」，不阻塞移动
-  }
 }
 
 async function moveTo(folderId: string | null): Promise<void> {
@@ -107,35 +100,6 @@ async function softDelete(): Promise<void> {
     busy.value = false;
   }
 }
-
-async function restore(): Promise<void> {
-  const note = props.note;
-  if (!note) return;
-  busy.value = true;
-  try {
-    await notesApi.restore(note.id);
-    finish('已恢复');
-  } catch {
-    ui.toast('恢复失败');
-  } finally {
-    busy.value = false;
-  }
-}
-
-async function hardDelete(): Promise<void> {
-  const note = props.note;
-  if (!note) return;
-  busy.value = true;
-  try {
-    await notesApi.remove(note.id, true);
-    hardOpen.value = false;
-    finish('已彻底删除');
-  } catch {
-    ui.toast('删除失败');
-  } finally {
-    busy.value = false;
-  }
-}
 </script>
 
 <template>
@@ -147,46 +111,30 @@ async function hardDelete(): Promise<void> {
 
           <p v-if="locked" class="sheet-lock">这篇笔记正在编辑中，先离开编辑页再来操作</p>
 
-          <template v-if="inTrash">
-            <button type="button" class="sheet-item" :disabled="locked || busy" @click="restore">
-              恢复
-            </button>
-            <button
-              type="button"
-              class="sheet-item is-danger"
-              :disabled="locked || busy"
-              @click="hardOpen = true"
-            >
-              彻底删除
-            </button>
-          </template>
-
-          <template v-else>
-            <button
-              type="button"
-              class="sheet-item"
-              :disabled="locked || busy"
-              @click="renameOpen = true"
-            >
-              重命名
-            </button>
-            <button
-              type="button"
-              class="sheet-item"
-              :disabled="locked || busy"
-              @click="openMove"
-            >
-              移动到文件夹
-            </button>
-            <button
-              type="button"
-              class="sheet-item is-danger"
-              :disabled="locked || busy"
-              @click="deleteOpen = true"
-            >
-              删除
-            </button>
-          </template>
+          <button
+            type="button"
+            class="sheet-item"
+            :disabled="locked || busy"
+            @click="renameOpen = true"
+          >
+            重命名
+          </button>
+          <button
+            type="button"
+            class="sheet-item"
+            :disabled="locked || busy"
+            @click="openMove"
+          >
+            移动到文件夹
+          </button>
+          <button
+            type="button"
+            class="sheet-item is-danger"
+            :disabled="locked || busy"
+            @click="deleteOpen = true"
+          >
+            删除
+          </button>
 
           <button type="button" class="sheet-item is-cancel" @click="emit('close')">取消</button>
         </div>
@@ -213,27 +161,12 @@ async function hardDelete(): Promise<void> {
     <p class="tip">标题就是文件名，改名会一并重命名网盘上的文件；同名附件目录也会跟着改。</p>
   </AppDialog>
 
-  <AppDialog
+  <MoveDialog
     :open="moveOpen"
-    title="移动到"
-    confirm-label="关闭"
     :busy="busy"
     @close="moveOpen = false"
-    @confirm="moveOpen = false"
-  >
-    <div class="folder-list">
-      <button type="button" class="folder-pick" @click="moveTo(null)">未归类</button>
-      <button
-        v-for="f in folders"
-        :key="f.id"
-        type="button"
-        class="folder-pick"
-        @click="moveTo(f.id)"
-      >
-        📁 {{ f.name }}
-      </button>
-    </div>
-  </AppDialog>
+    @pick="moveTo"
+  />
 
   <AppDialog
     :open="deleteOpen"
@@ -244,101 +177,16 @@ async function hardDelete(): Promise<void> {
     @close="deleteOpen = false"
     @confirm="softDelete"
   >
-    <p class="tip">文件会挪到同步目录的 .trash 里，随时可以恢复；附件会跟着一起走。</p>
-  </AppDialog>
-
-  <AppDialog
-    :open="hardOpen"
-    title="彻底删除？"
-    confirm-label="彻底删除"
-    danger
-    :busy="busy"
-    @close="hardOpen = false"
-    @confirm="hardDelete"
-  >
-    <p class="tip">这一步不可恢复，文件和它的附件会被从你的网盘里真正删掉。</p>
+    <p class="tip">笔记将进入回收站，30 天内可恢复；附件会跟着一起走。</p>
   </AppDialog>
 </template>
 
 <style scoped>
 /*
- * 层级（2026-10-12 修右键菜单被侧栏遮挡时理清，别改乱）：
- *   .rail（AppSidebar，侧栏 / 移动端抽屉）= 20
- *   本菜单 = 21   ← 必须**高于侧栏**，否则桌面端右侧栏、移动端抽屉会把它压住
- *   AppDialog（重命名 / 移动 / 删除的确认框）= 22  ← 必须**高于本菜单**，对话框要盖在菜单上面
- *   .toast = 30
- * 注意：菜单是 <Teleport to="body"> 的，不存在「被父级层叠上下文关住」的问题 ——
- * 之前的问题是 z-index 给了 18，比侧栏的 20 低。
+ * .sheet-mask / .sheet / .sheet-item 以及它们的入场动画都在 styles/app.css
+ * （全局一份，四个底部弹层共用）—— 这里只留本组件独有的输入框与说明文字。
+ * 层级：侧栏 20 < 本菜单 21 < AppDialog 22 < .toast 30，见 docs/ui-patterns.md。
  */
-/*
- * 遮罩铺满视口（scrim 本来就该盖住全屏），但内容盒收进**内容列** ——
- * 加一条 padding-left = 侧栏让出的宽度，里面的 .sheet 就自然居中于内容区。
- * 不这么写的话，窄窗口（< ~1180px）720px 的面板会左移压到侧栏上。
- * 用 padding 而不是给 .sheet 加 translateX：面板的进出场动画占用了 transform。
- */
-.sheet-mask {
-  position: fixed;
-  inset: 0;
-  padding-left: var(--content-offset);
-  z-index: 21;
-  display: flex;
-  align-items: flex-end;
-  background: rgba(0, 0, 0, 0.38);
-}
-
-.sheet {
-  width: 100%;
-  max-width: 720px;
-  margin: 0 auto;
-  padding: var(--sp-1);
-  padding-bottom: calc(var(--sp-1) + env(safe-area-inset-bottom, 0px));
-  border-radius: var(--r-xl) var(--r-xl) 0 0;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.sheet-title {
-  padding: var(--sp-1) var(--sp-2) 4px;
-  font-size: 13px;
-  color: var(--text-2);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.sheet-lock {
-  padding: 0 var(--sp-2) var(--sp-1);
-  font-size: 12px;
-  line-height: 1.5;
-  color: var(--danger);
-}
-
-.sheet-item {
-  height: 50px;
-  border-radius: var(--r-md);
-  font-size: 16px;
-  color: var(--text);
-  transition: background-color var(--dur-fast) var(--ease-smooth);
-}
-
-.sheet-item:hover:not(:disabled) {
-  background: var(--surface);
-}
-
-.sheet-item:disabled {
-  opacity: 0.4;
-}
-
-.sheet-item.is-danger {
-  color: var(--danger);
-}
-
-.sheet-item.is-cancel {
-  color: var(--text-2);
-  margin-top: 4px;
-}
-
 .dialog-input {
   width: 100%;
   height: 44px;
@@ -354,43 +202,5 @@ async function hardDelete(): Promise<void> {
   font-size: 12px;
   line-height: 1.6;
   color: var(--text-2);
-}
-
-.folder-list {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  max-height: 46vh;
-  overflow-y: auto;
-}
-
-.folder-pick {
-  padding: 11px var(--sp-2);
-  border-radius: var(--r-md);
-  text-align: left;
-  font-size: 15px;
-  background: var(--surface);
-  border: 1px solid var(--surface-border);
-  transition: background-color var(--dur-fast) var(--ease-smooth);
-}
-
-.sheet-enter-active,
-.sheet-leave-active {
-  transition: opacity var(--dur) var(--ease-smooth);
-}
-
-.sheet-enter-active .sheet,
-.sheet-leave-active .sheet {
-  transition: transform var(--dur) var(--ease-spring);
-}
-
-.sheet-enter-from,
-.sheet-leave-to {
-  opacity: 0;
-}
-
-.sheet-enter-from .sheet,
-.sheet-leave-to .sheet {
-  transform: translateY(100%);
 }
 </style>

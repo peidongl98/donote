@@ -10,6 +10,7 @@
  */
 import { computed, ref } from 'vue';
 import type { Editor } from '@milkdown/kit/core';
+import { useUiStore } from '@/stores/ui';
 import {
   addColAfter,
   addRowAfter,
@@ -46,6 +47,8 @@ const props = defineProps<{
 }>();
 
 const emit = defineEmits<{ image: [] }>();
+
+const ui = useUiStore();
 
 /** 图标用一条或多条 stroke 路径描述；fill 一律 none，靠 currentColor 上色 */
 interface Tool {
@@ -259,6 +262,25 @@ function confirmLink(): void {
   linkOpen.value = false;
 }
 
+/**
+ * 删行 / 删列。
+ *
+ * 删不掉的时候必须说一句话 —— 按钮点了什么也没发生，用户只会以为是坏的
+ * （gfm 的表必须有表头行，正文行 / 列也至少各留一个，这三种就是删不掉的情况）。
+ */
+function removeAxis(kind: 'row' | 'col'): void {
+  if (props.disabled) return;
+  const result = kind === 'row' ? removeRow(props.editor) : removeCol(props.editor);
+  if (result === 'ok' || result === 'none') return;
+  ui.toast(
+    result === 'header'
+      ? '表头行不能删除，表格必须有一行表头'
+      : kind === 'row'
+        ? '至少保留一行内容行'
+        : '至少保留一列',
+  );
+}
+
 function dropLink(): void {
   removeLink(props.editor);
   linkOpen.value = false;
@@ -341,8 +363,8 @@ function dropLink(): void {
       <span class="table-label">表格</span>
       <button type="button" class="chip" @mousedown.prevent @click="addRowAfter(editor)">下方加行</button>
       <button type="button" class="chip" @mousedown.prevent @click="addColAfter(editor)">右侧加列</button>
-      <button type="button" class="chip" @mousedown.prevent @click="removeRow(editor)">删除本行</button>
-      <button type="button" class="chip" @mousedown.prevent @click="removeCol(editor)">删除本列</button>
+      <button type="button" class="chip" @mousedown.prevent @click="removeAxis('row')">删除本行</button>
+      <button type="button" class="chip" @mousedown.prevent @click="removeAxis('col')">删除本列</button>
       <button type="button" class="chip is-danger" @mousedown.prevent @click="dropTable(editor)">删除表格</button>
 
       <span class="divider" aria-hidden="true" />

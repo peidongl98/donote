@@ -1,19 +1,22 @@
 /**
- * 思维导图的预览。
+ * Mermaid（思维导图）块的交互。
  *
- * 文档里存的是**普通围栏代码块**（```mermaid），不是自定义节点：
- * 这样导出的 Markdown 是干净的，任何 Markdown 工具都能读，GitHub / 语雀也能直接渲染。
- * 预览只是编辑器里加的一层装饰（Decoration.widget），贴在代码块下面，不参与文档结构。
+ * 文档里存的仍是**普通围栏代码块**（```mermaid）：导出的 Markdown 干净，
+ * GitHub / 语雀也能直接渲染 —— 数据结构一个字节没改。
  *
- * Mermaid 本体约 1MB，只有在笔记里真的出现 mermaid 代码块时才动态 import。
+ * 但编辑器里**只显示渲染出来的图**（NodeView 接管 code_block，见下），源码在点击弹出的
+ * 面板里改（MermaidPanel.vue）。图是块自己的 DOM，所以块手柄 / 拖动排序 / 删除都照常工作
+ * —— 老做法（Decoration.widget 贴在代码块下面）做不到这一点：源码还在，图只是一层装饰。
+ *
+ * Mermaid 本体约 2MB，只有真的出现 mermaid 代码块时才动态 import。
  */
-import { Plugin, PluginKey } from '@milkdown/kit/prose/state';
-import type { EditorView } from '@milkdown/kit/prose/view';
-import { Decoration, DecorationSet } from '@milkdown/kit/prose/view';
-import { $prose } from '@milkdown/kit/utils';
+import type { Node } from '@milkdown/kit/prose/model';
+import type { EditorView, NodeView } from '@milkdown/kit/prose/view';
+import { $view } from '@milkdown/kit/utils';
+import { codeBlockSchema } from '@milkdown/kit/preset/commonmark';
+import { shallowRef } from 'vue';
 
 const MERMAID_LANG = 'mermaid';
-const key = new PluginKey('donote-mermaid');
 
 type MermaidApi = (typeof import('mermaid'))['default'];
 
@@ -41,94 +44,184 @@ async function loadMermaid(): Promise<MermaidApi | null> {
   return loading;
 }
 
-/** 渲染结果按「主题 + 源码」缓存，光标在别处动时不必重画 */
+/** 渲染结果按「主题 + 源码」缓存：光标在别处动、面板里敲字，都不必重画没变的那张 */
 const cache = new Map<string, string>();
 
-function keyOf(code: string): string {
-  return `${themeOf()}\u0000${code}`;
-}
-
 let seq = 0;
-/** 每个预览框各有一个防抖计时器；共用会互相取消 */
-const timers = new WeakMap<HTMLElement, ReturnType<typeof setTimeout>>();
 
-function render(code: string, box: HTMLElement): void {
-  const cacheKey = keyOf(code);
+export interface MermaidRender {
+  svg?: string;
+  /** 人话的失败原因；成功时为 undefined */
+  error?: string;
+}
+
+/** 渲染一段 mermaid 源码。语法错不抛异常，返回一句能看懂的话。 */
+export async function renderMermaid(code: string): Promise<MermaidRender> {
+  const text = code.trim();
+  if (!text) return { error: '还没有内容' };
+
+  const cacheKey = `${themeOf()}\u0000${text}`;
   const hit = cache.get(cacheKey);
-  if (hit) {
-    box.classList.remove('is-error');
-    box.innerHTML = hit;
-    return;
+  if (hit) return { svg: hit };
+
+  const api = await loadMermaid();
+  if (!api) return { error: '未能加载思维导图渲染器' };
+  try {
+    seq += 1;
+    const { svg } = await api.render(`donote-mermaid-${seq}`, text);
+    cache.set(cacheKey, svg);
+    return { svg };
+  } catch {
+    return { error: '语法有误，点开面板改一下' };
   }
-
-  box.classList.remove('is-error');
-  box.textContent = '正在渲染思维导图…';
-
-  // 连续敲字时不每次都真渲染，停手 400ms 再算
-  const pending = timers.get(box);
-  if (pending) clearTimeout(pending);
-  timers.set(
-    box,
-    setTimeout(async () => {
-      const api = await loadMermaid();
-      if (!api) {
-        box.classList.add('is-error');
-        box.textContent = '未能加载思维导图渲染器';
-        return;
-      }
-      try {
-        seq += 1;
-        const { svg } = await api.render(`donote-mermaid-${seq}`, code);
-        cache.set(cacheKey, svg);
-        box.classList.remove('is-error');
-        box.innerHTML = svg;
-      } catch {
-        box.classList.add('is-error');
-        box.textContent = '思维导图语法有误，改一下上面的代码';
-      }
-    }, 400),
-  );
 }
 
-function makeWidget(code: string): HTMLElement {
-  const box = document.createElement('div');
-  box.className = 'donote-mermaid';
-  box.contentEditable = 'false';
-  render(code, box);
-  return box;
+/* ------------------------------ 编辑面板的开关 ------------------------------ */
+
+export interface MermaidEdit {
+  /** 打开那一刻的源码 */
+  code: string;
+  /** 面板点「完成」时把新源码写回块里 */
+  apply: (next: string) => void;
 }
 
-export const mermaid = $prose(
-  () =>
-    new Plugin({
-      key,
-      props: {
-        decorations(state) {
-          const decos: Decoration[] = [];
-          state.doc.descendants((node, pos) => {
-            if (node.type.name !== 'code_block') return true;
-            if (node.attrs.language !== MERMAID_LANG) return true;
-            decos.push(
-              Decoration.widget(pos + node.nodeSize, () => makeWidget(node.textContent), {
-                side: 1,
-                ignoreSelection: true,
-              }),
-            );
-            return true;
-          });
-          return DecorationSet.create(state.doc, decos);
-        },
-      },
-      view(view: EditorView) {
-        // 换主题要重画：清缓存 + 发一个空事务把装饰重算一遍
-        const observer = new MutationObserver(() => {
-          cache.clear();
-          view.dispatch(view.state.tr.setMeta(key, Date.now()));
-        });
-        observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
-        return {
-          destroy: () => observer.disconnect(),
-        };
-      },
-    }),
+/**
+ * 正在编辑的那一块；null = 面板关着。
+ * NodeView 是纯 TS（拿不到 Vue 组件），面板是 Vue 浮层，两者用这一份状态接上。
+ */
+export const mermaidEdit = shallowRef<MermaidEdit | null>(null);
+
+/* ------------------------------ 主题切换 ------------------------------ */
+
+/** 主题一换，所有图都要重画（缓存按主题分了桶，重算即可） */
+const repaints = new Set<() => void>();
+let watching = false;
+
+function watchTheme(): void {
+  if (watching) return;
+  watching = true;
+  new MutationObserver(() => {
+    cache.clear();
+    for (const repaint of repaints) repaint();
+  }).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+}
+
+/* ------------------------------ NodeView ------------------------------ */
+
+/**
+ * 非 mermaid 的代码块：保持预设原来那副样子（`<pre data-language><code>`）。
+ * 接管 code_block 就得管全部，这一条不能少。
+ */
+function plainCode(node: Node): NodeView {
+  const pre = document.createElement('pre');
+  const code = document.createElement('code');
+  pre.append(code);
+
+  const sync = (next: Node): void => {
+    const language = String(next.attrs.language ?? '');
+    if (language) pre.setAttribute('data-language', language);
+    else pre.removeAttribute('data-language');
+  };
+  sync(node);
+
+  return {
+    dom: pre,
+    contentDOM: code,
+    update: (next) => {
+      if (next.type !== node.type) return false;
+      sync(next);
+      return true;
+    },
+  };
+}
+
+function mermaidBlock(node: Node, view: EditorView, getPos: () => number | undefined): NodeView {
+  const dom = document.createElement('div');
+  dom.className = 'donote-mermaid';
+  dom.contentEditable = 'false';
+  dom.setAttribute('role', 'button');
+  dom.setAttribute('tabindex', '0');
+  dom.setAttribute('aria-label', '思维导图：点击编辑源码');
+  dom.title = '点击编辑源码';
+
+  let code = node.textContent;
+  /** 渲染是异步的，用序号丢弃「渲染期间源码又变了」的那一次结果 */
+  let token = 0;
+
+  const paint = async (): Promise<void> => {
+    const mine = (token += 1);
+    dom.classList.remove('is-error');
+    dom.textContent = '正在渲染思维导图…';
+    const result = await renderMermaid(code);
+    if (mine !== token) return;
+    if (result.error) {
+      dom.classList.add('is-error');
+      dom.textContent = result.error;
+      return;
+    }
+    dom.innerHTML = result.svg ?? '';
+  };
+
+  /** 面板里改完 → 一次事务换掉块内容。节点还是 code_block，落盘还是 ```mermaid */
+  const write = (next: string): void => {
+    const pos = getPos();
+    if (typeof pos !== 'number') return;
+    const current = view.state.doc.nodeAt(pos);
+    if (!current || current.textContent === next) return;
+    const tr = view.state.tr.replaceWith(
+      pos + 1,
+      pos + 1 + current.content.size,
+      next ? view.state.schema.text(next) : [],
+    );
+    view.dispatch(tr);
+  };
+
+  const open = (): void => {
+    // 只读（回收站里的笔记）不给编辑入口
+    if (!view.editable) return;
+    mermaidEdit.value = { code, apply: write };
+  };
+  const onKey = (event: KeyboardEvent): void => {
+    if (event.key === 'Enter' || event.key === ' ') open();
+  };
+
+  dom.addEventListener('click', open);
+  dom.addEventListener('keydown', onKey);
+  watchTheme();
+  repaints.add(paint);
+  void paint();
+
+  return {
+    dom,
+    // 里面全是渲染出来的 SVG，不是可编辑内容；变更一律不往 ProseMirror 里报
+    ignoreMutation: () => true,
+    // 点击 / 选择交给上面那个监听：别让 ProseMirror 把光标塞进一个不可编辑的块
+    stopEvent: () => true,
+    selectNode: () => dom.classList.add('is-selected'),
+    deselectNode: () => dom.classList.remove('is-selected'),
+    update: (next) => {
+      // 语言被改掉（mermaid → 别的）时让 ProseMirror 重建视图，这里不接
+      if (next.type !== node.type || next.attrs.language !== MERMAID_LANG) return false;
+      if (next.textContent !== code) {
+        code = next.textContent;
+        void paint();
+      }
+      return true;
+    },
+    destroy: () => {
+      repaints.delete(paint);
+      dom.removeEventListener('click', open);
+      dom.removeEventListener('keydown', onKey);
+    },
+  };
+}
+
+/**
+ * code_block 的 NodeView。两种语言两种长相，所以工厂里先分流：
+ * mermaid → 只出图；其余 → 原样的 `<pre><code>`。
+ */
+export const mermaid = $view(
+  codeBlockSchema.node,
+  () => (node, view, getPos) =>
+    node.attrs.language === MERMAID_LANG ? mermaidBlock(node, view, getPos) : plainCode(node),
 );

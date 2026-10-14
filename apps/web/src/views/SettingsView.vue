@@ -3,10 +3,18 @@ import { computed, onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { notesApi } from '@/storage/notes';
 import { isTauriRuntime } from '@/storage/transport';
+import {
+  TRASH_DAYS_MAX,
+  TRASH_DAYS_MIN,
+  readTrashAuto,
+  writeTrashAuto,
+  type TrashAutoSetting,
+} from '@/services/trash-auto';
 import { appVersion, checkUpdate, installUpdate, type UpdateState } from '@/updater';
 import { useWebdavStore } from '@/stores/webdav';
 import { useSyncStore } from '@/stores/sync';
 import { useUiStore } from '@/stores/ui';
+import { formatTime, relativeTime } from '@/utils/format';
 import AppHeader from '@/components/AppHeader.vue';
 import ThemeToggle from '@/components/ThemeToggle.vue';
 
@@ -18,6 +26,27 @@ const router = useRouter();
 const trashCount = ref<number | null>(null);
 const signingOut = ref(false);
 const syncing = ref(false);
+
+/** 回收站自动清理（本机偏好，存 localStorage） */
+const trashAuto = ref<TrashAutoSetting>(readTrashAuto());
+const daysMin = TRASH_DAYS_MIN;
+const daysMax = TRASH_DAYS_MAX;
+
+function toggleTrashAuto(): void {
+  trashAuto.value = writeTrashAuto({ enabled: !trashAuto.value.enabled });
+}
+
+function bumpDays(delta: number): void {
+  const days = trashAuto.value.days + delta;
+  if (days < TRASH_DAYS_MIN || days > TRASH_DAYS_MAX) return;
+  trashAuto.value = writeTrashAuto({ days });
+}
+
+const lastCheck = computed(() =>
+  trashAuto.value.checkedAt
+    ? `${formatTime(trashAuto.value.checkedAt)}（${relativeTime(trashAuto.value.checkedAt)}）`
+    : '还没检查过',
+);
 
 const desktop = isTauriRuntime();
 const version = ref('');
@@ -144,6 +173,56 @@ async function onDisconnect(): Promise<void> {
         </span>
         <span class="tile-tail mono">{{ trashCount ?? '—' }}</span>
       </button>
+
+      <p class="section-title">回收站自动清理</p>
+      <div class="card-plain">
+        <div class="line">
+          <span class="line-key">自动清理</span>
+          <button
+            class="switch"
+            type="button"
+            role="switch"
+            :aria-checked="trashAuto.enabled"
+            aria-label="回收站自动清理"
+            @click="toggleTrashAuto"
+          >
+            <span class="knob" />
+          </button>
+        </div>
+        <div class="line">
+          <span class="line-key">保留天数</span>
+          <span class="stepper">
+            <button
+              type="button"
+              aria-label="减少一天"
+              :disabled="!trashAuto.enabled || trashAuto.days <= daysMin"
+              @click="bumpDays(-1)"
+            >
+              −
+            </button>
+            <span class="mono days">{{ trashAuto.enabled ? trashAuto.days : '—' }}</span>
+            <button
+              type="button"
+              aria-label="增加一天"
+              :disabled="!trashAuto.enabled || trashAuto.days >= daysMax"
+              @click="bumpDays(1)"
+            >
+              +
+            </button>
+          </span>
+        </div>
+        <div class="line">
+          <span class="line-key">下次清理</span>
+          <span class="line-val">{{ trashAuto.enabled ? '打开应用或打开回收站时' : '已关闭' }}</span>
+        </div>
+        <div class="line">
+          <span class="line-key">上次检查</span>
+          <span class="line-val">{{ lastCheck }}</span>
+        </div>
+      </div>
+      <p class="hint">
+        到期按整条删除（删文件夹时整棵子树算一条），不会留下半截；网盘被限流时这次跳过，下次触发接着清。
+      </p>
 
       <p class="section-title">本地缓存</p>
       <div class="card-plain">
@@ -339,6 +418,68 @@ async function onDisconnect(): Promise<void> {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* 开关：轨道 + 圆点。用 aria-checked 驱动，无障碍与样式同一个信号 */
+.switch {
+  position: relative;
+  width: 46px;
+  height: 28px;
+  border-radius: var(--r-pill);
+  background: var(--surface-border);
+  flex: none;
+  transition: background-color var(--dur) var(--ease-smooth);
+}
+
+.switch[aria-checked='true'] {
+  background: var(--accent);
+}
+
+.knob {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 22px;
+  height: 22px;
+  border-radius: var(--r-pill);
+  background: #fff;
+  box-shadow: var(--shadow-1);
+  transition: transform var(--dur) var(--ease-spring);
+}
+
+.switch[aria-checked='true'] .knob {
+  transform: translateX(18px);
+}
+
+.stepper {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+}
+
+.stepper button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: var(--r-xs);
+  font-size: 16px;
+  line-height: 1;
+  color: var(--accent);
+  background: var(--accent-soft);
+  transition: opacity var(--dur-fast) var(--ease-smooth);
+}
+
+.stepper button:disabled {
+  opacity: 0.35;
+}
+
+.days {
+  min-width: 26px;
+  text-align: center;
+  font-size: 14px;
 }
 
 .secondary {

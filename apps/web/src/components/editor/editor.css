@@ -276,11 +276,13 @@ html[data-theme='dark'] .donote-surface .ProseMirror {
   overflow-x: auto;
 }
 
-/* ---------------------------- 思维导图预览 ---------------------------- */
+/* ---------------------------- 思维导图块 ---------------------------- */
 
-/* 挂在代码块下面的装饰层，不参与文档结构（见 mermaid.ts） */
+/* 这一层就是块自己的 DOM（NodeView 接管了 code_block，见 mermaid.ts）：
+   正文里只有图，没有源码 —— 源码在点开的 MermaidPanel 里改。
+   块手柄 / 拖动排序靠它自己的盒子定位，所以它必须是个有正常尺寸的块 */
 .donote-surface .ProseMirror .donote-mermaid {
-  margin: 4px 0 14px;
+  margin: 0.9em 0;
   padding: 12px;
   border-radius: var(--r-sm);
   background: var(--surface-2);
@@ -290,7 +292,21 @@ html[data-theme='dark'] .donote-surface .ProseMirror {
   font-size: var(--fs-sm);
   line-height: var(--lh-normal);
   color: var(--text-2);
-  cursor: default;
+  cursor: pointer;
+  transition: border-color var(--dur-fast) var(--ease-smooth);
+}
+
+.donote-surface .ProseMirror .donote-mermaid:hover {
+  border-color: var(--accent-ring);
+}
+
+.donote-surface .ProseMirror .donote-mermaid:focus-visible {
+  outline: 2px solid var(--accent-ring);
+  outline-offset: 2px;
+}
+
+.donote-surface .ProseMirror .donote-mermaid.is-selected {
+  outline: 2px solid var(--accent-ring);
 }
 
 .donote-surface .ProseMirror .donote-mermaid svg {
@@ -302,6 +318,7 @@ html[data-theme='dark'] .donote-surface .ProseMirror {
   text-align: left;
   color: var(--danger);
   border-color: var(--danger-soft);
+  cursor: default;
 }
 
 /* ---------------------------- 光标 ---------------------------- */

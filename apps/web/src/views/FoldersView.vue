@@ -162,8 +162,8 @@ function openDelete(folder: FolderDTO): void {
 }
 
 function openMove(folder: FolderDTO): void {
-  // 与其它 open* 一样先关掉列表 sheet：它在 z-index 25，比 AppDialog(22) 高，
-  // 不关的话对话框会被它盖住。
+  // 与其它 open* 一样顺手关掉列表弹层：弹层已归到 z-index 21（见 styles/app.css），
+  // AppDialog(22) 本来就盖得住它，关掉只是为了让用户点完对话框回到干净的页面。
   sheetTarget.value = null;
   moveTarget.value = folder;
   moveOpen.value = true;
@@ -509,79 +509,9 @@ watch(() => sync.dataVersion, load);
 }
 
 /*
- * 遮罩铺满视口，内容盒收进**内容列**（padding-left = 侧栏让出的宽度），
- * 里面的 .sheet 就居中于内容区而不是视口 —— 否则窄窗口下面板会压到侧栏。
- * 用 padding 而不是给 .sheet 加 translateX：面板的进出场动画占用了 transform。
+ * .sheet-mask / .sheet / .sheet-item 与入场动画都在 styles/app.css（全局一份，四个底部弹层共用）。
+ * 层级：侧栏 20 < 弹层 21 < AppDialog 22 < .toast 30 —— 弹层从 25 降到 21 之后，
+ * 「先关掉 sheet 再开对话框」就不再是必需的了（对话框本来就盖得住它）。
  */
-.sheet-mask {
-  position: fixed;
-  inset: 0;
-  padding-left: var(--content-offset);
-  z-index: 25;
-  display: flex;
-  align-items: flex-end;
-  background: rgba(0, 0, 0, 0.38);
-}
 
-.sheet {
-  width: 100%;
-  max-width: 720px;
-  margin: 0 auto;
-  padding: var(--sp-1);
-  padding-bottom: calc(var(--sp-1) + env(safe-area-inset-bottom, 0px));
-  border-radius: var(--r-xl) var(--r-xl) 0 0;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.sheet-title {
-  padding: var(--sp-1) var(--sp-2) 4px;
-  font-size: 13px;
-  color: var(--text-2);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.sheet-item {
-  height: 50px;
-  border-radius: var(--r-md);
-  font-size: 16px;
-  color: var(--text);
-  transition: background-color var(--dur-fast) var(--ease-smooth);
-}
-
-.sheet-item:hover {
-  background: var(--surface);
-}
-
-.sheet-item.is-danger {
-  color: var(--danger);
-}
-
-.sheet-item.is-cancel {
-  color: var(--text-2);
-  margin-top: 4px;
-}
-
-.sheet-enter-active,
-.sheet-leave-active {
-  transition: opacity var(--dur) var(--ease-smooth);
-}
-
-.sheet-enter-active .sheet,
-.sheet-leave-active .sheet {
-  transition: transform var(--dur) var(--ease-spring);
-}
-
-.sheet-enter-from,
-.sheet-leave-to {
-  opacity: 0;
-}
-
-.sheet-enter-from .sheet,
-.sheet-leave-to .sheet {
-  transform: translateY(100%);
-}
 </style>

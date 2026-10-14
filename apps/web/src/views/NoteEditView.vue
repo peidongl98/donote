@@ -791,101 +791,12 @@ onBeforeUnmount(() => {
   word-break: break-all;
 }
 
-.folder-list {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  max-height: 46vh;
-  overflow-y: auto;
-}
-
-.folder-pick {
-  padding: 11px var(--sp-2);
-  border-radius: var(--r-md);
-  text-align: left;
-  font-size: 15px;
-  background: var(--surface);
-  border: 1px solid var(--surface-border);
-  transition: background-color var(--dur-fast) var(--ease-smooth);
-}
-
+/* .folder-list / .folder-pick 与底部弹层的样式都在 styles/app.css（全局一份，多处共用） */
 .folder-pick.is-on {
   color: var(--accent);
   border-color: var(--accent-ring);
 }
 
-/* 底部动作面板 */
-/*
- * 遮罩铺满视口，内容盒收进**内容列**（padding-left = 侧栏让出的宽度），
- * 里面的 .sheet 就居中于内容区而不是视口 —— 否则窄窗口下面板会压到侧栏。
- * 用 padding 而不是给 .sheet 加 translateX：面板的进出场动画占用了 transform。
- */
-.sheet-mask {
-  position: fixed;
-  inset: 0;
-  padding-left: var(--content-offset);
-  z-index: 25;
-  display: flex;
-  align-items: flex-end;
-  background: rgba(0, 0, 0, 0.38);
-}
-
-.sheet {
-  width: 100%;
-  max-width: 720px;
-  margin: 0 auto;
-  padding: var(--sp-1);
-  padding-bottom: calc(var(--sp-1) + env(safe-area-inset-bottom, 0px));
-  border-radius: var(--r-xl) var(--r-xl) 0 0;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.sheet-item {
-  height: 50px;
-  border-radius: var(--r-md);
-  font-size: 16px;
-  color: var(--text);
-  transition: background-color var(--dur-fast) var(--ease-smooth);
-}
-
-.sheet-item:hover:not(:disabled) {
-  background: var(--surface);
-}
-
-.sheet-item:disabled {
-  opacity: 0.4;
-}
-
-.sheet-item.is-danger {
-  color: var(--danger);
-}
-
-.sheet-item.is-cancel {
-  color: var(--text-2);
-  margin-top: 4px;
-}
-
-.sheet-enter-active,
-.sheet-leave-active {
-  transition: opacity var(--dur) var(--ease-smooth);
-}
-
-.sheet-enter-active .sheet,
-.sheet-leave-active .sheet {
-  transition: transform var(--dur) var(--ease-spring);
-}
-
-.sheet-enter-from,
-.sheet-leave-to {
-  opacity: 0;
-}
-
-.sheet-enter-from .sheet,
-.sheet-leave-to .sheet {
-  transform: translateY(100%);
-}
 
 .tag-bar {
   display: flex;

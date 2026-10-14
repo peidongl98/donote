@@ -23,6 +23,7 @@ import EditorToolbar from './EditorToolbar.vue';
 import FloatingToolbar from './FloatingToolbar.vue';
 import BlockHandle from './BlockHandle.vue';
 import SlashMenu from './SlashMenu.vue';
+import MermaidPanel from './MermaidPanel.vue';
 import MarkdownView from '@/components/MarkdownView.vue';
 import './editor.css';
 
@@ -216,6 +217,9 @@ defineExpose({
       :x="float.x"
       :y="float.y"
     />
+
+    <!-- 思维导图的源码面板：点编辑器里的图打开，开关状态在 mermaid.ts 里 -->
+    <MermaidPanel />
   </div>
 </template>
 

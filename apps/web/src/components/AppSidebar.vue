@@ -12,6 +12,7 @@ import { useSyncStore } from '@/stores/sync';
 import { useLayoutStore } from '@/stores/layout';
 import { useUiStore } from '@/stores/ui';
 import SidebarTree from '@/components/SidebarTree.vue';
+import ImportButton from '@/components/ImportButton.vue';
 
 const layout = useLayoutStore();
 const ui = useUiStore();
@@ -19,6 +20,8 @@ const route = useRoute();
 const router = useRouter();
 
 const creating = ref(false);
+/** 导入完递增一次，让树重取目录（导入走 notesApi.create，不经过 sync.dataVersion） */
+const reloadToken = ref(0);
 
 /**
  * 侧边栏搜索。
@@ -143,6 +146,12 @@ function onNavigate(): void {
   layout.close();
 }
 
+/** 导入完：树重取一次（新文件夹 / 新笔记要立刻看得见），标签也跟着重算 */
+async function onImported(): Promise<void> {
+  reloadToken.value += 1;
+  await loadTags();
+}
+
 function onKey(e: KeyboardEvent): void {
   if (e.key === 'Escape') layout.close();
 }
@@ -197,17 +206,20 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey));
       />
     </form>
 
-    <button class="new" type="button" :disabled="creating" @click="create">
-      <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
-        <path d="M12 6v12M6 12h12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
-      </svg>
-      新建笔记
-    </button>
+    <div class="new-row">
+      <button class="new" type="button" :disabled="creating" @click="create">
+        <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+          <path d="M12 6v12M6 12h12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
+        </svg>
+        新建笔记
+      </button>
+      <ImportButton compact label="导入" @done="onImported" />
+    </div>
 
     <nav class="nav">
       <template v-for="entry in entries" :key="entry.kind === 'tree' ? '__tree__' : entry.to">
         <template v-if="entry.kind === 'tree'">
-          <SidebarTree v-if="layout.open" />
+          <SidebarTree v-if="layout.open" :reload-token="reloadToken" />
         </template>
 
         <RouterLink
@@ -410,7 +422,17 @@ html[data-sidebar='closed'] .rail {
   opacity: 0.75;
 }
 
+/* 新建笔记 + 导入：两个入口并排，导入只占一个方块 */
+.new-row {
+  display: flex;
+  align-items: stretch;
+  gap: 6px;
+  flex: none;
+}
+
 .new {
+  flex: 1 1 auto;
+  min-width: 0;
   display: flex;
   align-items: center;
   gap: var(--sp-1);

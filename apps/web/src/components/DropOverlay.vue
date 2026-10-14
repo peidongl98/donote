@@ -27,8 +27,10 @@ async function run(items: ImportItem[]): Promise<void> {
   busy.value = true;
   progress.value = `导入中 0/${items.length}`;
   try {
-    const result = await importItems(items, (done, total) => {
-      progress.value = `导入中 ${done}/${total}`;
+    const result = await importItems(items, {
+      onProgress: (done, total) => {
+        progress.value = `导入中 ${done}/${total}`;
+      },
     });
     ui.toast(
       `已导入 ${result.notes} 篇笔记${result.folders ? `、${result.folders} 个文件夹` : ''}`,

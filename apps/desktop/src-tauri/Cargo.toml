@@ -1,6 +1,6 @@
 [package]
 name = "donote"
-version = "0.2.6"
+version = "0.2.7"
 description = "DoNote — 本地优先的 Markdown 笔记客户端"
 authors = ["peidongl98"]
 edition = "2021"

@@ -237,3 +237,104 @@
 .folder-pick:disabled {
   opacity: 0.5;
 }
+
+/* ==========================================================================
+   底部弹层（bottom sheet）：主内容区里的「一行 / 一批动作」
+   全局只此一份 —— 之前 NoteActionMenu / TrashView / FoldersView / NoteEditView
+   各抄了一遍，z-index 还抄成了两个值（21 与 25）。见 docs/ui-audit.md。
+   用法：外面套 <Transition name="sheet">（四个页面的转场名必须一致）。
+   ========================================================================== */
+
+/*
+ * z-index 21 = 阶梯里给「行内动作菜单」的那一档：压在侧栏（20）与移动端遮罩（19）之上，
+ * 又在 AppDialog（22）之下。**不要再抬到 22 以上** —— 抬上去之后弹层里的「删除」
+ * 就再也盖不住它，只能靠「先关弹层再开对话框」绕。
+ *
+ * 遮罩铺满视口（scrim 本来就该盖住全屏），但内容盒收进**内容列**：加一条
+ * padding-left = 侧栏让出的宽度，里面的 .sheet 就居中于内容区。不这么写的话，
+ * 窄窗口（< ~1180px）720px 的面板会左移压到侧栏上。
+ * 用 padding 而不是给 .sheet 加 translateX：面板的进出场动画占用了 transform。
+ */
+.sheet-mask {
+  position: fixed;
+  inset: 0;
+  padding-left: var(--content-offset);
+  z-index: 21;
+  display: flex;
+  align-items: flex-end;
+  background: rgba(0, 0, 0, 0.38);
+}
+
+.sheet {
+  width: 100%;
+  max-width: 720px;
+  margin: 0 auto;
+  padding: var(--sp-1);
+  padding-bottom: calc(var(--sp-1) + env(safe-area-inset-bottom, 0px));
+  border-radius: var(--r-xl) var(--r-xl) 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.sheet-title {
+  padding: var(--sp-1) var(--sp-2) 4px;
+  font-size: 13px;
+  color: var(--text-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 「这篇正在编辑中」这类不能操作的原因，说明为什么按钮是灰的 */
+.sheet-lock {
+  padding: 0 var(--sp-2) var(--sp-1);
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--danger);
+}
+
+.sheet-item {
+  height: 50px;
+  border-radius: var(--r-md);
+  font-size: 16px;
+  color: var(--text);
+  transition: background-color var(--dur-fast) var(--ease-smooth);
+}
+
+.sheet-item:hover:not(:disabled) {
+  background: var(--surface);
+}
+
+.sheet-item:disabled {
+  opacity: 0.4;
+}
+
+.sheet-item.is-danger {
+  color: var(--danger);
+}
+
+.sheet-item.is-cancel {
+  color: var(--text-2);
+  margin-top: 4px;
+}
+
+.sheet-enter-active,
+.sheet-leave-active {
+  transition: opacity var(--dur) var(--ease-smooth);
+}
+
+.sheet-enter-active .sheet,
+.sheet-leave-active .sheet {
+  transition: transform var(--dur) var(--ease-spring);
+}
+
+.sheet-enter-from,
+.sheet-leave-to {
+  opacity: 0;
+}
+
+.sheet-enter-from .sheet,
+.sheet-leave-to .sheet {
+  transform: translateY(100%);
+}

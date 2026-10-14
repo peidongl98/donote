@@ -35,7 +35,15 @@ import {
   selectRowCommand,
   toggleStrikethroughCommand,
 } from '@milkdown/kit/preset/gfm';
-import { TableMap, deleteColumn, deleteRow, deleteTable, isInTable, selectedRect } from '@milkdown/kit/prose/tables';
+import {
+  CellSelection,
+  TableMap,
+  deleteColumn,
+  deleteRow,
+  deleteTable,
+  isInTable,
+  selectedRect,
+} from '@milkdown/kit/prose/tables';
 import { lift, wrapIn } from '@milkdown/kit/prose/commands';
 import { liftListItem, wrapInList } from '@milkdown/kit/prose/schema-list';
 
@@ -414,20 +422,89 @@ export function insertMermaid(e: Editor | null): void {
   });
 }
 
-/** 删除选中的整行 / 整列。gfm 只给了「删掉选中单元格」，整行整列得自己来。 */
-export function removeRow(e: Editor | null): void {
-  if (!e) return;
-  void e.action((ctx) => {
+/**
+ * 光标所在单元格：单元格节点位置、它所在的行列号、以及表格自己的映射表。
+ *
+ * 按 `$from`（光标那一头）走，不看选区另一头 —— 「删除本行 / 本列」的「本」是**光标**，
+ * 选区被拉成整列 / 整表时也照样锚在光标那一格。
+ */
+function cursorCell(state: EditorState): { pos: number; map: TableMap; row: number } | null {
+  const { $from } = state.selection;
+  for (let depth = $from.depth; depth > 1; depth -= 1) {
+    const node = $from.node(depth);
+    const role = node.type.spec.tableRole;
+    // 单元格 → 行 → 表：三层都认 tableRole，不靠名字（gfm 的行有两种节点类型）
+    if (role !== 'cell' && role !== 'header_cell') continue;
+    const table = $from.node(depth - 2);
+    const tableStart = $from.start(depth - 2);
+    const map = TableMap.get(table);
+    const pos = $from.before(depth);
+    return { pos, map, row: map.findCell(pos - tableStart).top };
+  }
+  return null;
+}
+
+/**
+ * 删行 / 删列的结果。「不行」的两种原因要分开，好给用户一句人话。
+ */
+export type RemoveResult =
+  /** 删掉了 */
+  | 'ok'
+  /** 光标不在表格里（或整篇被全选） */
+  | 'none'
+  /** 光标在表头行：gfm 的表必须有一行表头，删了表就不成立 */
+  | 'header'
+  /** 只剩这一行 / 这一列了，再删表格结构不成立 */
+  | 'last';
+
+/**
+ * 删除**光标所在的那一行**（「删除本行」）。
+ *
+ * 🔴 不能直接 `deleteRow(state, dispatch)` —— 两处会坏：
+ *
+ * 1. **表头行**。gfm 的表格是 `table_header_row table_row+`：表头行是**独立节点类型**、
+ *    而且内容表达式要求它必须存在且在前面。prosemirror-tables 不认识这个类型，
+ *    删表头行等于拼出一个 schema 不成立的文档，实测结果是**表头被清空、表格凭空多出一行**
+ *    （插入表格后光标本来就落在第一个单元格 = 表头行，所以一插完就点「删除本行」必现）。
+ * 2. **最后一行正文**。正文行也至少留一行，删光了同样只剩一个表头行。
+ *
+ * 「本行」的语义就是光标那一行，所以先把选区收成光标所在的那一格：
+ * 选区被拉成整列 / 整表时，`selectedRect` 的 top 与光标所在行不是一回事。
+ */
+export function removeRow(e: Editor | null): RemoveResult {
+  if (!e) return 'none';
+  return e.action((ctx) => {
     const view = ctx.get(editorViewCtx);
-    if (isInTable(view.state)) deleteRow(view.state, view.dispatch);
+    const { state } = view;
+    if (!isInTable(state)) return 'none';
+    const at = cursorCell(state);
+    if (!at) return 'none';
+    if (at.row === 0) return 'header';
+    if (at.map.height < 3) return 'last';
+
+    // 只把选区挪到光标那一格，文档一个字节没动
+    const anchored = state.apply(state.tr.setSelection(CellSelection.create(state.doc, at.pos)));
+    if (!deleteRow(anchored, view.dispatch)) return 'none';
+    view.focus();
+    return 'ok';
   });
 }
 
-export function removeCol(e: Editor | null): void {
-  if (!e) return;
-  void e.action((ctx) => {
+/** 删除**光标所在的那一列**（「删除本列」）。表头行上的划列是合法的，只有「一列也不能再少」要挡。 */
+export function removeCol(e: Editor | null): RemoveResult {
+  if (!e) return 'none';
+  return e.action((ctx) => {
     const view = ctx.get(editorViewCtx);
-    if (isInTable(view.state)) deleteColumn(view.state, view.dispatch);
+    const { state } = view;
+    if (!isInTable(state)) return 'none';
+    const at = cursorCell(state);
+    if (!at) return 'none';
+    if (at.map.width < 2) return 'last';
+
+    const anchored = state.apply(state.tr.setSelection(CellSelection.create(state.doc, at.pos)));
+    if (!deleteColumn(anchored, view.dispatch)) return 'none';
+    view.focus();
+    return 'ok';
   });
 }
 

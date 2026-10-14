@@ -1,76 +1,56 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue';
+/**
+ * 回收站：按**顶层条目**组织（一次删除动作 = 一条），树形可展开。
+ *
+ *   删一篇笔记 → 一条（就是那一篇）
+ *   删一个文件夹 → 一条（整棵子树：笔记、子文件夹、各自的 .assets 都在里面）
+ *
+ * 时间只有顶层条目有，30 天到期整条一起清（自动清理在设置页，见 `purgeExpiredTrash`）。
+ * 允许整条恢复，也允许单独恢复 / 彻底删除某一子项 —— 摘出去的子项不再受原时间约束。
+ */
+import { onMounted, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
-import type { NoteSummaryDTO } from '@donote/shared';
-import { notesApi } from '@/storage/notes';
-import { useSelectionStore } from '@/stores/selection';
+import type { TrashChild, TrashEntry } from '@/storage/notes';
+import {
+  DavError,
+  encodeId,
+  listTrashEntries,
+  purgeTrashChild,
+  purgeTrashEntry,
+  restoreTrashChild,
+  restoreTrashEntry,
+  trashNoteHasAssets,
+} from '@/storage/notes';
 import { useSyncStore } from '@/stores/sync';
 import { useUiStore } from '@/stores/ui';
-import { useLongPress } from '@/utils/long-press';
-import { formatTime } from '@/utils/format';
-import AppHeader from '@/components/AppHeader.vue';
+import { readTrashAuto, runTrashAutoClean } from '@/services/trash-auto';
 import AppDialog from '@/components/AppDialog.vue';
-import BatchToolbar from '@/components/BatchToolbar.vue';
-import NoteActionMenu from '@/components/NoteActionMenu.vue';
+import AppHeader from '@/components/AppHeader.vue';
 import EmptyState from '@/components/EmptyState.vue';
+import TrashNode from '@/components/TrashNode.vue';
 
-const notes = ref<NoteSummaryDTO[]>([]);
+const entries = ref<TrashEntry[]>([]);
 const loading = ref(true);
-const ui = useUiStore();
-const router = useRouter();
-const sync = useSyncStore();
-const sel = useSelectionStore();
-
-const hardOpen = ref(false);
-const hardTarget = ref<NoteSummaryDTO | null>(null);
 const busy = ref(false);
-/** 右键打开的那条（回收站菜单只有恢复 / 彻底删除） */
-const menuNote = ref<NoteSummaryDTO | null>(null);
 
-/* ------------------------------ 多选 ------------------------------ */
+const ui = useUiStore();
+const sync = useSyncStore();
+const router = useRouter();
 
-const selectedIds = computed(() => notes.value.map((n) => n.id).filter((id) => sel.has(id)));
-const allIds = computed(() => notes.value.map((n) => n.id));
-const labelOf = (id: string): string => notes.value.find((n) => n.id === id)?.title ?? '这一项';
+/** 保留天数（设置项的现值），页面上说一句「到期自动清」时要显示 */
+const keepDays = ref(readTrashAuto().days);
 
-const pressId = ref('');
-const press = useLongPress(() => enterSelect(pressId.value));
-
-function startPress(id: string, event: PointerEvent): void {
-  pressId.value = id;
-  press.start(event);
-}
-
-function enterSelect(id: string): void {
-  if (!sel.selecting) sel.enterSelecting('trash');
-  if (id) sel.toggle(id);
-}
-
-function onPick(id: string): void {
-  if (sel.selecting) sel.toggle(id);
-  else enterSelect(id);
-}
-
-/** 多选态下点标题只改选中，不跳笔记详情 */
-function onOpen(note: NoteSummaryDTO): void {
-  if (press.consume()) return;
-  if (sel.selecting) {
-    sel.toggle(note.id);
-    return;
-  }
-  void router.push(`/notes/${note.id}`);
-}
-
-/** 触屏长按会同时补一个 contextmenu，别让它再叠一层单条菜单 */
-function onMenu(note: NoteSummaryDTO): void {
-  if (press.recent()) return;
-  menuNote.value = note;
-}
+/** 右键 / 长按打开的顶层条目（贴内容列的底部弹层，与列表页一致） */
+const menuEntry = ref<TrashEntry | null>(null);
+/** 待确认的彻底删除 */
+const purgeTarget = ref<{ node: TrashEntry | TrashChild; entry: TrashEntry; top: boolean } | null>(null);
+/** 单独恢复带附件的笔记：先问一句 */
+const assetsTarget = ref<{ node: TrashEntry | TrashChild; entry: TrashEntry } | null>(null);
 
 async function load(): Promise<void> {
   loading.value = true;
   try {
-    notes.value = (await notesApi.list({ trash: true })).items;
+    entries.value = await listTrashEntries();
   } catch {
     ui.toast('回收站加载失败');
   } finally {
@@ -78,27 +58,63 @@ async function load(): Promise<void> {
   }
 }
 
-async function restore(note: NoteSummaryDTO): Promise<void> {
+/**
+ * 打开回收站时的自动清理 —— 先清再列，免得列表里混着刚清掉的条目。
+ * 静默：只有真的清掉了才提示一句（用户需要知道东西去哪了）；限流等失败不报错。
+ */
+async function cleanExpired(): Promise<void> {
+  const setting = readTrashAuto();
+  keepDays.value = setting.days;
+  if (!setting.enabled) return;
+  const removed = await runTrashAutoClean();
+  if (removed) ui.toast(`已按保留 ${setting.days} 天自动清理 ${removed} 条`, 3200);
+}
+
+/**
+ * 恢复。
+ *
+ * 整条恢复不问 —— 那是用户点「恢复」时本来就想干的事。
+ * **子项**单独恢复才问：一篇被删的笔记带着附件一起回去，用户不一定知道，问一句更稳妥。
+ */
+async function askRestore(node: TrashEntry | TrashChild, entry: TrashEntry, top: boolean): Promise<void> {
+  menuEntry.value = null;
+  if (!top && node.kind === 'note' && (await trashNoteHasAssets(node.path))) {
+    assetsTarget.value = { node, entry };
+    return;
+  }
+  await runRestore(node, entry, top);
+}
+
+async function runRestore(node: TrashEntry | TrashChild, entry: TrashEntry, top: boolean): Promise<void> {
+  if (busy.value) return;
   busy.value = true;
   try {
-    await notesApi.restore(note.id);
+    if (top) await restoreTrashEntry(entry);
+    else await restoreTrashChild(entry, node as TrashChild);
+    assetsTarget.value = null;
     ui.toast('已恢复');
     await load();
-  } catch {
-    ui.toast('恢复失败');
+  } catch (err) {
+    ui.toast(err instanceof DavError ? err.message : '恢复失败');
   } finally {
     busy.value = false;
   }
 }
 
-async function hardDelete(): Promise<void> {
-  const target = hardTarget.value;
-  if (!target) return;
+function askPurge(node: TrashEntry | TrashChild, entry: TrashEntry, top: boolean): void {
+  menuEntry.value = null;
+  purgeTarget.value = { node, entry, top };
+}
+
+async function runPurge(): Promise<void> {
+  const target = purgeTarget.value;
+  if (!target || busy.value) return;
   busy.value = true;
   try {
-    await notesApi.remove(target.id, true);
+    if (target.top) await purgeTrashEntry(target.entry);
+    else await purgeTrashChild(target.node as TrashChild);
+    purgeTarget.value = null;
     ui.toast('已彻底删除');
-    hardOpen.value = false;
     await load();
   } catch {
     ui.toast('删除失败');
@@ -107,10 +123,34 @@ async function hardDelete(): Promise<void> {
   }
 }
 
-onMounted(load);
+/** 顶层笔记：点标题进详情（已删的笔记也能看，正文还在 .trash 里） */
+function openEntry(entry: TrashEntry): void {
+  menuEntry.value = null;
+  void router.push(`/notes/${encodeId(entry.path)}`);
+}
+
+/** 附件确认框点「同意」 */
+function confirmAssets(): void {
+  const target = assetsTarget.value;
+  if (target) void runRestore(target.node, target.entry, false);
+}
+
+onMounted(async () => {
+  await cleanExpired();
+  await load();
+});
 
 /** 缓存层在后台校验出云端有更新，列表跟着刷一次 */
 watch(() => sync.dataVersion, load);
+
+const purgeLabel = (): string => {
+  const target = purgeTarget.value;
+  if (!target) return '';
+  if (!target.top) return `「${(target.node as TrashChild).title}」`;
+  return target.entry.kind === 'folder'
+    ? `「${target.entry.title}」整个文件夹及其中的全部内容`
+    : `「${target.entry.title}」`;
+};
 </script>
 
 <template>
@@ -120,7 +160,7 @@ watch(() => sync.dataVersion, load);
     <div class="page-body">
       <EmptyState v-if="loading" loading title="加载中" />
 
-      <EmptyState v-else-if="!notes.length" title="回收站是空的" hint="删除笔记后会先进入这里，随时可以恢复">
+      <EmptyState v-else-if="!entries.length" title="回收站是空的" hint="删除笔记后会先进入这里，随时可以恢复">
         <template #icon>
           <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true">
             <path
@@ -135,180 +175,89 @@ watch(() => sync.dataVersion, load);
         </template>
       </EmptyState>
 
-      <div v-else class="stack">
-        <div
-          v-for="note in notes"
-          :key="note.id"
-          class="row-card card-plain"
-          :class="{ 'is-selectable': sel.selecting, 'is-selected': sel.has(note.id) }"
-          @contextmenu.prevent="onMenu(note)"
-          @pointerdown="startPress(note.id, $event)"
-          @pointerup="press.cancel"
-          @pointercancel="press.cancel"
-          @pointerleave="press.cancel"
-        >
-          <button
-            type="button"
-            class="pick"
-            :aria-pressed="sel.has(note.id)"
-            :aria-label="sel.has(note.id) ? '取消选择' : '选择'"
-            @click.stop="onPick(note.id)"
-          >
-            <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
-              <path
-                d="m5 12.5 4.5 4.5L19 7.5"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2.6"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-              />
-            </svg>
-          </button>
+      <p v-else class="lead">
+        共 {{ entries.length }} 条删除记录，保留 {{ keepDays }} 天后自动清理。删掉的文件夹在这里是整条，
+        展开后可以单独恢复里面的某一项。
+      </p>
 
-          <button type="button" class="main" @click="onOpen(note)">
-            <span class="title">{{ note.title }}</span>
-            <span class="time">删除于 {{ formatTime(note.deleted_at) }}</span>
-          </button>
-          <div class="ops">
-            <button type="button" class="btn-ghost small" :disabled="busy" @click="restore(note)">
+      <div v-if="!loading && entries.length" class="stack">
+        <TrashNode
+          v-for="entry in entries"
+          :key="entry.entry"
+          :node="entry"
+          :entry="entry"
+          top
+          :depth="0"
+          :busy="busy"
+          @restore="askRestore"
+          @purge="askPurge"
+          @open="openEntry"
+          @menu="menuEntry = $event"
+        />
+      </div>
+    </div>
+
+    <!-- 贴内容列的底部弹层（与列表页的笔记菜单同一形态） -->
+    <Teleport to="body">
+      <Transition name="sheet">
+        <div v-if="menuEntry" class="sheet-mask" @click.self="menuEntry = null">
+          <div class="sheet glass">
+            <p class="sheet-title">
+              {{ menuEntry.kind === 'folder' ? '📁 ' : '' }}{{ menuEntry.title }}
+            </p>
+            <button
+              type="button"
+              class="sheet-item"
+              :disabled="busy"
+              @click="askRestore(menuEntry, menuEntry, true)"
+            >
               恢复
             </button>
             <button
               type="button"
-              class="btn-ghost small is-danger"
-              @click="hardTarget = note; hardOpen = true"
+              class="sheet-item is-danger"
+              :disabled="busy"
+              @click="askPurge(menuEntry, menuEntry, true)"
             >
               彻底删除
             </button>
+            <button type="button" class="sheet-item is-cancel" @click="menuEntry = null">取消</button>
           </div>
         </div>
-      </div>
-    </div>
-
-    <BatchToolbar
-      v-if="sel.selecting"
-      context="trash"
-      :ids="selectedIds"
-      :all-ids="allIds"
-      :label-of="labelOf"
-      @done="load"
-    />
-
-    <NoteActionMenu
-      :note="menuNote"
-      mode="trash"
-      @close="menuNote = null"
-      @done="load"
-    />
+      </Transition>
+    </Teleport>
 
     <AppDialog
-      :open="hardOpen"
+      :open="Boolean(assetsTarget)"
+      title="这篇笔记有附件"
+      confirm-label="同意"
+      :busy="busy"
+      @close="assetsTarget = null"
+      @confirm="confirmAssets"
+    >
+      <p class="tip">该笔记有关联附件，将一同被恢复，是否同意？</p>
+    </AppDialog>
+
+    <AppDialog
+      :open="Boolean(purgeTarget)"
       title="彻底删除？"
       confirm-label="彻底删除"
       danger
       :busy="busy"
-      @close="hardOpen = false"
-      @confirm="hardDelete"
+      @close="purgeTarget = null"
+      @confirm="runPurge"
     >
-      <p class="tip">「{{ hardTarget?.title }}」将被从你的网盘里永久删除，无法恢复。</p>
+      <p class="tip">{{ purgeLabel() }}将被从你的网盘里永久删除，无法恢复。</p>
     </AppDialog>
   </div>
 </template>
 
 <style scoped>
-.row-card {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  gap: var(--sp-1);
-  /* 左侧永久留出勾选框的位置：只在悬停时让位会让标题横向跳一下 */
-  padding-left: 44px;
-}
-
-.row-card.is-selected {
-  background: var(--accent-soft);
-}
-
-/* 悬停勾选框：桌面端进多选的入口；收起时不占点击 */
-.pick {
-  position: absolute;
-  top: 12px;
-  left: 10px;
-  z-index: 1;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 20px;
-  height: 20px;
-  border-radius: 6px;
-  border: 1.5px solid var(--surface-border);
-  background: var(--surface);
-  color: transparent;
-  opacity: 0;
-  pointer-events: none;
-  transition:
-    opacity var(--dur-fast) var(--ease-smooth),
-    background-color var(--dur-fast) var(--ease-smooth),
-    border-color var(--dur-fast) var(--ease-smooth),
-    color var(--dur-fast) var(--ease-smooth);
-}
-
-.row-card:hover .pick,
-.row-card.is-selectable .pick,
-.pick:focus-visible {
-  opacity: 1;
-  pointer-events: auto;
-}
-
-.pick:hover {
-  border-color: var(--accent);
-}
-
-.pick[aria-pressed='true'] {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: var(--on-accent);
-}
-
-/* 勾选框的位置已在 .row-card 的 padding-left 里留出，这里不用再推 .main */
-.main {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  text-align: left;
-  color: inherit;
-}
-
-.title {
-  font-size: 15px;
-  font-weight: 600;
-}
-
-.time {
-  font-size: 12px;
+.lead {
+  margin-bottom: var(--sp-1);
+  font-size: var(--fs-xs);
   color: var(--text-2);
 }
 
-.ops {
-  display: flex;
-  gap: 6px;
-}
 
-.btn-ghost.small {
-  height: 34px;
-  padding: 0 14px;
-  font-size: 13px;
-  font-weight: 500;
-}
-
-.btn-ghost.small.is-danger {
-  color: var(--danger);
-}
-
-.tip {
-  font-size: 13px;
-  line-height: 1.6;
-  color: var(--text-2);
-}
 </style>
