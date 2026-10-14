@@ -45,17 +45,34 @@
   --dur-fast: 160ms;
   --dur: 320ms;
   --dur-slow: 480ms;
+  /*
+   * 跟随时长：主内容跟着侧边栏让位时用的动画时长，单独成一个变量。
+   * 折叠 / 展开照常走 320ms；但用户拖拽调宽期间必须归零 —— 每一帧都重启一次
+   * 320ms 的过渡，内容边缘会一直慢半拍追着指针跑，手感是「糊」的。
+   */
+  --follow-dur: var(--dur);
 
   /* 字体 */
   --font-sans: Inter, -apple-system, BlinkMacSystemFont, 'PingFang SC', 'HarmonyOS Sans SC',
     'Microsoft YaHei', 'Segoe UI', sans-serif;
   --font-mono: 'JetBrains Mono', ui-monospace, 'Cascadia Mono', Consolas, monospace;
 
-  /* 骨架尺寸：一个变量同时决定侧边栏宽度和主内容让出的宽度 */
+  /*
+   * 骨架尺寸：一个变量同时决定侧边栏宽度和主内容让出的宽度。
+   * --sidebar-w 由用户拖拽决定（layout store 写 <html> 的行内样式），这里只是默认值；
+   * 可调范围与夹取都放在 store 里，免得两处各写一遍最小值/最大值。
+   */
   --sidebar-w: 260px;
   --content-offset: 0px;
   --topbar-h: 48px;
-  --content-max: 900px;
+  /*
+   * 内容列宽：窄窗口守住 900px 的阅读宽度；窗口变宽时跟着长，1400px 封顶。
+   * 写成死值 900px 的话，视口过了约 1000px 就再也不变了 —— 最大化到 2560 时
+   * 编辑区仍只有 900px，两边各空 830px。用 clamp 是为了让「正常窗口（≤1280）」
+   * 与改前逐像素一致，只在宽屏上才放开。--content-max 是全站共用，
+   * .body / .page-body / .wrap 都吃它，所以一处改、处处跟着。
+   */
+  --content-max: clamp(900px, 68vw, 1400px);
   --page-gutter: var(--sp-3);
 
   /* 毛玻璃（明暗共用，两套主题各自覆盖透明度） */
@@ -75,6 +92,13 @@
   html[data-sidebar='open'] {
     --content-offset: var(--sidebar-w);
   }
+}
+
+/* 拖拽调宽进行中：关掉跟随动画，并压住文本选中，免得拖到一半选中一片字 */
+html[data-resizing] {
+  --follow-dur: 0ms;
+  user-select: none;
+  cursor: col-resize;
 }
 
 /* ---------------------------- 亮色（默认） ---------------------------- */

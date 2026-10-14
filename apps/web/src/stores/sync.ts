@@ -121,6 +121,14 @@ export const useSyncStore = defineStore('sync', () => {
     await cacheStore().openDir();
   }
 
+  /**
+   * 在文件管理器里定位 `notes/` 下的一条路径（笔记或文件夹）。
+   * `rel` 是相对同步根的路径 —— 调用方自己 `decodeId`，这里不猜 id 的形状。
+   */
+  async function reveal(rel: string): Promise<void> {
+    await cacheStore().reveal(rel);
+  }
+
   async function syncNow(): Promise<void> {
     await work.value?.runNow();
     // 校验时间已被 runNow 作废，作废遍历缓存并让在屏视图重取一次，整棵树重新对账
@@ -154,6 +162,7 @@ export const useSyncStore = defineStore('sync', () => {
     detach,
     hasCopy,
     openDir,
+    reveal,
     syncNow,
     resolve,
     refresh,

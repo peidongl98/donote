@@ -24,6 +24,8 @@ export interface CacheStore {
   /** 列某个目录下的文件，返回相对缓存根的路径 */
   list(rel: string): Promise<string[]>;
   openDir(): Promise<void>;
+  /** 在文件管理器里定位 `notes/` 下的一条路径（笔记或文件夹）；浏览器下没有可打开的目录，静默跳过 */
+  reveal(rel: string): Promise<void>;
 }
 
 const LS_PREFIX = 'donote.cache:';
@@ -72,6 +74,9 @@ function createWebStore(): CacheStore {
     async openDir() {
       // 浏览器下没有可以打开的目录，静默跳过
     },
+    async reveal() {
+      // 同上：本地缓存只存在于端上
+    },
   };
 }
 
@@ -83,6 +88,7 @@ function createTauriStore(): CacheStore {
     remove: (rel) => invoke<void>('cache_remove', { path: rel }),
     list: (rel) => invoke<string[]>('cache_list', { path: rel }),
     openDir: () => invoke<void>('cache_open_dir'),
+    reveal: (rel) => invoke<void>('cache_reveal', { rel }),
   };
 }
 

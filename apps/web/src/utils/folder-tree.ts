@@ -10,10 +10,17 @@ import { decodeId } from '@/storage/notes';
 export interface FolderRow {
   folder: FolderDTO;
   depth: number;
+  /** 有没有直系子文件夹 —— 有才画折叠箭头，没有的用等宽占位保持名字对齐 */
+  hasChildren: boolean;
 }
 
-/** 按 parent_id 组树后再拉平，带缩进层级 */
-export function flattenFolders(folders: FolderDTO[]): FolderRow[] {
+/**
+ * 按 parent_id 组树后再拉平，带缩进层级。
+ *
+ * 传 `expanded` 就只铺开其中已展开的那些层（「文件夹」页的折叠）；
+ * 不传则是整棵树 —— 「移动到…」的候选清单要一次看全，不能跟着页面的折叠状态走。
+ */
+export function flattenFolders(folders: FolderDTO[], expanded?: ReadonlySet<string>): FolderRow[] {
   const byParent = new Map<string | null, FolderDTO[]>();
   for (const f of folders) {
     const list = byParent.get(f.parent_id) ?? [];
@@ -23,8 +30,9 @@ export function flattenFolders(folders: FolderDTO[]): FolderRow[] {
   const out: FolderRow[] = [];
   const walk = (parent: string | null, depth: number): void => {
     for (const f of byParent.get(parent) ?? []) {
-      out.push({ folder: f, depth });
-      walk(f.id, depth + 1);
+      const children = byParent.get(f.id) ?? [];
+      out.push({ folder: f, depth, hasChildren: children.length > 0 });
+      if (!expanded || expanded.has(f.id)) walk(f.id, depth + 1);
     }
   };
   walk(null, 0);

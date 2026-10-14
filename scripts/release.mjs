@@ -36,6 +36,26 @@ const IS_WINDOWS = process.platform === 'win32';
 
 const SECRETS_FILE = process.env.DONOTE_SECRETS || 'D:/design-website/.deploy-secrets';
 const BUNDLE_DIR = join(REPO, 'apps/desktop/src-tauri/target/release/bundle/nsis');
+
+/**
+ * 单安装点基线 —— 一台机器只允许装出**一个** DoNote。
+ *   · 打包目标只有 nsis：多出一种（例如 MSI 与 NSIS 并存）会在
+ *     `%LOCALAPPDATA%\DoNote` 与 `C:\Program Files\DoNote` 各留一份；
+ *   · installMode 只有 currentUser：perMachine 或 both 会让安装目录随权限漂移；
+ *   · identifier / productName 固定：改了等于换了一个应用，旧的那份不会被就地升级覆盖。
+ * 这三条一旦漂移，是全量用户都会中招的系统性问题 —— 所以每次发版都自动拦一道，
+ * 不靠记性。要改基线，先确认老用户仍会被就地升级（同目录覆盖）。
+ */
+const EXPECT_BUNDLE_TARGETS = ['nsis'];
+const EXPECT_INSTALL_MODE = 'currentUser';
+const EXPECT_IDENTIFIER = 'com.donote.desktop';
+const EXPECT_PRODUCT_NAME = 'DoNote';
+/**
+ * 更新时沿用上次安装位置的钩子。
+ * 手动安装时用户能自选目录，而自动更新走 /P 会跳过该页并落回默认位置 ——
+ * 没有这个钩子，自选过目录的用户更新后就会在默认位置多出一份安装。
+ */
+const EXPECT_INSTALLER_HOOKS = './windows/installer-hooks.nsi';
 const TAURI_JS = join(REPO, 'apps/desktop/node_modules/@tauri-apps/cli/tauri.js');
 
 /** 本机托管目录里的 wrangler（仓库没把它列为依赖）。可用 DONOTE_WRANGLER 覆盖。 */
@@ -165,6 +185,66 @@ function findWrangler(secrets) {
   return null;
 }
 
+// ─────────────────────────────────────────────────────────── 单安装点基线
+
+/** 配置层：打包配置有没有漂移（发版前先跑，改错了立刻停，别等装出来才发现） */
+function assertSingleInstallPoint(phase) {
+  const conf = JSON.parse(readFileSync(join(REPO, 'apps/desktop/src-tauri/tauri.conf.json'), 'utf8'));
+  const problems = [];
+  const targets = conf.bundle?.targets ?? [];
+  if (targets.join(',') !== EXPECT_BUNDLE_TARGETS.join(',')) {
+    problems.push(`bundle.targets 应为 ${JSON.stringify(EXPECT_BUNDLE_TARGETS)}，现在是 ${JSON.stringify(targets)}`);
+  }
+  const mode = conf.bundle?.windows?.nsis?.installMode;
+  if (mode !== EXPECT_INSTALL_MODE) {
+    problems.push(`nsis.installMode 应为 ${EXPECT_INSTALL_MODE}，现在是 ${mode ?? '（未设置）'}`);
+  }
+  if (conf.identifier !== EXPECT_IDENTIFIER) {
+    problems.push(`identifier 应为 ${EXPECT_IDENTIFIER}，现在是 ${conf.identifier}`);
+  }
+  if (conf.productName !== EXPECT_PRODUCT_NAME) {
+    problems.push(`productName 应为 ${EXPECT_PRODUCT_NAME}，现在是 ${conf.productName}`);
+  }
+  const hooks = conf.bundle?.windows?.nsis?.installerHooks;
+  if (hooks !== EXPECT_INSTALLER_HOOKS) {
+    problems.push(`nsis.installerHooks 应为 ${EXPECT_INSTALLER_HOOKS}，现在是 ${hooks ?? '（未配置）'}`);
+  } else {
+    const hookFile = resolve(join(REPO, 'apps/desktop/src-tauri'), hooks);
+    if (!existsSync(hookFile)) {
+      problems.push(`钩子文件不存在：${hooks}`);
+    } else if (!readFileSync(hookFile, 'utf8').includes('NSIS_HOOK_PREINSTALL')) {
+      problems.push(`钩子里没有 NSIS_HOOK_PREINSTALL 宏：${hooks}`);
+    }
+  }
+  if (problems.length) {
+    die(`${phase}单安装点检查不通过：\n  - ${problems.join('\n  - ')}`, [
+      '多种产物 / perMachine 会让同一台机器出现两个安装目录，全量用户都会中招',
+      '确实要改，先确认老用户仍会被就地升级（同目录覆盖），再更新基线并在提交里写清理由',
+    ]);
+  }
+  log(`  ✓ 单安装点：${EXPECT_BUNDLE_TARGETS.join('/')} · ${EXPECT_INSTALL_MODE} · ${EXPECT_IDENTIFIER} · ${EXPECT_PRODUCT_NAME} · 更新沿用原安装位置`);
+}
+
+/** 磁盘层：bundle 目录里有没有冒出基线之外的类型（打包后查） */
+function assertBundleDirsClean() {
+  const root = join(REPO, 'apps/desktop/src-tauri/target/release/bundle');
+  if (!existsSync(root)) return;
+  const kinds = readdirSync(root).filter((n) => {
+    try {
+      return statSync(join(root, n)).isDirectory();
+    } catch {
+      return false;
+    }
+  });
+  const extra = kinds.filter((k) => !EXPECT_BUNDLE_TARGETS.includes(k));
+  if (extra.length) {
+    die(`产物目录里出现了基线之外的类型：${extra.join('、')}`, [
+      `删掉 ${join(root, extra[0])} 再重跑 —— 它不该被打包出来`,
+    ]);
+  }
+  log(`  ✓ 产物目录只有 ${kinds.join('/') || '（空）'}`);
+}
+
 // ─────────────────────────────────────────────────────────── 步骤 1：版本号
 
 /** 7 处版本号。返回实际改动的文件列表（没改到的会报出来）。 */
@@ -220,6 +300,11 @@ async function verifyLive(newV, oldV) {
 
   const manifest = await fetch(`${SITE_ORIGIN}/updates/latest.json${bust}`).then((r) => r.json());
   if (manifest.version !== newV) problems.push(`latest.json 版本是 ${manifest.version}，期望 ${newV}`);
+  // 更新清单只允许一条平台：多出 mac/linux 之类会指向别的安装器，Windows 用户可能装出第二处
+  const plats = Object.keys(manifest.platforms ?? {});
+  if (plats.join(',') !== 'windows-x86_64') {
+    problems.push(`更新清单里的平台应只有 windows-x86_64，现在是 ${plats.join('、') || '（空）'}`);
+  }
   const url = manifest.platforms?.['windows-x86_64']?.url || '';
   if (!url.includes(`DoNote-${newV}-win-x64.exe`)) problems.push(`清单里的下载地址不对：${url}`);
   log(`  更新清单版本 ${manifest.version}｜签名 ${(manifest.platforms?.['windows-x86_64']?.signature || '').slice(0, 24)}…`);
@@ -285,6 +370,7 @@ async function verifyLive(newV, oldV) {
   log(`  cargo   ${rustupBin}`);
   log(`  wrangler ${wrangler}`);
   log(`  凭据    ${SECRETS_FILE}（GITHUB_TOKEN / CLOUDFLARE_*）`);
+  assertSingleInstallPoint('发版前');
 
   const plan = [
     `1 版本号 ${currentV} → ${TARGET}（7 处）`,
@@ -334,6 +420,7 @@ async function verifyLive(newV, oldV) {
     if (!existsSync(f)) die(`打包产物缺失：${f}`, ['看上面的 tauri build 输出']);
   }
   log(`  ${statSync(setup).size} 字节  ${setup.replace(REPO, '.')}`);
+  assertBundleDirsClean();
   done.push(STEPS[1]);
 
   // 3 发布产物

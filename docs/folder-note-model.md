@@ -144,8 +144,9 @@ walkTree()  →  { notes: DirEntry[], dirs: DirEntry[] }        storage/notes.ts
 两级：
 
 1. `/folders`（`views/FoldersView.vue`）
-   `foldersApi.list()` 取全部文件夹，按 `parent_id` 组树后拉平，按 `depth * 18px` 缩进（`:28-44`）→ 一个**可嵌套的树形列表**。每行：目录名 + 直系笔记数 + 「⋯」菜单（新建子文件夹 / 重命名 / 删除文件夹）。
-2. 点行 → `RouterLink to="/folders/{id}"`（`:168`）→ `/folders/:id`（`views/FolderDetailView.vue`）
+   `foldersApi.list()` 取全部文件夹，按 `parent_id` 组树后拉平，按 `depth * 18px` 缩进（`utils/folder-tree.ts`）→ 一个**可嵌套的树形列表**。每行：折叠箭头（有子文件夹才画）+ 目录名 + 直系笔记数 + 「⋯」菜单（新建子文件夹 / 重命名 / 删除文件夹）。
+   **折叠**：默认只看到最顶层（`expanded` 空集，`FoldersView.vue:43`），点箭头收放子层，状态不落盘 —— 重进本页又是只露最顶层；刚建/刚移完的那个目标层会自动铺开。`flattenFolders(folders, expanded?)` 传 `expanded` 才按折叠裁行，不传仍是整棵树（「移动到…」候选清单必须一次看全）。
+2. 点行 → `RouterLink to="/folders/{id}"` → `/folders/:id`（`views/FolderDetailView.vue`）
    `AppHeader` 面包屑「文件夹 / <名字>」+ 返回（`back-to="/folders"`）；正文是该文件夹的笔记卡片列表；`actions` 槽只有一个「＋」= 在此文件夹新建笔记（`:61-73`）。
    **没有编辑器，没有子文件夹入口，文件夹自身的 CRUD 也不在这里。**
 

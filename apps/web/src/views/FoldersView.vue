@@ -35,8 +35,27 @@ const busy = ref(false);
 const moveOpen = ref(false);
 const moveTarget = ref<FolderDTO | null>(null);
 
+/**
+ * 展开着的文件夹。
+ * 默认空集 = 一进来只看到最顶层，层级深的时候不会一屏全是子项；
+ * 状态只属于本次进入本页 —— 不落盘，下次进来照旧从「只看到最顶层」开始。
+ */
+const expanded = ref<Set<string>>(new Set());
+
 /** 按 parent_id 组树后再拉平，带缩进层级（与批量移动共用 utils/folder-tree） */
-const rows = computed(() => flattenFolders(folders.value));
+const rows = computed(() => flattenFolders(folders.value, expanded.value));
+
+function toggle(id: string): void {
+  const next = new Set(expanded.value);
+  if (!next.delete(id)) next.add(id);
+  expanded.value = next;
+}
+
+/** 刚把东西放进某个文件夹，就把那一层铺开 —— 否则用户建完/移完看不到自己刚做的事 */
+function expand(id: string | null): void {
+  if (!id || expanded.value.has(id)) return;
+  expanded.value = new Set(expanded.value).add(id);
+}
 
 const totalNotes = computed(() => folders.value.reduce((sum, f) => sum + f.note_count, 0));
 
@@ -122,6 +141,7 @@ async function submitCreate(): Promise<void> {
   try {
     await foldersApi.create({ name, parent_id: createParent.value });
     createOpen.value = false;
+    expand(createParent.value);
     ui.toast('已创建');
     await load();
   } catch (err) {
@@ -176,6 +196,7 @@ async function submitMove(parentId: string | null): Promise<void> {
   try {
     const res = await foldersApi.move(target.id, parentId);
     moveOpen.value = false;
+    expand(parentId);
     const where = parentId
       ? (folders.value.find((f) => f.id === parentId)?.name ?? '目标文件夹')
       : '根目录';
@@ -249,7 +270,7 @@ watch(() => sync.dataVersion, load);
           :key="row.folder.id"
           class="folder-row"
           :class="{ 'is-selectable': sel.selecting, 'is-selected': sel.has(row.folder.id) }"
-          :style="{ paddingLeft: `calc(var(--sp-2) + ${row.depth * 18}px)` }"
+          :style="{ paddingLeft: `calc(var(--sp-2) * 2 + ${row.depth * 18}px)` }"
           @click.capture="onRowCapture($event, row.folder)"
           @pointerdown="startPress(row.folder.id, $event)"
           @pointerup="press.cancel"
@@ -274,6 +295,29 @@ watch(() => sync.dataVersion, load);
               />
             </svg>
           </button>
+
+          <button
+            v-if="row.hasChildren"
+            class="twist"
+            type="button"
+            :aria-expanded="expanded.has(row.folder.id)"
+            :aria-label="expanded.has(row.folder.id) ? '折叠' : '展开'"
+            @pointerdown.stop
+            @click.stop="toggle(row.folder.id)"
+          >
+            <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
+              <path
+                d="m9 6 6 6-6 6"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
+            </svg>
+          </button>
+          <!-- 叶子也占同样宽的一格，名字才对得齐 -->
+          <span v-else class="twist" aria-hidden="true" />
 
           <RouterLink class="folder-link" :to="`/folders/${row.folder.id}`">
             <span class="folder-name">📁 {{ row.folder.name }}</span>
@@ -451,7 +495,8 @@ watch(() => sync.dataVersion, load);
 }
 
 /* 「移动到…」的候选清单样式在 styles/app.css —— 批量移动复用同一套。
-   勾选框固定在最左、不参与行内缩进；名字的起点（行 padding + link padding）本来就够它让位。 */
+   勾选框固定在最左（8–28px），所以行的左内边距留到 2×sp-2，让折叠箭头从它右边起排；
+   箭头不参与行内缩进，名字的起点 = 行 padding + 箭头宽 + 这一点间隙。 */
 .folder-link {
   flex: 1 1 auto;
   min-width: 0;
@@ -459,7 +504,32 @@ watch(() => sync.dataVersion, load);
   align-items: center;
   gap: var(--sp-1);
   padding: var(--sp-2);
+  padding-left: 4px;
   color: inherit;
+}
+
+/* 折叠箭头：与侧边栏那棵树同一套（有子项的才画，叶子用空 span 占位） */
+.twist {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 24px;
+  flex: none;
+  color: var(--text-2);
+  border-radius: var(--r-xs);
+}
+
+button.twist svg {
+  transition: transform var(--dur-fast) var(--ease-smooth);
+}
+
+button.twist[aria-expanded='true'] svg {
+  transform: rotate(90deg);
+}
+
+button.twist:hover {
+  color: var(--text);
 }
 
 .folder-name {

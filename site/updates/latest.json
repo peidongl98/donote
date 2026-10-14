@@ -1,11 +1,11 @@
 {
-  "version": "0.2.7",
-  "notes": "表格删行/删列修好：原来光标停在表头行时按删除会把表头清空、表格变成没有表头，现在按光标所在的行列操作。Mermaid 代码块改为直接显示渲染后的图，点一下打开源码面板。侧栏节点右键（触屏点右侧 ⋯）可新建笔记、新建子文件夹、重命名、移动、导出 HTML、导入、删除；删除与解散分开：删除把整棵文件夹放进回收站，解散把内容上移到上一级。回收站改成可展开的树，能单独恢复或彻底删除里面的某一项，并按设定天数自动清理。新增导入按钮（侧栏顶部与笔记列表页）。",
-  "pub_date": "2026-10-14T05:39:26Z",
+  "version": "0.2.8",
+  "notes": "侧栏宽度可以拖动了：拖到 200–520 之间任意宽度，双击手柄回到默认，宽度会记住。文件夹页默认只展开当前这一层，可以逐层收起；顶部加了「全部笔记」，在笔记页或文件夹页点一下直接回列表。修好两个一直存在的问题：打开一篇笔记后再点另一篇、打开一个文件夹后再点另一个，以前不会切换，现在会了。还修好一个安装缺陷：手动选过安装目录的用户，之前自动更新会在系统默认位置多装一份，现在更新会回到原来的目录。",
+  "pub_date": "2026-10-14T14:42:58Z",
   "platforms": {
     "windows-x86_64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSWTRLN1pZbGY4NGc1bWhaNXVQd2cwdlJjUlV6Nk5TV25ySjh5N0QrNDZoNHBYajRMbktCTXY2MU92OEIzSHVLR2F0bVpTMFlmMWMxTkxyaVhza1FiSm9sNkxyVzdTeEFzPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkxOTU2MzY2CWZpbGU6RG9Ob3RlXzAuMi43X3g2NC1zZXR1cC5leGUJdmVyc2lvbjowLjIuNwoyK2FxZ0RpMVFsazBrYnFQRWk5cW5xTmxSWVZ6MjJmQWVVNU9LVmN6b1BiYXJGL0dvOUtlL01BSnQ4M0ZlUmMzZDlvUUJ0Qnh2bi9LSjBxWTVnQlNCQT09Cg==",
-      "url": "https://donote.pages.dev/downloads/DoNote-0.2.7-win-x64.exe"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSWTRLN1pZbGY4NGl5UFk1cXQwZUdRSThkdFNKOHNmRTNmQ09KRDZWOGxIdW1MRHIyM2taanFTT1BoNm8wTTNKc0g3QzZHMTdCaUVoN2I5RHM4dnMvb0NXRzBEUDFXM3dnPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkxOTg4OTc4CWZpbGU6RG9Ob3RlXzAuMi44X3g2NC1zZXR1cC5leGUJdmVyc2lvbjowLjIuOApUZUpnUEhLaVpEL2ZQUkJocTNiTkZXSzhIMktjdWtRZzNieEtOTlB2YlllUGN1c0taWnRlOEIzVHppdGVxTTJzSWFsb3NMdkY2Y0lpZnR0UUlISzNDdz09Cg==",
+      "url": "https://donote.pages.dev/downloads/DoNote-0.2.8-win-x64.exe"
     }
   }
 }

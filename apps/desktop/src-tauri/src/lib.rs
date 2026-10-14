@@ -159,7 +159,8 @@ pub fn run() {
             cache::cache_write,
             cache::cache_remove,
             cache::cache_list,
-            cache::cache_open_dir
+            cache::cache_open_dir,
+            cache::cache_reveal
         ])
         .run(tauri::generate_context!())
         .expect("DoNote 启动失败");

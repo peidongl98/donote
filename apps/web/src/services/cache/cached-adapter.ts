@@ -570,6 +570,12 @@ export class CachedStorage implements StorageAdapter {
       };
       for (const rel of Object.keys(this.meta.notes)) {
         if (directChild(rel) && !seen.has(rel)) {
+          // 云端已经没有这条了：索引条目和**本地副本**一起清。
+          // 以前只删索引、把副本留着（指望断网时还能看到旧内容），代价是回归测试往真网盘写的
+          // 夹具在云端删掉之后，本地缓存里永远留一份既不在索引、界面上也看不见的孤儿
+          // （实测积了 9 个）。删除只发生在「列过这一层」的直系子项上（见上面的 listed 守卫），
+          // 所以一次不完整的响应不会误伤别处。
+          if (this.meta.notes[rel].cached) void this.store.remove(noteFile(rel));
           delete this.meta.notes[rel];
           changed = true;
         }
@@ -577,6 +583,8 @@ export class CachedStorage implements StorageAdapter {
       for (const folder of [...this.folders]) {
         if (directChild(folder) && !seen.has(folder)) {
           this.folders.delete(folder);
+          // 目录要整棵清，否则留下一个空壳
+          void this.store.remove(noteFile(folder));
           changed = true;
         }
       }

@@ -18,6 +18,8 @@ const SERVER = H.SERVER;
 const DAV = H.DAV;
 const STAMP = Date.now().toString(36).slice(-6);
 const TITLE = `S7走查${STAMP}`;
+/** 第二篇：用来验「开着一篇再点另一篇」—— 有名字包含关系的话 hasText 会串行，故意不重名 */
+const TITLEB = `S7二篇${STAMP}`;
 const FOLDER = `S7目录${STAMP}`;
 
 const results = [];
@@ -34,6 +36,7 @@ function check(name, ok, detail = '') {
 
   const browser = await chromium.launch({ channel: 'msedge', headless: true });
   let created = false;
+  let createdB = false;
   let folderCreated = false;
 
   async function connect(page) {
@@ -52,6 +55,14 @@ function check(name, ok, detail = '') {
   /** 页面有没有横向溢出（横向滚动条 = 布局崩了） */
   const overflows = (page) =>
     page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+
+  /** 侧栏收起时先展开：下面有几条要在侧栏树里点行 */
+  const openRail = async (page) => {
+    if ((await page.evaluate(() => document.documentElement.dataset.sidebar)) !== 'open') {
+      await page.locator('header.topbar button[aria-label="收起或展开侧边栏"]').click();
+      await page.waitForTimeout(600);
+    }
+  };
 
   /* ============================ 桌面端 1440 ============================ */
   const deskCtx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
@@ -151,6 +162,42 @@ function check(name, ok, detail = '') {
   check('列表按关键词筛出了那篇', (await dp.locator('body').innerText()).includes(TITLE));
   await shoot(dp, 'd6-search');
 
+  /* ---------- 换笔记：/notes/:id 是同一条路由记录，组件会被复用 ----------
+   * 「开着一篇、再点侧栏里另一篇」是这类跳转的唯一入口 —— 从列表页进详情是另一次挂载，
+   * 走的是新建组件的路子，怎么都不会漏。只换地址栏不算数：标题和正文都得换成那一篇。 */
+  await dp.locator('.rail button.new').click();
+  await dp.waitForURL(/\/notes\//, { timeout: 25000 });
+  createdB = true;
+  await dp.locator('input.title-input').fill(TITLEB);
+  await dp.waitForTimeout(3000);
+
+  // 重进一次：侧栏树有自己的取数时机，别拿还没刷新的树当证据
+  await dp.reload({ waitUntil: 'networkidle' });
+  await dp.waitForTimeout(3000);
+  await openRail(dp);
+  const noteBId = dp.url().split('/notes/')[1] ?? '';
+  const rowA = dp.locator('aside.rail a.tree-link', { hasText: TITLE }).first();
+  check(
+    '侧栏树里两篇笔记都在（下面两条才有意义）',
+    (await dp.locator('aside.rail a.tree-link', { hasText: TITLE }).count()) >= 1 &&
+      (await dp.locator('aside.rail a.tree-link', { hasText: TITLEB }).count()) >= 1,
+    `当前在 ${noteBId}`,
+  );
+  if (await rowA.count()) {
+    await rowA.click();
+    await dp.waitForTimeout(3500);
+    const noteAId = dp.url().split('/notes/')[1] ?? '';
+    const loadedTitle = await dp.locator('input.title-input').inputValue();
+    const loadedBody = await dp.locator('.donote-surface .ProseMirror').innerText();
+    check('在 B 里点侧栏的 A，地址换回 A', !!noteAId && noteAId !== noteBId, `${noteBId} → ${noteAId}`);
+    check(
+      '标题与正文跟着换成 A',
+      loadedTitle === TITLE && loadedBody.includes(STAMP),
+      `${loadedTitle} / ${loadedBody.trim().slice(0, 10)}`,
+    );
+    await shoot(dp, 'd10-switch-note');
+  }
+
   // 面包屑：先看只有「当前页」一段的页面（不可点是正常的），
   // 再看有父级链接的页面 —— 那才谈得上「跳转」
   await dp.goto(BASE + '/trash', { waitUntil: 'networkidle' });
@@ -172,6 +219,47 @@ function check(name, ok, detail = '') {
 
   const row = dp.locator('.folder-link', { hasText: FOLDERNAME }).first();
   check('新建的文件夹出现在列表里', (await row.count()) === 1);
+
+  /* ---------------------- 文件夹可折叠 ----------------------
+   * 这一页不是树：整棵文件夹一次取回、按 parent_id 拉平成带缩进的行。
+   * 所以「收起来」要真的把子行从列表里去掉，不能只是箭头转个方向 ——
+   * 每条都同时看行在不在、以及 aria-expanded 的真值。 */
+  const CHILD = `S7子目录${STAMP}`;
+  const parentRow = dp.locator('.folder-row', { hasText: FOLDERNAME }).first();
+  await parentRow.locator('.folder-more').click();
+  await dp.waitForTimeout(500);
+  await dp.locator('.sheet-item', { hasText: '新建子文件夹' }).click();
+  await dp.locator('[role="dialog"] input').first().fill(CHILD);
+  await dp.locator('[role="dialog"] .major').click();
+  await dp.waitForTimeout(2500);
+
+  const childRows = () => dp.locator('.folder-row', { hasText: CHILD }).count();
+  const twist = () => dp.locator('.folder-row', { hasText: FOLDERNAME }).first().locator('button.twist');
+  check('刚建的子文件夹立刻可见（父级自动铺开）', (await childRows()) === 1);
+
+  await twist().click();
+  await dp.waitForTimeout(600);
+  check(
+    '点箭头收起子层',
+    (await childRows()) === 0 && (await twist().getAttribute('aria-expanded')) === 'false',
+  );
+  await shoot(dp, 'd8a-fold-collapsed');
+
+  await twist().click();
+  await dp.waitForTimeout(600);
+  check(
+    '再点箭头又铺开',
+    (await childRows()) === 1 && (await twist().getAttribute('aria-expanded')) === 'true',
+  );
+
+  // 重进本页：不记住上次的展开，默认只看到最顶层
+  await dp.reload({ waitUntil: 'networkidle' });
+  await dp.waitForTimeout(2000);
+  check('重进本页只看到最顶层', (await childRows()) === 0);
+  check('顶层文件夹本身还在', (await dp.locator('.folder-link', { hasText: FOLDERNAME }).count()) === 1);
+  check('箭头默认是收起的', (await twist().getAttribute('aria-expanded')) === 'false');
+  await shoot(dp, 'd8b-fold-default');
+
   await row.click();
   await dp.waitForURL(/\/folders\//, { timeout: 20000 });
   await dp.waitForTimeout(1200);
@@ -185,6 +273,35 @@ function check(name, ok, detail = '') {
   }
   await shoot(dp, 'd8-folders');
 
+  /* ---------- 换文件夹：/folders/:id 同样是被复用的那条路由记录 ----------
+   * 侧栏树是「已经站在某个文件夹里、还能点开另一个」的唯一入口。
+   * 判据同样是两条：地址换了、面包屑上的名字也换了。 */
+  await dp.reload({ waitUntil: 'networkidle' });
+  await dp.waitForTimeout(2500);
+  await openRail(dp);
+  const treeRow = (name) => dp.locator('aside.rail a.tree-link', { hasText: name }).first();
+  const parentTreeRow = dp.locator('aside.rail .tree-row', { hasText: FOLDERNAME }).first();
+  if (await parentTreeRow.locator('button.twist[aria-expanded="false"]').count()) {
+    await parentTreeRow.locator('button.twist').click();
+    await dp.waitForTimeout(700);
+  }
+  await treeRow(FOLDERNAME).click();
+  await dp.waitForTimeout(2500);
+  const folderAId = dp.url().split('/folders/')[1] ?? '';
+  check('侧栏树能打开文件夹 A', !!folderAId && (await dp.locator('header.topbar').innerText()).includes(FOLDERNAME));
+
+  const haveChild = (await treeRow(CHILD).count()) === 1;
+  check('侧栏树里能看到子文件夹 B', haveChild);
+  if (haveChild) {
+    await treeRow(CHILD).click();
+    await dp.waitForTimeout(3000);
+    const folderBId = dp.url().split('/folders/')[1] ?? '';
+    const head = (await dp.locator('header.topbar').innerText()).replace(/\s+/g, ' ');
+    check('在 A 里点侧栏的 B，地址换成 B', !!folderBId && folderBId !== folderAId, `${folderAId} → ${folderBId}`);
+    check('画面也跟着换成 B', head.includes(CHILD), head);
+    await shoot(dp, 'd9-switch-folder');
+  }
+
   // 亮色主题
   await dp.goto(BASE + '/', { waitUntil: 'networkidle' });
   await dp.evaluate(() => {
@@ -194,6 +311,85 @@ function check(name, ok, detail = '') {
   await dp.waitForTimeout(3000);
   await shoot(dp, 'd7-light');
   check('亮色主题无横向溢出', (await overflows(dp)) <= 1, `${await overflows(dp)}px`);
+
+  /* ---------------------- 侧边栏宽度可拖拽 ---------------------- */
+  // 栏宽只有一个出口：store 把宽度写进 <html> 的 --sidebar-w，主内容让位的
+  // --content-offset 是同一个变量的别名。所以每条都既看变量、也看真实盒宽和真实内边距
+  // —— 只比变量的话，变量改了却没人消费（选择器写错、被覆盖）也照样会 PASS。
+  const railBox = () => dp.locator('aside.rail').evaluate((el) => el.getBoundingClientRect().width);
+  const varW = () =>
+    dp.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--sidebar-w').trim());
+  const pagePad = () =>
+    dp.evaluate(() => parseFloat(getComputedStyle(document.querySelector('.page')).paddingLeft));
+
+  if ((await dp.evaluate(() => document.documentElement.dataset.sidebar)) !== 'open') {
+    await dp.locator('header.topbar button[aria-label="收起或展开侧边栏"]').click();
+    await dp.waitForTimeout(600);
+  }
+
+  const handle = dp.locator('aside.rail .rail-resizer');
+  check('侧边栏有调宽手柄', await handle.isVisible());
+
+  /**
+   * 每次重新量手柄位置再按下去：拖窄之后手柄本身也跟着左移了，
+   * 沿用第一次量的坐标会按在栏外面，等于什么都没拖到。
+   */
+  async function dragTo(x) {
+    const b = await handle.boundingBox();
+    const y = b.y + b.height / 2;
+    await dp.mouse.move(b.x + b.width / 2, y);
+    await dp.mouse.down();
+    await dp.mouse.move(x, y, { steps: 10 });
+    await dp.mouse.up();
+    await dp.waitForTimeout(500);
+  }
+
+  await dragTo(400);
+  const w400 = await railBox();
+  check(
+    '拖到 400：变量与真实宽度一致',
+    Math.abs(w400 - 400) <= 2 && (await varW()) === '400px',
+    `${w400}px / ${await varW()}`,
+  );
+  check('主内容让位跟着一起变', Math.abs((await pagePad()) - 400) <= 2, `${await pagePad()}px`);
+  check('加宽后仍无横向溢出', (await overflows(dp)) <= 1, `${await overflows(dp)}px`);
+  await shoot(dp, 'd9-sidebar-wide');
+
+  await dragTo(60);
+  check('拖到 60 被夹回下限 200', Math.abs((await railBox()) - 200) <= 2, `${await railBox()}px`);
+
+  await dragTo(1000);
+  check('拖到 1000 被夹回上限 520', Math.abs((await railBox()) - 520) <= 2, `${await railBox()}px`);
+  check('松手才落盘，记的是夹取后的值', (await dp.evaluate(() => localStorage.getItem('donote.sidebar-w'))) === '520');
+
+  await dp.reload({ waitUntil: 'networkidle' });
+  await dp.waitForTimeout(2500);
+  check('刷新后宽度还在', Math.abs((await railBox()) - 520) <= 2, `${await railBox()}px`);
+
+  /*
+   * 往左拖这一趟曾经在真机上被掐断：指针离开侧栏落到正文上时，Chromium 会把它判成
+   * 「拖选那段文字」，发一个 dragstart 并立刻 pointercancel 掉整个指针序列。
+   * 无头环境不一定复现同一次命中判定，但「调宽期间有没有冒出 dragstart」是可以直接断言的。
+   */
+  await dp.evaluate(() => {
+    window.__dragstarts = 0;
+    document.addEventListener('dragstart', () => (window.__dragstarts += 1), true);
+  });
+  await dragTo(240);
+  check('往左快拖能一路拖到底', Math.abs((await railBox()) - 240) <= 2, `${await railBox()}px`);
+  const dragstarts = await dp.evaluate(() => window.__dragstarts);
+  check('调宽全程没有触发原生 dragstart', dragstarts === 0, `${dragstarts} 次`);
+
+  await handle.dblclick();
+  await dp.waitForTimeout(500);
+  check('双击手柄回到默认 260', Math.abs((await railBox()) - 260) <= 2, `${await railBox()}px`);
+
+  await handle.focus();
+  await dp.keyboard.press('ArrowRight');
+  await dp.keyboard.press('ArrowRight');
+  await dp.waitForTimeout(400);
+  check('方向键每次推 16px', Math.abs((await railBox()) - 292) <= 2, `${await railBox()}px`);
+
   await deskCtx.close();
 
   /* ============================ 移动端 390 ============================ */
@@ -223,6 +419,19 @@ function check(name, ok, detail = '') {
   await mp.waitForTimeout(700);
   check('点遮罩后抽屉收起', (await mp.evaluate(() => document.documentElement.dataset.sidebar)) === 'closed');
 
+  // 桌面端拖出来的宽度会跟着用户到手机上：520px 在 1024 的笔记本上正好，在 390 的手机上就盖满一屏。
+  // 先把宽度写成 520 再重进，看抽屉有没有被 84vw 兜住。
+  await mp.evaluate(() => localStorage.setItem('donote.sidebar-w', '520'));
+  await mp.reload({ waitUntil: 'networkidle' });
+  await mp.waitForTimeout(2000);
+  await mp.locator('header.topbar button[aria-label="收起或展开侧边栏"]').click();
+  await mp.waitForTimeout(700);
+  const drawerW = await mp.locator('aside.rail').evaluate((el) => el.getBoundingClientRect().width);
+  check('手机上抽屉宽度被 84vw 兜住', drawerW <= Math.round(390 * 0.84) + 2, `${drawerW}px`);
+  check('手机上不出现调宽手柄', (await mp.locator('aside.rail .rail-resizer').count()) === 0);
+  check('抽屉加宽后无横向溢出', (await overflows(mp)) <= 1, `${await overflows(mp)}px`);
+  await shoot(mp, 'm3-drawer-capped');
+
   await mobCtx.close();
 
   /* ============================ 清理 ============================ */
@@ -232,6 +441,13 @@ function check(name, ok, detail = '') {
       headers: { Authorization: auth },
     }).catch(() => undefined);
     console.log(`清理：已删除 DoNote/${TITLE}.md`);
+  }
+  if (createdB) {
+    await fetch(`${DAV}/${encodeURI(`${TITLEB}.md`)}`, {
+      method: 'DELETE',
+      headers: { Authorization: auth },
+    }).catch(() => undefined);
+    console.log(`清理：已删除 DoNote/${TITLEB}.md`);
   }
   if (folderCreated) {
     await fetch(`${DAV}/${encodeURI(FOLDER)}/`, {

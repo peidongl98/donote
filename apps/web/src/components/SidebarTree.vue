@@ -19,6 +19,7 @@ import { buildExportHtml, saveExportHtml } from '@/services/export-html';
 import { useLayoutStore } from '@/stores/layout';
 import { useSyncStore } from '@/stores/sync';
 import { useUiStore } from '@/stores/ui';
+import { isTauriRuntime } from '@/storage/transport';
 import { ancestorFolderIds, buildSidebarRows, type SidebarRow } from '@/utils/sidebar-tree';
 import AppDialog from '@/components/AppDialog.vue';
 import ImportDialog from '@/components/ImportDialog.vue';
@@ -39,6 +40,9 @@ const ui = useUiStore();
  * 不用模板 ref：树在 `v-for` 里，`ref` 会变成数组，`treeRef.value.refresh` 取不到。
  */
 const props = withDefaults(defineProps<{ reloadToken?: number }>(), { reloadToken: 0 });
+
+/** 本地缓存只存在于端上：浏览器里没有「打开目录」这回事，菜单项也就不该出现 */
+const isDesktop = isTauriRuntime();
 
 const folders = ref<FolderDTO[]>([]);
 const notes = ref<NoteSummaryDTO[]>([]);
@@ -322,6 +326,24 @@ function openImport(folder: FolderDTO | null): void {
   closeMenu();
   importFolderId.value = folder?.id ?? null;
   importOpen.value = true;
+}
+
+/**
+ * 在文件管理器里定位这个节点的**本地副本**。
+ *
+ * 打开的是缓存目录里那一份（`<安装目录>/data/cache/notes/<路径>`），不是网盘上的原件 ——
+ * DoNote 本地优先、正文按需落盘，本机根本没有「网盘同步目录」可指。没在本机打开过的
+ * 笔记还没有副本，Rust 侧会退到最近的已存在祖先目录，不会报错。
+ */
+function revealLocal(id: string): void {
+  closeMenu();
+  void sync.reveal(decodeId(id));
+}
+
+/** 打开缓存根目录（和设置页那个入口是同一件事） */
+function openCacheDir(): void {
+  closeMenu();
+  void sync.openDir();
 }
 
 /** 打开笔记：走路由，同时把抽屉收起来（手机上不收起会被遮罩盖住） */
@@ -641,6 +663,14 @@ const deleteCounts = computed(() =>
             在此导入
           </button>
           <button
+            v-if="isDesktop"
+            type="button"
+            class="menu-item"
+            @click="revealLocal(menu.folder!.id)"
+          >
+            在文件夹中显示
+          </button>
+          <button
             type="button"
             class="menu-item is-danger"
             @click="openDeleteFolder(menu.folder!)"
@@ -664,6 +694,14 @@ const deleteCounts = computed(() =>
             导出 HTML
           </button>
           <button
+            v-if="isDesktop"
+            type="button"
+            class="menu-item"
+            @click="revealLocal(menu.note!.id)"
+          >
+            在文件夹中显示
+          </button>
+          <button
             type="button"
             class="menu-item is-danger"
             @click="openDeleteNote(menu.note!)"
@@ -680,6 +718,9 @@ const deleteCounts = computed(() =>
             新建文件夹
           </button>
           <button type="button" class="menu-item" @click="openImport(null)">导入…</button>
+          <button v-if="isDesktop" type="button" class="menu-item" @click="openCacheDir">
+            打开缓存目录
+          </button>
         </template>
       </div>
     </Transition>

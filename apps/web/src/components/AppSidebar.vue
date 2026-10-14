@@ -152,6 +152,49 @@ async function onImported(): Promise<void> {
   await loadTags();
 }
 
+/**
+ * 侧边栏宽度拖拽。
+ *
+ * 栏贴在视口左边，所以指针的 clientX 就是想要的宽度 —— 不用减去栏的 left，也不用记按下时的偏移，
+ * 手柄始终跟着指针走。宽度写进 store 后就自动落到 --sidebar-w，主内容让位是同一个变量，
+ * 这里不需要同步任何别的东西。
+ */
+function startResize(e: PointerEvent): void {
+  if (e.button !== 0) return;
+  // 必须吃掉 pointerdown 的默认行为。否则按住往左快拖时，指针一旦离开侧栏落到正文上，
+  // Chromium 会把它当成「拖选那段文字」，发一个 dragstart 并立刻用 pointercancel 掐断
+  // 整个指针序列 —— 表现是「往左拖到一半就停住，再拖没反应」（实测停在 391px）。
+  // 往右拖之所以看不出问题，是因为指针始终在栏内，没发生这次命中判定。
+  e.preventDefault();
+  const handle = e.currentTarget as HTMLElement;
+  // preventDefault 会挡掉点按聚焦这个默认行为，键盘操作要靠它，所以手动补回来
+  handle.focus();
+  // 捕获指针：手快速拖到栏外（甚至窗口外）也不丢事件
+  handle.setPointerCapture(e.pointerId);
+  layout.beginResize();
+  const move = (ev: PointerEvent): void => layout.setWidth(ev.clientX);
+  const finish = (): void => {
+    handle.removeEventListener('pointermove', move);
+    handle.removeEventListener('pointerup', finish);
+    handle.removeEventListener('pointercancel', finish);
+    layout.commitWidth();
+  };
+  handle.addEventListener('pointermove', move);
+  handle.addEventListener('pointerup', finish);
+  handle.addEventListener('pointercancel', finish);
+}
+
+/** 键盘备选：手柄拿到焦点后用左右方向键推，每次 16px */
+const RESIZE_STEP = 16;
+
+function onResizeKey(e: KeyboardEvent): void {
+  const dir = e.key === 'ArrowRight' ? 1 : e.key === 'ArrowLeft' ? -1 : 0;
+  if (dir === 0) return;
+  e.preventDefault();
+  layout.setWidth(layout.width + dir * RESIZE_STEP);
+  layout.commitWidth();
+}
+
 function onKey(e: KeyboardEvent): void {
   if (e.key === 'Escape') layout.close();
 }
@@ -294,6 +337,25 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey));
     <div class="rail-foot">
       <span class="hint">数据存在你自己的网盘</span>
     </div>
+
+    <!--
+      宽度手柄。只挂在桌面端常驻栏上：移动端是抽屉，宽度由屏幕定（见 .is-drawer），拖它没有意义。
+      双击回到默认宽度，键盘左右方向键也能推。
+    -->
+    <div
+      v-if="layout.desktop"
+      class="rail-resizer"
+      role="separator"
+      aria-orientation="vertical"
+      aria-label="调整侧边栏宽度"
+      :aria-valuenow="layout.width"
+      :aria-valuemin="layout.minWidth"
+      :aria-valuemax="layout.maxWidth"
+      tabindex="0"
+      @pointerdown="startResize"
+      @dblclick="layout.resetWidth()"
+      @keydown="onResizeKey"
+    />
   </aside>
 </template>
 
@@ -339,6 +401,50 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey));
 /* 收起：桌面端滑出画面，主内容靠 --content-offset 收回宽度 */
 html[data-sidebar='closed'] .rail {
   transform: translateX(-100%);
+}
+
+/*
+ * 抽屉形态的宽度不能超过屏幕 —— 桌面端拖出来的宽度会跟着用户到手机上，
+ * 520px 在 1024 的笔记本上正好，在 390 的手机上就盖满一屏还溢出。
+ */
+.rail.is-drawer {
+  width: min(var(--sidebar-w), 84vw);
+}
+
+/*
+ * 宽度手柄：骑在栏的右边界上（左右各占 3px），视觉上是一条 6px 的透明带，
+ * 平时不可见、不占布局宽度，悬停 / 聚焦 / 拖拽时才亮出一条强调色细线。
+ * touch-action 关掉是必须的 —— 否则触屏/精密触控板会把手势判成滚动，pointermove 直接断掉。
+ */
+.rail-resizer {
+  position: absolute;
+  top: 0;
+  right: -3px;
+  bottom: 0;
+  width: 6px;
+  cursor: col-resize;
+  touch-action: none;
+  background: transparent;
+  z-index: 2;
+  outline: none;
+}
+
+.rail-resizer::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 2px;
+  width: 2px;
+  background: var(--accent);
+  opacity: 0;
+  transition: opacity var(--dur-fast) var(--ease-smooth);
+}
+
+.rail-resizer:hover::after,
+.rail-resizer:focus-visible::after,
+html[data-resizing] .rail-resizer::after {
+  opacity: 1;
 }
 
 .brand {

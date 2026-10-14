@@ -20,7 +20,12 @@ const ui = useUiStore();
 const sync = useSyncStore();
 const sel = useSelectionStore();
 
-const folderId = String(route.params.id);
+/**
+ * 正在看的是哪个文件夹。必须是响应式的：`/folders/:id` 是同一条路由记录，
+ * 由 A 切到 B 时**组件被复用、不会重建**，写死在 setup 里的话地址栏变了、
+ * 画面还是上一个文件夹（列表页点行看着正常，是因为那是另一次挂载）。
+ */
+const folderId = ref(String(route.params.id));
 const folderName = ref('文件夹');
 const folders = ref<FolderDTO[]>([]);
 const notes = ref<NoteSummaryDTO[]>([]);
@@ -51,13 +56,16 @@ function enterSelect(id: string): void {
 }
 
 async function load(): Promise<void> {
+  const id = folderId.value; // 记下这批结果属于哪个文件夹
   loading.value = true;
   try {
     const [list, noteList] = await Promise.all([
       foldersApi.list(),
-      notesApi.list({ folder_id: folderId }),
+      notesApi.list({ folder_id: id }),
     ]);
-    const folder = list.items.find((f) => f.id === folderId);
+    // 拉到一半用户又切走了：这批结果作废，别把上一个文件夹的笔记画到新文件夹上
+    if (id !== folderId.value) return;
+    const folder = list.items.find((f) => f.id === id);
     if (!folder) {
       ui.toast('文件夹不存在');
       await router.replace('/folders');
@@ -69,13 +77,13 @@ async function load(): Promise<void> {
   } catch {
     ui.toast('加载失败');
   } finally {
-    loading.value = false;
+    if (id === folderId.value) loading.value = false;
   }
 }
 
 async function create(): Promise<void> {
   try {
-    const res = await notesApi.create({ title: '', content: '', folder_id: folderId });
+    const res = await notesApi.create({ title: '', content: '', folder_id: folderId.value });
     await router.push(`/notes/${res.note.id}`);
   } catch {
     ui.toast('新建失败');
@@ -83,6 +91,21 @@ async function create(): Promise<void> {
 }
 
 onMounted(load);
+
+/**
+ * 换文件夹：A → B 时组件被复用（同一条路由记录），不监听就没人去重取。
+ * 与 `NoteEditView` 的同名处理是一回事 —— 两个带 param 的详情页都得管这件事；
+ * 别的页面（`/`、`/trash`、`/settings`…）每次导航都是新挂载，不需要。
+ */
+watch(
+  () => (route.name === 'folder' ? String(route.params.id) : ''),
+  (id) => {
+    if (!id || id === folderId.value) return;
+    folderId.value = id;
+    notes.value = []; // 先清空，免得旧文件夹的笔记在加载期间留在画面上
+    void load();
+  },
+);
 
 /** 缓存层在后台校验出云端有更新，列表跟着刷一次 */
 watch(() => sync.dataVersion, load);

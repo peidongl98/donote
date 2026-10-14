@@ -10,7 +10,7 @@
  * 最左边那个按钮在桌面端是「收起侧边栏」，在移动端是「打开抽屉」，同一个 store 决定。
  */
 import { onMounted, onUnmounted, ref } from 'vue';
-import { useRouter } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { useLayoutStore } from '@/stores/layout';
 import { useSyncStore } from '@/stores/sync';
@@ -37,8 +37,17 @@ withDefaults(
 );
 
 const router = useRouter();
+const route = useRoute();
 const layout = useLayoutStore();
 const sync = useSyncStore();
+
+/**
+ * 「全部笔记」是全局出口：笔记页换一篇会留一条历史记录，返回键要按几次才回到列表，
+ * 这里给一个一键到底的入口。已经在列表页时它没有意义，所以隐藏而不是禁用。
+ */
+function goHome(): void {
+  void router.push('/');
+}
 
 /** 只有端上才是无边框窗口，才需要这套按钮 */
 const isDesktop = isTauriRuntime();
@@ -96,6 +105,26 @@ function closeWindow(): void {
           stroke="currentColor"
           stroke-width="1.7"
           stroke-linecap="round"
+        />
+      </svg>
+    </button>
+
+    <button
+      v-if="route.path !== '/'"
+      class="icon-btn"
+      type="button"
+      aria-label="全部笔记"
+      title="全部笔记"
+      @click="goHome"
+    >
+      <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+        <path
+          d="M4.5 10.6 12 4.6l7.5 6V19a1.2 1.2 0 0 1-1.2 1.2H5.7A1.2 1.2 0 0 1 4.5 19z"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.7"
+          stroke-linecap="round"
+          stroke-linejoin="round"
         />
       </svg>
     </button>

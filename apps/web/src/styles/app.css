@@ -9,7 +9,7 @@
   min-height: 100%;
   /* 桌面端给固定侧边栏让位；移动端侧边栏是抽屉，--content-offset 恒为 0 */
   padding-left: var(--content-offset);
-  transition: padding-left var(--dur) var(--ease-smooth);
+  transition: padding-left var(--follow-dur) var(--ease-smooth);
   /* 有底部导航的页面留出安全距离 */
   padding-bottom: calc(72px + env(safe-area-inset-bottom, 0px));
 }

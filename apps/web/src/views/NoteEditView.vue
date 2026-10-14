@@ -161,6 +161,10 @@ async function load(): Promise<void> {
     // loading 期间输入框是 disabled 的，这里赋值不会覆盖用户已输入的内容
     title.value = res.note.title;
     content.value = res.note.content;
+    // 标签挂在 frontmatter 上，打开笔记时得一起读出来。
+    // 少了这一句的话，已有标签的笔记打开后标签栏是空的（只有当场加/删标签才会显示）。
+    tags.value = res.note.tags;
+    imageError.value = '';
     status.value = 'idle';
     loadSeq.value += 1;
   } catch (err) {
@@ -375,6 +379,25 @@ onMounted(async () => {
 // 标记「这篇笔记正开着」，列表 / 文件夹 / 回收站的动作菜单据此禁用重命名 / 移动 / 删除。
 // 标题改了会换 id，所以跟着 noteId 走而不是只在挂载时标一次。
 watch(noteId, (id) => editing.enter(id), { immediate: true });
+
+/**
+ * 换笔记：路由 param 由 A 变成 B 时，**组件是被复用的**（/notes/:id 是同一条路由记录），
+ * 不监听的话画面纹丝不动 —— 只有地址栏变了，返回键还得按两次才回得到列表。
+ *
+ * 为什么用「param ≠ noteId」而不是直接 watch(noteId)：改名也会换 id，
+ * 但它走的是 router.replace 且**先**更新 noteId，那时两者已经相等，正好被排除掉；
+ * 加载失败跳回首页时 route.name 不再叫 note，也不该再触发一次加载。
+ */
+watch(
+  () => (route.name === 'note' ? String(route.params.id) : ''),
+  async (id) => {
+    if (!id || id === noteId.value) return;
+    await flush(); // 上一篇还没写完的先落盘，否则那些字会跟着丢
+    noteId.value = id;
+    note.value = null;
+    await load();
+  },
+);
 onBeforeUnmount(() => {
   editing.leave(noteId.value);
   void flush();
@@ -617,7 +640,7 @@ onBeforeUnmount(() => {
   /* 桌面端给侧边栏让位；移动端 --content-offset 恒为 0 */
   padding-left: var(--content-offset);
   padding-bottom: env(safe-area-inset-bottom, 0px);
-  transition: padding-left var(--dur) var(--ease-smooth);
+  transition: padding-left var(--follow-dur) var(--ease-smooth);
 }
 
 .status {

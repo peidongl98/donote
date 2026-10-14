@@ -109,10 +109,20 @@ pub fn cache_write(app: AppHandle, path: String, content: String) -> Result<(), 
     fs::write(&file, content).map_err(|e| e.to_string())
 }
 
-/// 删除缓存文件。本来就不存在视为成功。
+/// 删除缓存里的文件或目录。本来就不存在视为成功。
+///
+/// 目录也要能删：对账发现云端已经没了的文件夹，本地这一份副本得整棵清掉，
+/// 否则会留下一个删不掉的空壳（实测在缓存里积了好几个回归测试的夹具目录）。
 #[tauri::command]
 pub fn cache_remove(app: AppHandle, path: String) -> Result<(), String> {
     let file = safe_join(Path::new(&root(&app).dir), &path)?;
+    if file.is_dir() {
+        return match fs::remove_dir_all(&file) {
+            Ok(()) => Ok(()),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(e) => Err(e.to_string()),
+        };
+    }
     match fs::remove_file(&file) {
         Ok(()) => Ok(()),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
@@ -144,20 +154,108 @@ pub fn cache_list(app: AppHandle, path: String) -> Result<Vec<String>, String> {
     Ok(out)
 }
 
+/// 打开一个目录交给文件管理器。
+///
+/// 一律打开**目录**：给的是文件就打开它所在的目录（`explorer /select,` 在这台机器上不可靠，
+/// 会退回一个没有位置的无标题窗口，高亮一个文件名不值这个风险）。
+///
+/// 走 `ShellExecuteW` 而不是自己 `Command::new("explorer")` —— 后者从应用里拉起来时
+/// 只弹一个空白的「文档 / 桌面」窗口（命令行走查过、用 python 原样跑同一串是好的，
+/// 所以问题出在这层进程拉起上），改用 shell 的官方入口，并且把失败原因透给调用方。
+#[cfg(target_os = "windows")]
+mod win_open {
+    use std::ffi::{c_void, OsStr};
+    use std::iter::once;
+    use std::os::windows::ffi::OsStrExt;
+    use std::os::windows::process::CommandExt;
+    use std::path::Path;
+    use std::process::{Command, Stdio};
+
+    #[link(name = "shell32")]
+    extern "system" {
+        fn ShellExecuteW(
+            hwnd: *mut c_void,
+            operation: *const u16,
+            file: *const u16,
+            parameters: *const u16,
+            directory: *const u16,
+            show_cmd: i32,
+        ) -> *mut c_void;
+    }
+
+    const SW_SHOWNORMAL: i32 = 1;
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+
+    fn wide(s: &OsStr) -> Vec<u16> {
+        s.encode_wide().chain(once(0)).collect()
+    }
+
+    pub fn open_dir(dir: &Path) -> Result<(), String> {
+        let target = wide(dir.as_os_str());
+        // 返回值 <= 32 是 ShellExecute 的历史约定，表示没起来
+        let code = unsafe {
+            ShellExecuteW(
+                std::ptr::null_mut(),
+                std::ptr::null(),
+                target.as_ptr(),
+                std::ptr::null(),
+                std::ptr::null(),
+                SW_SHOWNORMAL,
+            )
+        } as isize;
+        if code > 32 {
+            return Ok(());
+        }
+
+        // 兜底：直接拉 explorer，别继承宿主 GUI 进程那几个无效的标准句柄
+        Command::new("explorer")
+            .arg(dir)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .creation_flags(CREATE_NO_WINDOW)
+            .spawn()
+            .map(|_| ())
+            .map_err(|e| format!("ShellExecuteW 返回 {code}，explorer 也起不来：{e}"))
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn expose(path: &Path) -> Result<(), String> {
+    let dir = if path.is_dir() {
+        path
+    } else {
+        path.parent().unwrap_or(path)
+    };
+    win_open::open_dir(dir)
+}
+
+#[cfg(not(target_os = "windows"))]
+fn expose(_path: &Path) -> Result<(), String> {
+    Err("这个平台还不支持直接打开目录".into())
+}
+
 /// 在文件管理器里打开缓存目录。用户要备份或看内容时用。
 #[tauri::command]
 pub fn cache_open_dir(app: AppHandle) -> Result<(), String> {
-    let info = root(&app);
-    #[cfg(target_os = "windows")]
-    {
-        std::process::Command::new("explorer")
-            .arg(&info.dir)
-            .spawn()
-            .map_err(|e| e.to_string())?;
-        Ok(())
+    expose(Path::new(&root(&app).dir))
+}
+
+/// 在文件管理器里打开缓存中这条路径（笔记或文件夹）**所在的目录**。
+///
+/// `rel` 是相对同步根的路径，和笔记 / 文件夹 id 解出来的那个一致，落在 `notes/` 下。
+/// 目标不存在就逐级上溯到最近的已存在祖先 —— 正文是「按需」缓存的，没在本机打开过的
+/// 笔记本来就没有副本，打开它所在的目录比报一条看不懂的错有用。
+#[tauri::command]
+pub fn cache_reveal(app: AppHandle, rel: String) -> Result<(), String> {
+    let base = Path::new(&root(&app).dir).join("notes");
+    let _ = fs::create_dir_all(&base);
+    let mut target = safe_join(&base, &rel)?;
+    while !target.exists() {
+        if target == base || !target.pop() {
+            target = base.clone();
+            break;
+        }
     }
-    #[cfg(not(target_os = "windows"))]
-    {
-        Err("这个平台还不支持直接打开缓存目录".into())
-    }
+    expose(&target)
 }
