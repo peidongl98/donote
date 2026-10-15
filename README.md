@@ -169,3 +169,9 @@ wrangler pages deploy site --project-name donote --branch main
 - 服务器地址、账号与密码只存在本机（Windows 凭据管理器 / AssetStoreKit），**不上传**。
 - 坚果云要用**应用密码**（不是登录密码），在网页端「账户信息 → 安全选项 → 第三方应用管理」生成，可随时撤销。
 - 坚果云开了微信二次验证时 WebDAV 用不了，必须先关掉。
+
+## 许可证
+
+MIT License，见 [LICENSE](LICENSE)。可自由使用、修改、分发，包括商用，保留版权声明即可。
+
+源码仓库：https://github.com/peidongl98/donote

@@ -146,7 +146,7 @@ data-theme : "light"
 
 ### 5.2 打包后的实际运行期：被旧 SW 锁死
 
-WebView2 的 profile 在 `C:\Users\l5353\AppData\Local\com.donote.desktop\EBWebView\`
+WebView2 的 profile 在 `%LOCALAPPDATA%\com.donote.desktop\EBWebView\`
 （按 `identifier` 命名，**与安装路径无关，升级安装不会重建**；该目录创建于 2026-10-10 01:09）。
 其中 `Default/Service Worker` 里住着一个 **2026-10-10 12:00 注册** 的 service worker：
 
@@ -241,7 +241,7 @@ VitePWA({
 | 已安装的应用 | `D:\DoNote\donote.exe`（8,425,472 B，16:58:52） |
 | 构建产物 | `D:\design-website\DoNote\apps\desktop\src-tauri\target\release\{donote.exe, bundle\nsis\DoNote_0.2.0_x64-setup.exe}` |
 | 前端产物 | `D:\design-website\DoNote\apps\web\dist\`（134 个资源，index.html 16:54:45） |
-| WebView2 profile | `C:\Users\l5353\AppData\Local\com.donote.desktop\EBWebView\` |
+| WebView2 profile | `%LOCALAPPDATA%\com.donote.desktop\EBWebView\` |
 | ↳ service worker 缓存 | `…\EBWebView\Default\Service Worker\{CacheStorage, ScriptCache, Database}\` |
 | 用户网盘根目录 | `https://dav.jianguoyun.com/dav/DoNote/`（只读 PROPFIND / GET） |
 | 只读探针脚本 | `D:\design-website\.workbuddy\tmp\donote\{probe-nutstore.cjs, probe-unnamed.cjs, static-check.cjs}` |

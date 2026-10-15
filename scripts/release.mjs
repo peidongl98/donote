@@ -59,8 +59,7 @@ const EXPECT_INSTALLER_HOOKS = './windows/installer-hooks.nsi';
 const TAURI_JS = join(REPO, 'apps/desktop/node_modules/@tauri-apps/cli/tauri.js');
 
 /** 本机托管目录里的 wrangler（仓库没把它列为依赖）。可用 DONOTE_WRANGLER 覆盖。 */
-const DEFAULT_WRANGLER =
-  'C:/Users/l5353/.workbuddy/binaries/node/workspace/node_modules/.bin/wrangler';
+const DEFAULT_WRANGLER = `${(process.env.USERPROFILE || `C:/Users/${process.env.USERNAME || ''}`).replace(/\\/g, '/')}/.workbuddy/binaries/node/workspace/node_modules/.bin/wrangler`;
 
 /** 取值型开关：`--notes x` 与 `--notes=x` 都认 */
 const VALUE_FLAGS = new Set(['version', 'notes']);
