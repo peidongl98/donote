@@ -137,3 +137,7 @@
 8. 暗 / 亮两套主题都看过了吗（颜色一律走令牌，不写死）？
 9. **页面读了路由参数 / query，参数变了会不会重取？** `/notes/:id`、`/folders/:id` 这类**同一条路由记录**在参数变化时组件是被复用的，`onMounted` 只跑一次、`const id = route.params.id` 只会取一次那个值 —— 必须 `watch` 参数（已处理：`NoteEditView` / `FolderDetailView` / `HomeView` 的 `q`、`tag`）。改名换 id 的那种要排除掉，别把编辑器重建。回归锁在 stage7 的「换笔记 / 换文件夹」两组断言。
 10. **「已经开着 A，再打开 B」这条路径单独走过吗？** 列表页进详情是另一次挂载，**永远不会**暴露第 9 条那种缺陷；真正的入口是侧栏树（同一个驻留组件里点另一个链接）。
+11. **页面级骨架别让整页滚（`styles/app.css`）**：`.page` 是 `height:100%` 的 flex 列、顶栏 `flex:none`，
+    真正的滚动容器是 `.page-body`。整页滚时滚动条属于文档，会从窗口最顶端一路盖到标题栏的
+    最小化 / 最大化 / 关闭那一条上。内容列居中由 `.page-body` 的左右 padding 承担
+    （`--content-pad`，按改前 `max-width` + `margin:auto` 的 border box 几何反推）。

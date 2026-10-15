@@ -135,6 +135,9 @@ pub fn run() {
         .plugin(tauri_plugin_process::init())
         // 插入图片时的系统文件对话框
         .plugin(tauri_plugin_dialog::init())
+        // 用系统默认浏览器打开外部链接：WebView2 里 <a target="_blank"> 默认没有任何反应，
+        // 前端把 http/https 外链统一交给它（capabilities 里只放行 https）
+        .plugin(tauri_plugin_opener::init())
         .setup(|app| {
             // 窗口是无边框的，圆角要向系统要（Win10 上会失败，忽略）
             #[cfg(target_os = "windows")]

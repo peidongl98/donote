@@ -1,11 +1,11 @@
 {
-  "version": "0.2.8",
-  "notes": "侧栏宽度可以拖动了：拖到 200–520 之间任意宽度，双击手柄回到默认，宽度会记住。文件夹页默认只展开当前这一层，可以逐层收起；顶部加了「全部笔记」，在笔记页或文件夹页点一下直接回列表。修好两个一直存在的问题：打开一篇笔记后再点另一篇、打开一个文件夹后再点另一个，以前不会切换，现在会了。还修好一个安装缺陷：手动选过安装目录的用户，之前自动更新会在系统默认位置多装一份，现在更新会回到原来的目录。",
-  "pub_date": "2026-10-14T14:42:58Z",
+  "version": "0.2.9",
+  "notes": "修好了滚动条压在标题栏上的问题；点连接页的坚果云链接会用系统浏览器打开；首次安装默认装到可用空间最大的盘。",
+  "pub_date": "2026-10-15T09:59:41Z",
   "platforms": {
     "windows-x86_64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSWTRLN1pZbGY4NGl5UFk1cXQwZUdRSThkdFNKOHNmRTNmQ09KRDZWOGxIdW1MRHIyM2taanFTT1BoNm8wTTNKc0g3QzZHMTdCaUVoN2I5RHM4dnMvb0NXRzBEUDFXM3dnPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkxOTg4OTc4CWZpbGU6RG9Ob3RlXzAuMi44X3g2NC1zZXR1cC5leGUJdmVyc2lvbjowLjIuOApUZUpnUEhLaVpEL2ZQUkJocTNiTkZXSzhIMktjdWtRZzNieEtOTlB2YlllUGN1c0taWnRlOEIzVHppdGVxTTJzSWFsb3NMdkY2Y0lpZnR0UUlISzNDdz09Cg==",
-      "url": "https://donote.pages.dev/downloads/DoNote-0.2.8-win-x64.exe"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSWTRLN1pZbGY4NGxIWnY4US9TRVJ6Z3VwenFCQVVrNXNxczkvVXpCTzR5bkpFbWpsWG9BOFNkZDIzUHNQSlp0TExCZHdqVDNCZmZYLytVSzhxbW9DZkVDbW9SeDV3WUFrPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkyMDQ1MTkyCWZpbGU6RG9Ob3RlXzAuMi45X3g2NC1zZXR1cC5leGUJdmVyc2lvbjowLjIuOQplV210cFZJUFJGOFR5QTFBcmluNzBJaVc4eEozWUE0c1JyU0c2UTdRMjNNb2t3NUVMTDl2QXpyeXExeFB4dHBZZ1NDTUtpdkszTWtOZStOUWZubmpBZz09Cg==",
+      "url": "https://donote.pages.dev/downloads/DoNote-0.2.9-win-x64.exe"
     }
   }
 }

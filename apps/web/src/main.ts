@@ -8,6 +8,7 @@ import { useUiStore } from './stores/ui';
 import { installTauriBridge } from './storage/tauri';
 import { isTauriRuntime } from './storage/transport';
 import { checkUpdate } from './updater';
+import { installExternalLinks } from './utils/open-external';
 
 import './styles/tokens.css';
 import './styles/base.css';
@@ -21,6 +22,9 @@ app.use(pinia);
 
 // 端上先换成原生传输层与系统凭据存储（浏览器里是空操作）
 installTauriBridge();
+
+// 外部链接统一交给系统浏览器：WebView2 自己对 target="_blank" 不做任何事
+installExternalLinks();
 
 // 主题在挂载前先应用，避免与首屏内联脚本产生二次跳变
 useThemeStore().init();

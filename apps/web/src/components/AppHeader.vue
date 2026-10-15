@@ -207,6 +207,11 @@ function closeWindow(): void {
 
 <style scoped>
 .topbar {
+  /*
+   * 顶栏是 .page（flex 列）的第一项，内容再长也不许被压扁 ——
+   * 默认 flex-shrink: 1 会跟滚动区一起按比例缩，48px 的标题栏会被挤矮。
+   */
+  flex: none;
   position: sticky;
   top: 0;
   z-index: 5;

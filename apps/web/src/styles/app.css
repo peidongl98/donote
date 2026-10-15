@@ -3,32 +3,52 @@
    只放「多个页面共用」的布局类；单个页面的细节写在各自 scoped 里。
    ========================================================================== */
 
+/*
+ * 页面骨架：顶栏 48px 固定，**滚动交给 .page-body**，页面自己不滚。
+ *
+ * 为什么不让整页滚：整页滚时滚动条属于文档，从窗口最顶端一直拉到最底端，
+ * 正好压在标题栏（最小化 / 最大化 / 关闭）那一条上 —— 端上看着就是画歪了。
+ * 换成 .page-body 自己滚之后，滚动条只覆盖顶栏以下的内容区。
+ */
 .page {
   position: relative;
   z-index: 1;
-  min-height: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
   /* 桌面端给固定侧边栏让位；移动端侧边栏是抽屉，--content-offset 恒为 0 */
   padding-left: var(--content-offset);
   transition: padding-left var(--follow-dur) var(--ease-smooth);
-  /* 有底部导航的页面留出安全距离 */
-  padding-bottom: calc(72px + env(safe-area-inset-bottom, 0px));
 }
 
-.page-full {
-  padding-bottom: var(--sp-4);
-}
-
+/*
+ * 滚动容器。容器本身铺满可用宽度（滚动条才落在窗口右缘），内容列居中改由
+ * 左右 padding 承担 —— 数值按改前的 max-width + margin:auto 反推，宽屏上逐像素一致：
+ * 原来的 max-width 是**含内边距**的 border box，所以居中量要再加上一个 gutter。
+ */
 .page-body {
-  width: 100%;
-  max-width: var(--content-max);
-  margin: 0 auto;
-  padding: var(--sp-3) var(--page-gutter);
+  --content-pad: max(
+    var(--page-gutter),
+    calc((100% - var(--content-max)) / 2 + var(--page-gutter))
+  );
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding:
+    var(--sp-3) var(--content-pad)
+    calc(var(--sp-3) + 72px + env(safe-area-inset-bottom, 0px));
 }
 
-/* 桌面端没有底部导航，底部留白收到正常节奏 */
+/* 移动端：没有底部导航的页面（回收站 / 文件夹详情）底部不用留出 72px */
+.page-full .page-body {
+  padding-bottom: calc(var(--sp-3) + var(--sp-4));
+}
+
+/* 桌面端没有底部导航，底部留白一律收到正常节奏 */
 @media (min-width: 1024px) {
-  .page {
-    padding-bottom: var(--sp-5);
+  .page-body,
+  .page-full .page-body {
+    padding-bottom: calc(var(--sp-3) + var(--sp-5));
   }
 }
 
