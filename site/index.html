@@ -121,6 +121,14 @@
   }
   a.btn.is-waiting:hover { transform: none; }
 
+  /* 绿色版：主按钮下面的次级入口，样式与 .other 那排一致 */
+  a.btn.sub {
+    margin-top: 12px; height: 46px;
+    font-size: 14.5px; font-weight: 550;
+    background: transparent; border: 1px solid var(--border); color: var(--text-2);
+  }
+  a.btn.sub:hover { transform: none; border-color: var(--accent); color: var(--text); }
+
   .meta { margin: 11px 0 0; font-size: 12.5px; color: var(--text-2); text-align: center; }
 
   .other { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 12px; }
@@ -184,7 +192,7 @@
       </div>
 
       <div class="dl">
-        <a id="win" class="btn is-waiting" href="#" data-href="/downloads/DoNote-0.2.9-win-x64.exe">
+        <a id="win" class="btn is-waiting" href="#" data-href="/downloads/DoNote-0.3.0-win-x64.exe">
           <svg viewBox="0 0 24 24" width="19" height="19" aria-hidden="true">
             <path d="M5 6.5 11 5.6v6.1H5V6.5Zm0 6.4h6v6.2l-6-1V12.9Zm7-7.5 7-1v7.3h-7V5.4Zm0 7.5h7v7.4l-7-1V12.9Z"
               fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" />
@@ -192,6 +200,17 @@
           <span id="win-label">Windows 版 · 安装包准备中</span>
         </a>
         <p class="meta" id="win-meta">支持 Windows 10 / 11（64 位）</p>
+
+        <a id="zip" class="btn sub is-waiting" href="#" data-href="/downloads/DoNote-0.3.0-win-x64-portable.zip">
+          <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+            <path d="M4.5 7.5 12 4.5l7.5 3v9l-7.5 3-7.5-3v-9Z" fill="none" stroke="currentColor"
+              stroke-width="1.4" stroke-linejoin="round" />
+            <path d="M4.5 7.5 12 10.5l7.5-3M12 10.5v9" fill="none" stroke="currentColor"
+              stroke-width="1.4" stroke-linejoin="round" />
+          </svg>
+          <span id="zip-label">绿色版 · 免安装包准备中</span>
+        </a>
+        <p class="meta" id="zip-meta">解压到任意位置直接用，配置与缓存都留在解压目录里</p>
       </div>
 
       <div class="other">
@@ -240,26 +259,34 @@
   </footer>
 
   <script>
-    // 安装包存在就放开下载按钮，不存在就保持「准备中」，避免出现一个点了没反应的死链
+    // 安装包 / 绿色版包存在就放开对应的下载按钮，不存在就保持「准备中」，避免出现点了没反应的死链
     (function () {
-      var btn = document.getElementById('win');
-      var label = document.getElementById('win-label');
-      var meta = document.getElementById('win-meta');
-      var url = btn.getAttribute('data-href');
+      var items = [
+        { id: 'win', label: '下载 Windows 版', meta: '支持 Windows 10 / 11（64 位）' },
+        { id: 'zip', label: '下载绿色版（免安装）', meta: '解压到任意位置直接用，配置与缓存都留在解压目录里' }
+      ];
 
-      fetch(url, { method: 'HEAD' })
-        .then(function (res) {
-          if (!res.ok) return;
-          var size = Number(res.headers.get('content-length') || 0);
-          btn.href = url;
-          btn.classList.remove('is-waiting');
-          label.textContent = '下载 Windows 版';
-          meta.textContent =
-            '支持 Windows 10 / 11（64 位）' + (size ? ' · ' + (size / 1048576).toFixed(1) + ' MB' : '');
-        })
-        .catch(function () {
-          /* 还没放安装包，保持准备中 */
-        });
+      items.forEach(function (item) {
+        var btn = document.getElementById(item.id);
+        if (!btn) return;
+        var label = document.getElementById(item.id + '-label');
+        var meta = document.getElementById(item.id + '-meta');
+        var url = btn.getAttribute('data-href');
+
+        fetch(url, { method: 'HEAD' })
+          .then(function (res) {
+            if (!res.ok) return;
+            var size = Number(res.headers.get('content-length') || 0);
+            btn.href = url;
+            btn.classList.remove('is-waiting');
+            label.textContent = item.label;
+            meta.textContent =
+              item.meta + (size ? ' · ' + (size / 1048576).toFixed(1) + ' MB' : '');
+          })
+          .catch(function () {
+            /* 还没放包，保持准备中 */
+          });
+      });
     })();
   </script>
 </body>

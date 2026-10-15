@@ -1,5 +1,6 @@
+use std::path::PathBuf;
+
 use serde::Serialize;
-use tauri::Manager;
 
 mod cache;
 
@@ -41,6 +42,28 @@ mod corners {
 
 /// Windows 凭据管理器里的服务名。凭据只进系统钥匙串，不落磁盘明文。
 const SERVICE: &str = "donote";
+
+/// 绿色版标记文件：放在 exe 同目录即视为绿色版。
+const PORTABLE_MARK: &str = "portable.txt";
+/// 绿色版的数据根目录名（与缓存同根：`<exe 目录>/data`）。
+const PORTABLE_DATA: &str = "data";
+
+/// 绿色版的数据根；不是绿色版就返回 None。
+///
+/// 判据只有一个 —— exe 同目录下有没有 `portable.txt`。安装包不带这个文件，
+/// 所以两边的存放位置天然互不干扰：绿色版用户哪天换成安装包，也不会读到旧数据。
+pub fn portable_root() -> Option<PathBuf> {
+    let dir = std::env::current_exe().ok()?.parent()?.to_path_buf();
+    dir.join(PORTABLE_MARK)
+        .is_file()
+        .then(|| dir.join(PORTABLE_DATA))
+}
+
+/// 前端据此决定更新方式：绿色版没有安装器可走，改成引导去下载页取新 zip。
+#[tauri::command]
+fn portable_mode() -> bool {
+    portable_root().is_some()
+}
 
 #[derive(Serialize)]
 pub struct SecretPayload {
@@ -139,17 +162,35 @@ pub fn run() {
         // 前端把 http/https 外链统一交给它（capabilities 里只放行 https）
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
+            // 窗口在这里自建，不再交给 tauri.conf.json 里那条（那边标了 create:false）。
+            // 原因：绿色版要把 WebView 的数据目录（连接配置就存在它的 localStorage 里）
+            // 也搬进解压目录，而 Windows 上 Tauri 会强制使用 %LOCALAPPDATA% 下的固定
+            // 目录，只有自己建窗口才换得掉。窗口参数仍从 conf 读，不重复第二份。
+            let config = app
+                .config()
+                .app
+                .windows
+                .iter()
+                .find(|w| w.label == "main")
+                .cloned()
+                .ok_or_else(|| "tauri.conf.json 里找不到 main 窗口".to_string())?;
+            let mut builder = tauri::WebviewWindowBuilder::from_config(app.handle(), &config)?;
+            if let Some(profile) = portable_root().map(|root| root.join("webview")) {
+                let _ = std::fs::create_dir_all(&profile);
+                builder = builder.data_directory(profile);
+            }
+            let window = builder.build()?;
+
             // 窗口是无边框的，圆角要向系统要（Win10 上会失败，忽略）
             #[cfg(target_os = "windows")]
-            if let Some(window) = app.get_webview_window("main") {
-                if let Ok(hwnd) = window.hwnd() {
-                    corners::round(hwnd.0);
-                }
+            if let Ok(hwnd) = window.hwnd() {
+                corners::round(hwnd.0);
             }
             let _ = app;
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            portable_mode,
             secret_read,
             secret_write,
             secret_clear,

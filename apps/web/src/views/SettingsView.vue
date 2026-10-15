@@ -10,7 +10,7 @@ import {
   writeTrashAuto,
   type TrashAutoSetting,
 } from '@/services/trash-auto';
-import { appVersion, checkUpdate, installUpdate, type UpdateState } from '@/updater';
+import { appVersion, applyUpdate, autoState, checkUpdate, ensureUpdateReady, type UpdateState } from '@/updater';
 import { useWebdavStore } from '@/stores/webdav';
 import { useSyncStore } from '@/stores/sync';
 import { useUiStore } from '@/stores/ui';
@@ -81,7 +81,14 @@ async function onResolve(path: string, keep: 'local' | 'remote'): Promise<void> 
 const displayName = computed(() => webdav.account || '未连接');
 const initial = computed(() => displayName.value.slice(0, 1).toUpperCase() || 'D');
 
+/** 自动流程的状态优先：它才是「正在下载 / 已就绪」的实况 */
 const updateText = computed(() => {
+  const auto = autoState.value;
+  if (auto.kind === 'downloading') return `正在后台下载 ${auto.percent}%`;
+  if (auto.kind === 'ready') {
+    return auto.portable ? `有新版本 ${auto.version}（绿色版到下载页取新包）` : `新版本 ${auto.version} 已下载好`;
+  }
+
   const state = updateState.value;
   switch (state?.kind) {
     case 'available':
@@ -101,6 +108,19 @@ const updateText = computed(() => {
   }
 });
 
+const updateBusy = computed(
+  () => checking.value || autoState.value.kind === 'downloading' || updateState.value?.kind === 'installing',
+);
+
+const updateActionLabel = computed(() => {
+  const auto = autoState.value;
+  if (auto.kind === 'downloading') return `下载中 ${auto.percent}%`;
+  if (auto.kind === 'ready') return auto.portable ? '打开下载页取新包' : '重启以更新';
+  if (checking.value) return '检查中…';
+  if (updateState.value?.kind === 'available') return '立即更新并重启';
+  return '检查更新';
+});
+
 async function onCheckUpdate(): Promise<void> {
   checking.value = true;
   updateState.value = null;
@@ -114,12 +134,28 @@ async function onCheckUpdate(): Promise<void> {
   }
 }
 
-async function onInstall(): Promise<void> {
-  try {
-    await installUpdate((state) => (updateState.value = state));
-  } catch (error) {
-    updateState.value = { kind: 'error', message: error instanceof Error ? error.message : String(error) };
+/** 一个按钮两种时机：已下载好就装，否则先查（缺包时顺手补下） */
+async function onUpdateAction(): Promise<void> {
+  const auto = autoState.value;
+  if (auto.kind === 'downloading') return;
+  if (auto.kind === 'ready') {
+    try {
+      await applyUpdate();
+    } catch (error) {
+      ui.toast(error instanceof Error ? error.message : String(error));
+    }
+    return;
   }
+  if (updateState.value?.kind === 'available') {
+    try {
+      await ensureUpdateReady();
+      await applyUpdate();
+    } catch (error) {
+      updateState.value = { kind: 'error', message: error instanceof Error ? error.message : String(error) };
+    }
+    return;
+  }
+  await onCheckUpdate();
 }
 
 onMounted(async () => {
@@ -307,16 +343,10 @@ async function onDisconnect(): Promise<void> {
         v-if="desktop"
         class="secondary"
         type="button"
-        :disabled="checking || updateState?.kind === 'downloading' || updateState?.kind === 'installing'"
-        @click="updateState?.kind === 'available' ? onInstall() : onCheckUpdate()"
+        :disabled="updateBusy"
+        @click="onUpdateAction()"
       >
-        {{
-          checking
-            ? '检查中…'
-            : updateState?.kind === 'available'
-              ? '立即更新并重启'
-              : '检查更新'
-        }}
+        {{ updateActionLabel }}
       </button>
 
       <button class="logout" type="button" :disabled="signingOut" @click="onDisconnect">

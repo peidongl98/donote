@@ -269,7 +269,9 @@ function bumpVersions(oldV, newV) {
     let out = src;
     if (t.kind === 'json-v') out = src.replace(`"version": "${oldV}"`, `"version": "${newV}"`);
     if (t.kind === 'cargo') out = src.replace(`\nversion = "${oldV}"`, `\nversion = "${newV}"`);
-    if (t.kind === 'site-exe') out = src.replaceAll(`DoNote-${oldV}-win-x64.exe`, `DoNote-${newV}-win-x64.exe`);
+    // site-exe 不带后缀匹配：安装包 DoNote-x.y.z-win-x64.exe 与
+    // 绿色版 DoNote-x.y.z-win-x64-portable.zip 都要跟着版本走
+    if (t.kind === 'site-exe') out = src.replaceAll(`DoNote-${oldV}-win-x64`, `DoNote-${newV}-win-x64`);
     if (out === src) {
       missed.push(`${t.file}（没找到 "${oldV}"）`);
       continue;
@@ -320,6 +322,18 @@ async function verifyLive(newV, oldV) {
   const prev = await fetch(`${SITE_ORIGIN}/downloads/DoNote-${oldV}-win-x64.exe`, { method: 'HEAD' });
   if (prev.status !== 200) problems.push(`上一版 ${oldV} 下载失效（HTTP ${prev.status}）`);
   else log(`  上一版 ${oldV} 仍可下载（HTTP 200）`);
+
+  // 绿色版：和安装包同一个 exe，只是打包方式不同，线上同样要能拿到
+  const localZip = readFileSync(join(REPO, 'site/downloads', `DoNote-${newV}-win-x64-portable.zip`));
+  const zipUrl = `${SITE_ORIGIN}/downloads/DoNote-${newV}-win-x64-portable.zip${bust}`;
+  const zipHead = await fetch(zipUrl, { method: 'HEAD' });
+  if (zipHead.status !== 200) problems.push(`绿色版压缩包 HEAD 返回 ${zipHead.status}`);
+  else {
+    const remoteZip = Buffer.from(await (await fetch(zipUrl)).arrayBuffer());
+    const z = await sha256Of(localZip);
+    if (z !== (await sha256Of(remoteZip))) problems.push('线上绿色版压缩包与本地 sha256 不一致');
+    else log(`  绿色版包 HTTP 200｜${z.slice(0, 16)}…`);
+  }
 
   if (problems.length) die(`线上核验不通过：\n  - ${problems.join('\n  - ')}`, ['用 --skip-verify 跳过，或先排查 Pages 部署']);
   return { sha256: a, url };
@@ -429,9 +443,13 @@ async function verifyLive(newV, oldV) {
     run(process.execPath, ['scripts/make-release.mjs', '--version', TARGET, '--notes', NOTES || `DoNote ${TARGET}`], {
       label: 'make-release',
     });
+    // 绿色版：同一个 exe，多一个 portable.txt 标记，数据就留在解压目录里
+    run(process.execPath, ['scripts/make-portable.mjs', '--version', TARGET], { label: 'make-portable' });
   }
   const download = join(REPO, 'site/downloads', `DoNote-${TARGET}-win-x64.exe`);
   if (!existsSync(download)) die(`下载包缺失：${download}`);
+  const portableZip = join(REPO, 'site/downloads', `DoNote-${TARGET}-win-x64-portable.zip`);
+  if (!existsSync(portableZip)) die(`绿色版压缩包缺失：${portableZip}`);
   done.push(STEPS[2]);
 
   // 4 部署
@@ -503,6 +521,7 @@ async function verifyLive(newV, oldV) {
 
   log(`\n✓ 发版完成：${currentV} → ${TARGET}`);
   log(`  安装包   site/downloads/DoNote-${TARGET}-win-x64.exe（${statSync(download).size} 字节）`);
+  log(`  绿色版   site/downloads/DoNote-${TARGET}-win-x64-portable.zip（${statSync(portableZip).size} 字节）`);
   if (result) log(`  sha256   ${result.sha256}`);
   log(`  下载     ${result?.url || `${SITE_ORIGIN}/downloads/DoNote-${TARGET}-win-x64.exe`}`);
   log(`  更新清单 ${SITE_ORIGIN}/updates/latest.json`);

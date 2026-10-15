@@ -1,11 +1,11 @@
 {
-  "version": "0.2.9",
-  "notes": "修好了滚动条压在标题栏上的问题；点连接页的坚果云链接会用系统浏览器打开；首次安装默认装到可用空间最大的盘。",
-  "pub_date": "2026-10-15T09:59:41Z",
+  "version": "0.3.0",
+  "notes": "绿色版来了：免安装的 zip 包，解压即用，配置和缓存都留在解压目录里。安装版会在启动后自动把新版本下好，你点一下「重启以更新」就装上了。",
+  "pub_date": "2026-10-15T10:28:52Z",
   "platforms": {
     "windows-x86_64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSWTRLN1pZbGY4NGxIWnY4US9TRVJ6Z3VwenFCQVVrNXNxczkvVXpCTzR5bkpFbWpsWG9BOFNkZDIzUHNQSlp0TExCZHdqVDNCZmZYLytVSzhxbW9DZkVDbW9SeDV3WUFrPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkyMDQ1MTkyCWZpbGU6RG9Ob3RlXzAuMi45X3g2NC1zZXR1cC5leGUJdmVyc2lvbjowLjIuOQplV210cFZJUFJGOFR5QTFBcmluNzBJaVc4eEozWUE0c1JyU0c2UTdRMjNNb2t3NUVMTDl2QXpyeXExeFB4dHBZZ1NDTUtpdkszTWtOZStOUWZubmpBZz09Cg==",
-      "url": "https://donote.pages.dev/downloads/DoNote-0.2.9-win-x64.exe"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSWTRLN1pZbGY4NHN6eUdvNEJTL0lLZGxhYWFqNGppdTRzbE11YjRZaE1tM3B0SzFlNjhraS94RTVNRlAxQUpzdWFXQm1INDhZcG11VVlkeVNlcVpUQTNwVWYvSWt6SkE0PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkyMDU5NzQwCWZpbGU6RG9Ob3RlXzAuMy4wX3g2NC1zZXR1cC5leGUJdmVyc2lvbjowLjMuMApHSm1adkxuM3RkWHFrZjBpM3VvQ2hDV0tIa3c3S3l0NVBMS05kbm9nQ3luYWkyZmZRK3BEVmovdkh6VjlZSk5hTnRGZ2prWVoxTENxRlNqZ2RaeStBQT09Cg==",
+      "url": "https://donote.pages.dev/downloads/DoNote-0.3.0-win-x64.exe"
     }
   }
 }
