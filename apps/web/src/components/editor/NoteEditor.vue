@@ -236,14 +236,19 @@ defineExpose({
       @image="emit('pick-image')"
     />
 
-    <div
-      v-if="mode === 'wysiwyg'"
-      ref="host"
-      class="donote-surface"
-      :style="{ '--doc-font-size': `${docFontSize}px` }"
-      @scroll="onSurfaceScroll"
-      @keydown="onFontKey"
-    />
+    <!--
+      正文框外面再套一层：调宽提示线要**正好贴着正文框的高度**，不能从标题一路贯下来。
+      这层只当定位锚点，高度完全由里面的正文框撑开（flex 一路传下去）。
+    -->
+    <div v-if="mode === 'wysiwyg'" class="surface-slot">
+      <div
+        ref="host"
+        class="donote-surface"
+        :style="{ '--doc-font-size': `${docFontSize}px` }"
+        @scroll="onSurfaceScroll"
+        @keydown="onFontKey"
+      />
+    </div>
 
     <!-- 块级手柄：悬停块左侧的 ⋮⋮（fixed 定位，不能放进 .donote-surface，会被 overflow 裁掉） -->
     <BlockHandle v-if="mode === 'wysiwyg' && !readonly" :editor="editorRef" />
@@ -346,6 +351,46 @@ defineExpose({
   opacity: 0.5;
 }
 
+/*
+ * 正文框的定位锚点：只负责「正文框从哪到哪」，本身不可见。
+ * flex 一路传下去，正文框照旧撑满剩余高度（min-height: 46vh 还在正文框自己身上）。
+ */
+.surface-slot {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+/*
+ * 调宽提示线：**只贴正文框的左右边界**，从框顶到框底，上下各让 8px 收个圆头。
+ *
+ * 画在这层而不是 .donote-surface 自己身上 —— 那层是 `overflow-y: auto`，外侧的线会被裁掉。
+ * 亮不亮由外面传进来的 --grip-line 决定（按住 Ctrl 或拖动中 = 1），默认 0 即全透明。
+ */
+.surface-slot::before,
+.surface-slot::after {
+  content: '';
+  position: absolute;
+  top: 8px;
+  bottom: 8px;
+  width: 1px;
+  border-radius: 1px;
+  background: var(--accent);
+  opacity: calc(var(--grip-line, 0) * 0.5);
+  transition: opacity var(--dur-fast) var(--ease-smooth);
+  pointer-events: none;
+}
+
+.surface-slot::before {
+  left: -2px;
+}
+
+.surface-slot::after {
+  right: -2px;
+}
+
 .source {
   flex: 1 1 auto;
   min-height: 46vh;
@@ -384,30 +429,6 @@ defineExpose({
 
 .source:focus {
   outline: none;
-}
-
-/* 移动端：工具栏挪到正文下方，拇指够得着 */
-@media (max-width: 1023px) {
-  .dock {
-    order: 2;
-  }
-
-  .donote-surface {
-    order: 1;
-    /* 提示文字的定位读的就是这两个变量 —— 改这里就够，不必再单独调 ::before */
-    --surface-pad-y: var(--sp-2);
-    --surface-pad-x: var(--sp-2);
-    min-height: 40vh;
-  }
-
-  .split {
-    order: 1;
-  }
-
-  .split .source,
-  .source-preview {
-    padding: var(--sp-2);
-  }
 }
 
 /* 窄屏并排放不下，预览挪到源码下面 */

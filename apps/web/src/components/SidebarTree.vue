@@ -16,7 +16,6 @@ import type { FolderDTO, NoteSummaryDTO } from '@donote/shared';
 import { RouterLink, useRoute, useRouter } from 'vue-router';
 import { DavError, containerDirOf, decodeId, foldersApi, notesApi } from '@/storage/notes';
 import { buildExportHtml, saveExportHtml } from '@/services/export-html';
-import { useLayoutStore } from '@/stores/layout';
 import { useSyncStore } from '@/stores/sync';
 import { useUiStore } from '@/stores/ui';
 import { isTauriRuntime } from '@/storage/transport';
@@ -30,7 +29,6 @@ const EXPANDED_KEY = 'donote.sidebar.expanded';
 
 const route = useRoute();
 const router = useRouter();
-const layout = useLayoutStore();
 const sync = useSyncStore();
 const ui = useUiStore();
 
@@ -270,7 +268,6 @@ async function newNote(folder: FolderDTO | null): Promise<void> {
   try {
     const res = await notesApi.create({ title: '', content: '', folder_id: folder?.id ?? null });
     if (folder) expand(folder.id);
-    layout.close();
     await router.push(`/notes/${res.note.id}`);
   } catch {
     ui.toast('新建失败，请稍后重试');
@@ -297,7 +294,6 @@ async function newSubPage(folder: FolderDTO | null, noteId?: string): Promise<vo
         : '';
     const res = await notesApi.createPage({ parent_dir: parentDir });
     if (folder) expand(folder.id);
-    layout.close();
     await router.push(`/notes/${res.note.id}`);
   } catch {
     ui.toast('新建子页面失败，请稍后重试');
@@ -310,7 +306,6 @@ async function newSubPage(folder: FolderDTO | null, noteId?: string): Promise<vo
 function openPage(folder: FolderDTO): void {
   closeMenu();
   if (!folder.page_id) return;
-  layout.close();
   void router.push(`/notes/${folder.page_id}`);
 }
 
@@ -382,10 +377,9 @@ function openCacheDir(): void {
   void sync.openDir();
 }
 
-/** 打开笔记：走路由，同时把抽屉收起来（手机上不收起会被遮罩盖住） */
+/** 打开笔记：走路由 */
 function openNote(note: NoteSummaryDTO): void {
   closeMenu();
-  layout.close();
   void router.push(`/notes/${note.id}`);
 }
 
@@ -600,7 +594,7 @@ const deleteCounts = computed(() =>
         <RouterLink
           class="tree-link"
           :to="row.pageId ? `/notes/${row.pageId}` : `/folders/${row.folder.id}`"
-          @click.stop="layout.close()"
+          @click.stop
         >
           <span class="tree-label">{{ row.pageId ? '📄' : '📁' }} {{ row.folder.name }}</span>
         </RouterLink>
@@ -647,7 +641,7 @@ const deleteCounts = computed(() =>
         <RouterLink
           class="tree-link"
           :to="`/notes/${row.note.id}`"
-          @click.stop="layout.close()"
+          @click.stop
         >
           <span class="tree-label">📄 {{ row.note.title }}</span>
         </RouterLink>

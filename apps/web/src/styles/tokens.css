@@ -87,16 +87,16 @@
   --glass-inner-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.14);
 }
 
-/* 桌面端且侧边栏展开时，主内容整体右移；移动端侧边栏是抽屉，不占位 */
-@media (min-width: 1024px) {
-  html[data-sidebar='open'] {
-    --content-offset: var(--sidebar-w);
-  }
+/* 侧边栏展开时，主内容整体右移；折叠就不占位 */
+html[data-sidebar='open'] {
+  --content-offset: var(--sidebar-w);
 }
 
 /* 拖拽调宽进行中：关掉跟随动画，并压住文本选中，免得拖到一半选中一片字 */
 html[data-resizing] {
   --follow-dur: 0ms;
+  /* 拖动过程中也亮着正文框两侧的调宽线（与 Ctrl 按住时同一个信号，见 NoteEditor） */
+  --grip-line: 1;
   user-select: none;
   cursor: col-resize;
 }

@@ -1,24 +1,17 @@
 <script setup lang="ts">
-import { computed, onMounted, watch } from 'vue';
+import { computed, watch } from 'vue';
 import { RouterView, useRoute } from 'vue-router';
 import AppSidebar from '@/components/AppSidebar.vue';
-import BottomTabs from '@/components/BottomTabs.vue';
 import DropOverlay from '@/components/DropOverlay.vue';
 import UpdatePrompt from '@/components/UpdatePrompt.vue';
 import { runTrashAutoClean } from '@/services/trash-auto';
-import { useLayoutStore } from '@/stores/layout';
 import { useUiStore } from '@/stores/ui';
 
 const route = useRoute();
 const ui = useUiStore();
-const layout = useLayoutStore();
 
-/** 底部导航只在主页面出现，编辑页、公开页保持全屏专注（桌面端由 CSS 隐藏，改用侧边栏） */
-const showTabs = computed(() => route.meta.tabs === true);
 /** 登录页没有导航；其余已连接页面都挂侧边栏 */
 const showShell = computed(() => route.meta.requiresAuth === true);
-
-onMounted(() => layout.init());
 
 /**
  * 回收站自动清理的**启动检查**：侧栏一出现（也就是连上之后）跑一次。
@@ -43,8 +36,6 @@ watch(
       <component :is="Component" />
     </Transition>
   </RouterView>
-
-  <BottomTabs v-if="showTabs" />
 
   <!-- 拖放导入：连上以后整窗都是投放区 -->
   <DropOverlay v-if="showShell" />

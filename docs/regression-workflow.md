@@ -95,7 +95,7 @@ pnpm --filter @donote/web dev      # 另开一个终端，保持运行
 | `stage4` | `stage4-toolbar.cjs` | 编辑器工具栏 15 项（既看 DOM 也看落盘） | 31s |
 | `stage5` | `stage5-image.cjs` | 图片按钮 → 上传附件 → 插入引用 | 16s |
 | `stage6` | `stage6-source.cjs` | 源码 / 所见即所得开关与规范化提示 | 19s |
-| `stage7` | `stage7-walk.cjs` | 桌面 / 移动布局、侧栏与抽屉、浮层不跨栏 | 47s |
+| `stage7` | `stage7-walk.cjs` | 桌面布局（含最窄 880 窗仍是桌面）、侧栏与树、浮层不跨栏 | 75s |
 | `actions` | `actions-e2e.fixed.cjs` | 动作菜单：重命名 / 移动 / 删除 / 恢复 / 彻底删除 | 57s |
 
 ### 模块 → 套件（22 个模块）
@@ -109,7 +109,7 @@ pnpm --filter @donote/web dev      # 另开一个终端，保持运行
 | `pick-image` | `services/pick-image.ts` | stage5 |
 | `editor` | `components/editor/**` | stage2, stage4, stage5, stage6 |
 | `sidebar` | `AppSidebar.vue`, `SidebarTree.vue` | stage7 |
-| `chrome` | `AppHeader.vue`, `BottomTabs.vue`, `ThemeToggle.vue` | stage6, stage7 |
+| `chrome` | `AppHeader.vue`, `ThemeToggle.vue` | stage6, stage7 |
 | `overlays` | `AppDialog.vue`, `NoteActionMenu.vue`, `BatchToolbar.vue`, `EmptyState.vue` | actions, stage7 |
 | `ui-kit` | `Glass*.vue`, `MarkdownView.vue`, `WebdavGuide.vue` | notes, stage7 |
 | `views-home` | `views/HomeView.vue`, `NoteCard.vue` | notes, actions, life |

@@ -237,7 +237,9 @@ onBeforeUnmount(() => {
 <style scoped>
 .bar {
   position: fixed;
-  bottom: calc(84px + env(safe-area-inset-bottom, 0px));
+  /* 与 FAB 同一档：底部留白按内容节奏走，不再给底部导航栏让位 */
+  --bar-bottom: var(--sp-4);
+  bottom: var(--bar-bottom);
   /* 21 = 在侧栏（.rail 20）之上、AppDialog（22）之下 */
   z-index: 21;
   display: flex;
@@ -261,12 +263,6 @@ onBeforeUnmount(() => {
   left: calc(var(--content-offset) + (100% - var(--content-offset)) / 2);
   transform: translateX(-50%);
   width: min(calc(100% - var(--content-offset) - 2 * var(--sp-3)), 660px);
-}
-
-@media (min-width: 1024px) {
-  .bar {
-    bottom: var(--sp-4);
-  }
 }
 
 .count {
@@ -321,8 +317,8 @@ onBeforeUnmount(() => {
 
 .retry-hint {
   position: fixed;
-  /* 压在工具栏上方，别互相盖住 */
-  bottom: calc(136px + env(safe-area-inset-bottom, 0px));
+  /* 压在工具栏上方，别互相盖住。偏移量从 .bar 继承，两个一起动 */
+  bottom: calc(var(--bar-bottom) + 56px);
   z-index: 21;
   padding: 8px var(--sp-2);
   border-radius: var(--r-md);

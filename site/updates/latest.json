@@ -1,11 +1,11 @@
 {
-  "version": "0.4.3",
-  "notes": "同步不再把坚果云的额度打满。所有对服务器的请求现在都先过一道闸门：一次只发一个，允许启动时先用一小段额度把笔记列表拉出来，之后每 3.2 秒一个 —— 正好卡住免费版 600 次 / 30 分钟这条线。万一还是撞上限流，会从 30 分钟起步、逐次翻倍、最长停 6 小时，并优先听服务器给的等待时间，不再反复撞。后台预取的笔记从一轮 6 篇减到 2 篇，回收站首屏从 60 条减到 20 条；设置页多一行「同步请求 N / 600」，能看到最近 30 分钟用了多少。\\n\\n正文默认字号从 15px 提到 16px，也不再在两侧留大片空白，直接铺满内容区。按住 Ctrl 拖动正文框的左右边框可以自己调宽度：最窄 30 字一行、最宽铺满，跟着窗口缩放；双击边框回默认，窗口一缩放也回默认。\\n\\n启动时会自检新版本，一发现就弹窗告诉你是哪个版本、改了什么，点「立即更新并重启」就地装好 —— 以前那条提示要等整个安装包下完才闪一下，太容易错过。另外，删除笔记或文件夹失败时会说清原因，撞上限流会写「服务器限流了」，不再是笼统的「删除失败」。",
-  "pub_date": "2026-10-16T14:44:35Z",
+  "version": "0.4.4",
+  "notes": "桌面版不再带一套手机布局。窗口宽度掉到 1023px 以下时（桌面窗口最窄 880px，很容易碰到），界面会被判成手机：底部冒出一条只有手机才该有的标签栏、侧栏变成抽屉盖住内容、编辑页的工具栏还跑到正文框下面。现在整个桌面窗口只走一套布局，最窄也正常。原来为了躲开那条标签栏，列表页的新建按钮和批量操作条都悬在离底边 84px 的地方，现在回到正常位置。\\n\\n正文框的宽度提示线重画：以前是一条 2px 实心蓝线，从标题一路贯到页面底部；现在只在正文框左右两侧各一条 1px 半透明线，上下各留 8px 收口，按住 Ctrl 才出现，松开就收。侧栏那条调宽线也一并改成同样的粗细和透明度。\\n\\n正文块左边的 ⋮⋮ 手柄不再残留。以前聚焦正文后往下滚，偶尔会有一个跟当前鼠标位置不相干的块冒出 ⋮⋮，还要过一会儿才收 —— 滚动监听挂错了元素，挂到了编辑器外壳上，真正滚动的是更外层的容器。现在一滚就收，滚完浏览器补发的那一次鼠标移动也不会再把它点亮。",
+  "pub_date": "2026-10-16T16:20:30Z",
   "platforms": {
     "windows-x86_64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSWTRLN1pZbGY4NGhJSVBMSThKVHF4RkN4RkJQUS9JeHJrekVKQ1ZVVkdnK2JXVmowREczdEFXN1ZYQU1XNzVLNFpQL2pNcVNPVmwxSFVUYytCVDYrcElrbkswV1RjbHd3PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkyMTYxODc0CWZpbGU6RG9Ob3RlXzAuNC4zX3g2NC1zZXR1cC5leGUJdmVyc2lvbjowLjQuMwppSUw2WWhCSnN1cjJJSkxxTjZQNTRVR1NXSUNWV0kvVUVNUlMwTXRZRkNsR0FlREpCa2Njem5HZzBrcW9UL0crMjFWUFZIeFB2ZlRmdmRqcjEvKzdEUT09Cg==",
-      "url": "https://donote.pages.dev/downloads/DoNote-0.4.3-win-x64.exe"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSWTRLN1pZbGY4NGc3M1c0bkFZK3RiMnJpVmpyWjk2TXhpbjQzOHJQQzJ2alY5NlRlSUEzTTRFa3FDaURVVXJVTDRENENIY0FqM3RVcDVWbFdKa3RkeVBHWUtWNVBycXdnPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkyMTY3NjMwCWZpbGU6RG9Ob3RlXzAuNC40X3g2NC1zZXR1cC5leGUJdmVyc2lvbjowLjQuNApqQkZyY3NVWHhHTExrUmo2UkJlZWQ2NXYweWg1WitzRlpoS2pidnlZVkxNVW5oRGRpTE9xV2c2dGRKeWx1a3BHRW9ZaUE5U0VaMmh4TWhaTDV2QllCQT09Cg==",
+      "url": "https://donote.pages.dev/downloads/DoNote-0.4.4-win-x64.exe"
     }
   }
 }

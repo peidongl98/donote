@@ -56,6 +56,10 @@ const CONVERT: Array<{ kind: BlockKind; label: string }> = [
 let view: EditorView | null = null;
 let detach: (() => void) | null = null;
 let hideTimer: ReturnType<typeof setTimeout> | null = null;
+/** 上一次见到的指针坐标：Manhattan 位移 <2px 视为「没动」（挡滚动后补发的同坐标 mousemove） */
+let last = { x: -1, y: -1 };
+/** 最近一次滚动时刻：滚动后 150ms 内不点亮手柄 */
+let scrolledAt = 0;
 
 /* ------------------------------- 悬停 / 收起 ------------------------------- */
 
@@ -103,6 +107,21 @@ let dragFrom = -1;
 let suppressClick = false;
 /** 顶层块边界的位置表，按文档对象缓存（拖动期间文档不会变） */
 let offsetsCache: { doc: unknown; list: number[] } | null = null;
+
+/**
+ * 往上找第一个能滚的祖先。
+ * 不能直接用 `dom.parentElement`：ProseMirror 的父元素是 Milkdown 的 `.milkdown` 外壳
+ * （`overflow: visible`），真正滚的是更外层的 `.donote-surface`；监听挂错节点就永远收不到 scroll。
+ */
+function scrollParent(el: HTMLElement): HTMLElement | null {
+  let cur = el.parentElement;
+  while (cur) {
+    const oy = getComputedStyle(cur).overflowY;
+    if (oy === 'auto' || oy === 'scroll') return cur;
+    cur = cur.parentElement;
+  }
+  return null;
+}
 
 function offsetsOf(v: EditorView): number[] {
   const doc = v.state.doc;
@@ -206,11 +225,23 @@ function attach(editor: Editor | null): void {
     const dom = instance?.dom as HTMLElement | undefined;
     if (!instance || !dom) return;
     view = instance;
-    const scroller = (dom.parentElement ?? dom) as HTMLElement;
+    const scroller = scrollParent(dom);
 
     const onMove = (event: MouseEvent): void => {
       // 从按下到松手，手柄钉在原地不动（拖动期间更要钉住，免得跟着指针乱跑）
       if (press) return;
+      /*
+       * 滚动不算「指针动过」。
+       *
+       * 滚轮 / 触控板滚动时，指针本身几乎没动，浏览器却会在滚动后补发一次 mousemove
+       * （触控板两指滚动时指尖也会带出真实位移）。原来这一下会立刻把手柄点亮，位置按
+       * 旧坐标算 —— 于是一个跟当前指针不相干的块冒出 ⋮⋮，还要等 mouseleave 的 240ms
+       * 延时才收掉。改成两条：位移不到 2px 不算动；刚滚过 150ms 内不点亮。
+       */
+      const moved = Math.abs(event.clientX - last.x) + Math.abs(event.clientY - last.y);
+      last = { x: event.clientX, y: event.clientY };
+      if (moved < 2) return;
+      if (performance.now() - scrolledAt < 150) return;
       cancelHide();
       const hit = instance.posAtCoords({ left: event.clientX, top: event.clientY });
       if (!hit) {
@@ -236,16 +267,21 @@ function attach(editor: Editor | null): void {
       visible.value = true;
     };
 
+    const onScroll = (): void => {
+      scrolledAt = performance.now();
+      hideNow();
+    };
+
     dom.addEventListener('mousemove', onMove);
     dom.addEventListener('mouseleave', scheduleHide);
-    scroller.addEventListener('scroll', hideNow, { passive: true });
+    scroller?.addEventListener('scroll', onScroll, { passive: true });
     window.addEventListener('keydown', onEscape);
     window.addEventListener('mousedown', onOutside, true);
 
     detach = () => {
       dom.removeEventListener('mousemove', onMove);
       dom.removeEventListener('mouseleave', scheduleHide);
-      scroller.removeEventListener('scroll', hideNow);
+      scroller?.removeEventListener('scroll', onScroll);
       window.removeEventListener('keydown', onEscape);
       window.removeEventListener('mousedown', onOutside, true);
       if (dragging.value || press) endDrag();

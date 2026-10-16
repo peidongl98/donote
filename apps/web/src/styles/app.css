@@ -16,7 +16,7 @@
   height: 100%;
   display: flex;
   flex-direction: column;
-  /* 桌面端给固定侧边栏让位；移动端侧边栏是抽屉，--content-offset 恒为 0 */
+  /* 给固定侧边栏让位；--content-offset 是侧栏宽的别名，折叠时为 0（见 tokens.css） */
   padding-left: var(--content-offset);
   transition: padding-left var(--follow-dur) var(--ease-smooth);
 }
@@ -34,22 +34,7 @@
   flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
-  padding:
-    var(--sp-3) var(--content-pad)
-    calc(var(--sp-3) + 72px + env(safe-area-inset-bottom, 0px));
-}
-
-/* 移动端：没有底部导航的页面（回收站 / 文件夹详情）底部不用留出 72px */
-.page-full .page-body {
-  padding-bottom: calc(var(--sp-3) + var(--sp-4));
-}
-
-/* 桌面端没有底部导航，底部留白一律收到正常节奏 */
-@media (min-width: 1024px) {
-  .page-body,
-  .page-full .page-body {
-    padding-bottom: calc(var(--sp-3) + var(--sp-5));
-  }
+  padding: var(--sp-3) var(--content-pad) calc(var(--sp-3) + var(--sp-5));
 }
 
 .stack {

@@ -593,7 +593,8 @@ watch(
  * 按住 Ctrl / Cmd 时，正文框两侧的宽度手柄才醒过来。
  *
  * 平时手柄不接指针事件（`.width-grip` 是 pointer-events: none）—— 那 6 像素里就是
- * 正文本身，挡住就点不着光标了。唤醒的代价只是一条细线，同时也是「可以拖了」的提示。
+ * 正文本身，挡住就点不着光标了。唤醒的代价只是正文框两侧各一条细线（由 NoteEditor 的
+ * .surface-slot 画，贴着框的上下沿），同时也是「可以拖了」的提示。
  */
 const ctrlDown = ref(false);
 
@@ -1187,19 +1188,7 @@ onBeforeUnmount(() => {
   z-index: 2;
 }
 
-.width-grip::after {
-  content: '';
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  left: 2px;
-  width: 2px;
-  background: var(--accent);
-  opacity: 0;
-  transition: opacity var(--dur-fast) var(--ease-smooth);
-}
-
-/* 骑在正文框的左右边界上：带子跨边界内外各 3px，细线正好压在边框上 */
+/* 骑在正文框的左右边界上：带子跨边界内外各 3px，命中区正好落在框边上 */
 .width-grip.is-left {
   left: calc(var(--body-pad-x) - 3px);
 }
@@ -1213,9 +1202,12 @@ onBeforeUnmount(() => {
   cursor: col-resize;
 }
 
-.body.is-resizable .width-grip::after,
-html[data-resizing] .width-grip::after {
-  opacity: 1;
+/*
+ * 「可以拖」的提示线由正文框那层画（NoteEditor 的 .surface-slot::before/::after），
+ * 因为线要正好贴着正文框，不能从标题一路贯下来 —— 手柄这一层只有命中区，本身不着色。
+ */
+.body.is-resizable {
+  --grip-line: 1;
 }
 
 .title-input {

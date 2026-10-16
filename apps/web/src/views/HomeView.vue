@@ -283,7 +283,7 @@ onBeforeUnmount(() => {
   position: fixed;
   /* 贴着内容列的右缘；窗口比内容列窄时退化成普通的右下角悬浮按钮 */
   right: max(var(--sp-3), calc((100vw - var(--content-offset) - var(--content-max)) / 2 + var(--sp-3)));
-  bottom: calc(84px + env(safe-area-inset-bottom, 0px));
+  bottom: var(--sp-4);
   z-index: 7;
   display: inline-flex;
   align-items: center;
@@ -298,12 +298,6 @@ onBeforeUnmount(() => {
     right var(--dur) var(--ease-smooth),
     transform var(--dur) var(--ease-spring),
     box-shadow var(--dur) var(--ease-smooth);
-}
-
-@media (min-width: 1024px) {
-  .fab {
-    bottom: var(--sp-4);
-  }
 }
 
 .fab:hover {

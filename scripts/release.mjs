@@ -23,7 +23,7 @@ import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
-import { dirname, join, resolve } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 // ─────────────────────────────────────────────────────────── 常量 / 参数
@@ -411,11 +411,21 @@ async function verifyLive(newV, oldV) {
   if (SKIP.build) log('  （--skip-build 跳过）');
   else {
     const dist = join(REPO, 'apps/web/dist');
+    const aside = join(REPO, 'apps/web/dist.before-release');
+    /*
+     * 让 dist 空出来再构建 —— 这一步不能省。
+     *
+     * Vite 的 prepare-out-dir 会先把 dist 清空，而 dist 有 200+ 个文件：本机的
+     * safe-delete 守卫把「一次删 50 个以上文件」判成批量删除并拒绝执行，构建会直接
+     * 挂在 emptyDir 上。只要 dist 在构建前是**不存在**的，Vite 就无事可做。
+     *
+     * 备份槽 `dist.before-release` 被上一次发版占着时不覆盖它，另起一个带时间戳的名字
+     * （都在 apps/web 同一层，改名不受守卫影响）。全程只改名、不删除。
+     */
     if (existsSync(dist)) {
-      const aside = join(REPO, 'apps/web/dist.before-release');
-      rmSync(aside, { recursive: true, force: true });
-      renameSync(dist, aside);
-      log('  dist 已让开 → dist.before-release（构建后由 Vite 重建）');
+      const target = existsSync(aside) ? `${aside}-${Date.now()}` : aside;
+      renameSync(dist, target);
+      log(`  dist 已让开 → ${basename(target)}（构建后由 Vite 重建）`);
     }
     log('  tauri build（约 3–4 分钟）…');
     run(process.execPath, [TAURI_JS, 'build', '--bundles', 'nsis'], {

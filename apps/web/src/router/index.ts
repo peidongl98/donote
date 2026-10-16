@@ -5,8 +5,6 @@ declare module 'vue-router' {
   interface RouteMeta {
     requiresAuth?: boolean;
     guestOnly?: boolean;
-    /** 是否显示底部导航（主页面为 true，二级页与公开页为 false） */
-    tabs?: boolean;
   }
 }
 
@@ -15,7 +13,7 @@ const routes: RouteRecordRaw[] = [
     path: '/',
     name: 'home',
     component: () => import('@/views/HomeView.vue'),
-    meta: { requiresAuth: true, tabs: true },
+    meta: { requiresAuth: true },
   },
   {
     path: '/login',
@@ -33,7 +31,7 @@ const routes: RouteRecordRaw[] = [
     path: '/folders',
     name: 'folders',
     component: () => import('@/views/FoldersView.vue'),
-    meta: { requiresAuth: true, tabs: true },
+    meta: { requiresAuth: true },
   },
   {
     path: '/folders/:id',
@@ -51,7 +49,7 @@ const routes: RouteRecordRaw[] = [
     path: '/settings',
     name: 'settings',
     component: () => import('@/views/SettingsView.vue'),
-    meta: { requiresAuth: true, tabs: true },
+    meta: { requiresAuth: true },
   },
   { path: '/:pathMatch(.*)*', redirect: '/' },
 ];

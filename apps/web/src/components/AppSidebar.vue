@@ -5,7 +5,7 @@
  * 宽度由 CSS 变量 --sidebar-w 定，主内容让位靠 <html data-sidebar> 推导出的
  * --content-offset，两侧不会各算各的。
  */
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { onMounted, ref, watch } from 'vue';
 import { RouterLink, useRoute, useRouter } from 'vue-router';
 import { notesApi } from '@/storage/notes';
 import { useSyncStore } from '@/stores/sync';
@@ -37,7 +37,6 @@ function search(): void {
   // 空关键词什么都不做：回车会把 form 的 submit 和 input 的 keydown 各触发一次，
   // 第二次进来时 keyword 已经清空，靠这个直接返回，不会把刚带上的 query 抹掉
   if (!term) return;
-  layout.close(); // 手机上搜完把抽屉收起来，不然遮罩盖住结果
   keyword.value = '';
   void router.push({ path: '/', query: { q: term } });
 }
@@ -85,8 +84,7 @@ const settingsItem: NavItem = {
  * 导航排布：全部笔记 / 文件夹 → **文件夹树** → 回收站 / 设置。
  * 树用 `{ kind: 'tree' }` 占位，这样一个 v-for 就能排完，不用把图标那几十行 SVG 复制成两组。
  *
- * 🔴 树挂在 `layout.open` 上：桌面折叠 / 手机抽屉关着时**不挂载**。
- * 手机上抽屉默认是关的，一直挂着就等于每个页面都白付一次目录遍历；
+ * 🔴 树挂在 `layout.open` 上：折叠时不挂载 —— 一直挂着就等于折叠状态下也白付一次目录遍历；
  * 展开时再挂，数据走 `tree()` 的模块缓存，立刻就有。
  */
 type NavEntry = NavItem | { kind: 'tree' };
@@ -98,7 +96,6 @@ const entries: NavEntry[] = [
   trashItem,
   settingsItem,
 ];
-const isMobileDrawer = computed(() => !layout.desktop);
 
 /**
  * 标签清单。数据变了（新建 / 改名 / 存盘 / 后台校验出云端有更新）就重算一次 ——
@@ -132,18 +129,12 @@ async function create(): Promise<void> {
   creating.value = true;
   try {
     const res = await notesApi.create({ title: '', content: '' });
-    layout.close();
     await router.push(`/notes/${res.note.id}`);
   } catch {
     ui.toast('新建失败，请稍后重试');
   } finally {
     creating.value = false;
   }
-}
-
-/** 抽屉里点走一条路由就自动收起来，否则遮罩会盖住刚打开的页面 */
-function onNavigate(): void {
-  layout.close();
 }
 
 /** 导入完：树重取一次（新文件夹 / 新笔记要立刻看得见），标签也跟着重算 */
@@ -194,19 +185,10 @@ function onResizeKey(e: KeyboardEvent): void {
   layout.setWidth(layout.width + dir * RESIZE_STEP);
   layout.commitWidth();
 }
-
-function onKey(e: KeyboardEvent): void {
-  if (e.key === 'Escape') layout.close();
-}
-
-onMounted(() => window.addEventListener('keydown', onKey));
-onBeforeUnmount(() => window.removeEventListener('keydown', onKey));
 </script>
 
 <template>
-  <div v-if="isMobileDrawer && layout.open" class="scrim" @click="layout.close()" />
-
-  <aside class="rail" :class="{ 'is-drawer': isMobileDrawer }" aria-label="主导航">
+  <aside class="rail" aria-label="主导航">
     <div class="brand">
       <span class="logo" aria-hidden="true">
         <img src="/favicon.svg" alt="" width="28" height="28" />
@@ -261,7 +243,6 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey));
           :to="entry.to"
           class="nav-item"
           :class="{ 'is-active': entry.match(route.path) && route.path !== '/login' }"
-          @click="onNavigate"
         >
           <svg v-if="entry.icon === 'notes'" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
             <path
@@ -316,7 +297,6 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey));
           class="tag-item"
           :class="{ 'is-active': route.query.tag === tag.name }"
           :to="{ path: '/', query: { tag: tag.name } }"
-          @click="onNavigate"
         >
           <span class="tag-hash">#</span>
           <span class="tag-name">{{ tag.name }}</span>
@@ -330,11 +310,9 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey));
     </div>
 
     <!--
-      宽度手柄。只挂在桌面端常驻栏上：移动端是抽屉，宽度由屏幕定（见 .is-drawer），拖它没有意义。
-      双击回到默认宽度，键盘左右方向键也能推。
+      宽度手柄。双击回到默认宽度，键盘左右方向键也能推。
     -->
     <div
-      v-if="layout.desktop"
       class="rail-resizer"
       role="separator"
       aria-orientation="vertical"
@@ -351,22 +329,6 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey));
 </template>
 
 <style scoped>
-.scrim {
-  position: fixed;
-  inset: 0;
-  z-index: 19;
-  background: rgba(6, 9, 18, 0.5);
-  backdrop-filter: blur(2px);
-  -webkit-backdrop-filter: blur(2px);
-  animation: scrim-in var(--dur-fast) var(--ease-smooth) both;
-}
-
-@keyframes scrim-in {
-  from {
-    opacity: 0;
-  }
-}
-
 .rail {
   position: fixed;
   top: 0;
@@ -389,17 +351,9 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey));
     background-color var(--dur) var(--ease-smooth);
 }
 
-/* 收起：桌面端滑出画面，主内容靠 --content-offset 收回宽度 */
+/* 收起：滑出画面，主内容靠 --content-offset 收回宽度 */
 html[data-sidebar='closed'] .rail {
   transform: translateX(-100%);
-}
-
-/*
- * 抽屉形态的宽度不能超过屏幕 —— 桌面端拖出来的宽度会跟着用户到手机上，
- * 520px 在 1024 的笔记本上正好，在 390 的手机上就盖满一屏还溢出。
- */
-.rail.is-drawer {
-  width: min(var(--sidebar-w), 84vw);
 }
 
 /*
@@ -423,10 +377,11 @@ html[data-sidebar='closed'] .rail {
 .rail-resizer::after {
   content: '';
   position: absolute;
-  top: 0;
-  bottom: 0;
-  left: 2px;
-  width: 2px;
+  top: 8px;
+  bottom: 8px;
+  left: 3px;
+  width: 1px;
+  border-radius: 1px;
   background: var(--accent);
   opacity: 0;
   transition: opacity var(--dur-fast) var(--ease-smooth);
@@ -435,7 +390,7 @@ html[data-sidebar='closed'] .rail {
 .rail-resizer:hover::after,
 .rail-resizer:focus-visible::after,
 html[data-resizing] .rail-resizer::after {
-  opacity: 1;
+  opacity: 0.5;
 }
 
 .brand {

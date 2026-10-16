@@ -3,13 +3,12 @@ import { computed, ref } from 'vue';
 
 const KEY = 'donote.sidebar';
 const WIDTH_KEY = 'donote.sidebar-w';
-const DESKTOP = '(min-width: 1024px)';
 
 /**
  * 侧边栏宽度的默认值与可调范围。
  *
- * 上限 520 是「再宽就该用文件夹页了」的经验值：1024px 的窗口下拖到顶，
- * 内容列还剩 504px，读得下去；下限 200 是搜索框 + 「新建笔记 / 导入」两个按钮
+ * 上限 520 是「再宽就该用文件夹页了」的经验值：窗口拉到最小（880px）时拖到顶，
+ * 内容列还剩 360px，读得下去；下限 200 是搜索框 + 「新建笔记 / 导入」两个按钮
  * 并排还能看全的宽度。夹取只写在这里，CSS 那边不重复一遍。
  */
 const WIDTH_DEFAULT = 260;
@@ -29,8 +28,10 @@ function readWidth(): number {
 /**
  * 侧边栏状态。
  *
- * 桌面端（≥1024px）是常驻栏，用户折叠与否、以及**栏有多宽**都记在本机；
- * 移动端是抽屉，只在当前会话里有效、不落盘 —— 否则手机上每次进来都被盖一层遮罩。
+ * 只有一种形态：**常驻栏**。折叠与否、栏有多宽都记在本机。窗口缩到桌面端最小宽
+ * （880px）也还是这条常驻栏 —— 不做抽屉、不做遮罩、不做底部标签栏，那些是手机形态，
+ * 将来另写移动客户端时在那边做，不混进桌面壳（混进来的代价是拿视口宽度猜设备，
+ * 880–1023px 这一段桌面窗口会被判成「手机」）。
  *
  * 真实状态写进 <html>：data-sidebar 决定「栏本身是否滑出」，--sidebar-w 决定宽度，
  * 而主内容让出的 --content-offset 只是 --sidebar-w 的别名（见 tokens.css）。
@@ -38,17 +39,14 @@ function readWidth(): number {
  * 不用把宽度从这层一路 prop 传到距离很远的组件里。
  */
 export const useLayoutStore = defineStore('layout', () => {
-  const desktop = ref(typeof window !== 'undefined' && window.matchMedia(DESKTOP).matches);
-  /** 桌面端偏好：默认展开，用户明确折叠过才关 */
+  /** 默认展开，用户明确折叠过才关 */
   const preferOpen = ref(typeof window !== 'undefined' ? localStorage.getItem(KEY) !== 'closed' : true);
-  /** 移动端抽屉，不落盘 */
-  const drawerOpen = ref(false);
   /** 栏宽，px */
   const width = ref(readWidth());
   /** 是否正在拖拽调宽（只影响跟随动画的时长和光标，不参与布局计算） */
   const resizing = ref(false);
 
-  const open = computed(() => (desktop.value ? preferOpen.value : drawerOpen.value));
+  const open = computed(() => preferOpen.value);
 
   function apply(): void {
     if (typeof document === 'undefined') return;
@@ -86,41 +84,18 @@ export const useLayoutStore = defineStore('layout', () => {
   }
 
   function toggle(): void {
-    if (desktop.value) {
-      preferOpen.value = !preferOpen.value;
-      localStorage.setItem(KEY, preferOpen.value ? 'open' : 'closed');
-    } else {
-      drawerOpen.value = !drawerOpen.value;
-    }
-    apply();
-  }
-
-  function close(): void {
-    if (desktop.value) return;
-    drawerOpen.value = false;
-    apply();
-  }
-
-  /** 跨过断点时按当前设备的默认口径重算，避免桌面折叠状态带到手机上 */
-  function init(): void {
-    const mq = window.matchMedia(DESKTOP);
-    desktop.value = mq.matches;
-    mq.addEventListener('change', (e) => {
-      desktop.value = e.matches;
-      drawerOpen.value = false;
-      apply();
-    });
+    preferOpen.value = !preferOpen.value;
+    localStorage.setItem(KEY, preferOpen.value ? 'open' : 'closed');
     apply();
   }
 
   /**
-   * 创建时就先落一次：App.vue 是在 onMounted 里 init() 的，那时首帧已经画过了，
+   * 创建时就先落一次：App.vue 也要等挂载后才渲染侧栏，那时首帧已经画过了，
    * 用户存的是 400px 的话会看到栏从 260 跳一下。宽度这么用显眼，值得提前一步。
    */
   apply();
 
   return {
-    desktop,
     open,
     width,
     minWidth: WIDTH_MIN,
@@ -131,7 +106,5 @@ export const useLayoutStore = defineStore('layout', () => {
     commitWidth,
     resetWidth,
     toggle,
-    close,
-    init,
   };
 });

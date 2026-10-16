@@ -167,7 +167,8 @@ walkTree()  →  { notes: DirEntry[], dirs: DirEntry[] }        storage/notes.ts
 
 → 「一个目录 = 一个页面，既能写正文也能装子笔记」**没有实现**。
 
-底部标签栏（路由 `meta.tabs`）只在 `/`、`/folders`、`/settings`；`/notes/:id`、`/folders/:id`、`/trash`、`/login` 都没有（`router/index.ts:13-56`）。
+> 注：这段写于还有移动端布局的时候。**底部标签栏（路由 `meta.tabs`）已随移动布局一起移除** ——
+> 桌面壳现在只有侧栏一种导航，手机将来另写客户端。
 
 ---
 

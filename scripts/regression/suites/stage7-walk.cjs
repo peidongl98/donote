@@ -393,47 +393,121 @@ function check(name, ok, detail = '') {
 
   await deskCtx.close();
 
-  /* ============================ 移动端 390 ============================ */
-  const mobCtx = await browser.newContext({
-    viewport: { width: 390, height: 844 },
-    isMobile: true,
-    hasTouch: true,
-    deviceScaleFactor: 2,
+  /* ==================== 窄窗 880：仍是桌面布局 ====================
+   * 桌面端 minWidth 就是 880，而移动布局的判据曾是「视口 ≤1023」—— 也就是说窗口允许的
+   * 整个下半段都会被判成手机（冒出底部标签栏、侧栏改抽屉盖内容、工具栏跑到正文下方）。
+   * 现在桌面壳里没有移动布局这一层（手机将来另写客户端），这里钉住这条不变式。
+   */
+  const narrowCtx = await browser.newContext({ viewport: { width: 880, height: 700 } });
+  const np = await narrowCtx.newPage();
+  await H.attach(np, narrowCtx);
+  await connect(np);
+  await openPage(np, BASE + '/');
+  await np.waitForTimeout(2500);
+  await shoot(np, 'n1-home-880');
+
+  const narrow = await np.evaluate(() => {
+    const root = document.documentElement;
+    const rail = document.querySelector('aside.rail');
+    const page = document.querySelector('.page');
+    const body = document.querySelector('.page-body');
+    const px = (el, prop) => (el ? parseFloat(getComputedStyle(el)[prop]) || 0 : -1);
+    return {
+      tabs: document.querySelectorAll('nav.tabs').length,
+      scrim: document.querySelectorAll('.scrim').length,
+      offset: parseFloat(getComputedStyle(root).getPropertyValue('--content-offset')) || 0,
+      sidebarW: parseFloat(getComputedStyle(root).getPropertyValue('--sidebar-w')) || 0,
+      padLeft: px(page, 'paddingLeft'),
+      bodyLeft: body ? body.getBoundingClientRect().left : -1,
+      railRight: rail ? rail.getBoundingClientRect().right : -1,
+    };
   });
-  const mp = await mobCtx.newPage();
-  await H.attach(mp, mobCtx);
-  await connect(mp);
-  await openPage(mp, BASE + '/');
-  await mp.waitForTimeout(3000);
-  await shoot(mp, 'm1-home');
+  check('880 没有底部标签栏', narrow.tabs === 0, `nav.tabs = ${narrow.tabs}`);
+  check('880 没有抽屉遮罩（侧栏是常驻栏）', narrow.scrim === 0, `scrim = ${narrow.scrim}`);
+  check(
+    '880 侧栏推开内容，不是盖在内容上',
+    narrow.offset === narrow.sidebarW &&
+      narrow.padLeft === narrow.sidebarW &&
+      narrow.bodyLeft >= narrow.railRight,
+    `offset ${narrow.offset} / padding-left ${narrow.padLeft} / 内容左 ${Math.round(narrow.bodyLeft)} / 侧栏右 ${Math.round(narrow.railRight)}`,
+  );
+  check('880 无横向溢出', (await overflows(np)) <= 1, `${await overflows(np)}px`);
 
-  check('移动端默认抽屉是收起的', (await mp.evaluate(() => document.documentElement.dataset.sidebar)) === 'closed');
-  check('移动端底部标签栏在位', await mp.locator('nav.tabs').isVisible());
-  check('移动端无横向溢出', (await overflows(mp)) <= 1, `${await overflows(mp)}px`);
+  // 编辑页：工具栏必须在正文**上方**（移动布局会把它排到正文下面）
+  await np.locator('.card', { hasText: TITLE }).first().locator('.main').click();
+  await np.waitForURL(/\/notes\//, { timeout: 25000 });
+  await np.waitForSelector('.toolbar', { timeout: 20000 });
+  await np.waitForTimeout(800);
+  await shoot(np, 'n2-note-880');
+  const narrowNote = await np.evaluate(() => {
+    const bar = document.querySelector('.toolbar');
+    const box = document.querySelector('.donote-surface');
+    const rows = [...document.querySelectorAll('.toolbar .row')];
+    return {
+      barTop: bar ? Math.round(bar.getBoundingClientRect().top) : null,
+      boxTop: box ? Math.round(box.getBoundingClientRect().top) : null,
+      barW: bar ? bar.scrollWidth - bar.clientWidth : 0,
+      rowOver: rows.map((r) => r.scrollWidth - r.clientWidth).filter((n) => n > 0).length,
+      padX: box ? getComputedStyle(box).paddingLeft : '',
+    };
+  });
+  check(
+    '880 工具栏在正文上方',
+    narrowNote.barTop !== null && narrowNote.barTop < narrowNote.boxTop,
+    `工具栏 top ${narrowNote.barTop} / 正文 top ${narrowNote.boxTop}`,
+  );
+  check(
+    '880 工具栏不横向溢出（行可以换行）',
+    narrowNote.barW <= 1 && narrowNote.rowOver === 0,
+    `额外宽 ${narrowNote.barW} / 溢出行 ${narrowNote.rowOver}`,
+  );
+  check('880 正文内边距仍是桌面档 32px', narrowNote.padX === '32px', narrowNote.padX);
+  check('880 编辑页无横向溢出', (await overflows(np)) <= 1, `${await overflows(np)}px`);
 
-  await mp.locator('header.topbar button[aria-label="收起或展开侧边栏"]').click();
-  await mp.waitForTimeout(700);
-  check('点汉堡后抽屉滑出', (await mp.evaluate(() => document.documentElement.dataset.sidebar)) === 'open');
-  await shoot(mp, 'm2-drawer');
-  // 点遮罩收起
-  await mp.locator('.scrim').click({ position: { x: 360, y: 400 } });
-  await mp.waitForTimeout(700);
-  check('点遮罩后抽屉收起', (await mp.evaluate(() => document.documentElement.dataset.sidebar)) === 'closed');
+  /* ---- 正文框调宽手柄 / 提示线 ----
+   * 线画在正文框外层（.surface-slot），不在整列（.body）上 —— 否则它会从标题一路贯下来。
+   */
+  const slotGeom = await np.evaluate(() => {
+    const slot = document.querySelector('.surface-slot');
+    const box = document.querySelector('.donote-surface');
+    const body = document.querySelector('.body');
+    const line = (sel) => getComputedStyle(slot, sel).opacity;
+    return {
+      slotTop: Math.round(slot.getBoundingClientRect().top),
+      slotH: Math.round(slot.getBoundingClientRect().height),
+      boxTop: Math.round(box.getBoundingClientRect().top),
+      boxH: Math.round(box.getBoundingClientRect().height),
+      bodyH: Math.round(body.getBoundingClientRect().height),
+      lineOff: line('::before'),
+      grips: document.querySelectorAll('.width-grip').length,
+    };
+  });
+  check(
+    '调宽线的那一层就是正文框那一层（不发散到整列）',
+    slotGeom.slotTop === slotGeom.boxTop &&
+      Math.abs(slotGeom.slotH - slotGeom.boxH) <= 1 &&
+      slotGeom.slotH < slotGeom.bodyH,
+    `slot ${slotGeom.slotTop}/${slotGeom.slotH} ｜ 框 ${slotGeom.boxTop}/${slotGeom.boxH} ｜ 整列 ${slotGeom.bodyH}`,
+  );
+  check('不按 Ctrl 时调宽线不显示', slotGeom.lineOff === '0' && slotGeom.grips === 2, `opacity ${slotGeom.lineOff} / 手柄 ${slotGeom.grips}`);
+  await np.keyboard.down('Control');
+  await np.waitForTimeout(250);
+  const onCtrl = await np.evaluate(() => {
+    const slot = document.querySelector('.surface-slot');
+    return {
+      op: getComputedStyle(slot, '::before').opacity,
+      w: getComputedStyle(slot, '::before').width,
+    };
+  });
+  await np.keyboard.up('Control');
+  await np.waitForTimeout(250);
+  const offCtrl = await np.evaluate(
+    () => getComputedStyle(document.querySelector('.surface-slot'), '::before').opacity,
+  );
+  check('按住 Ctrl 时两侧才亮出细线（1px、半透明）', onCtrl.op === '0.5' && onCtrl.w === '1px', `opacity ${onCtrl.op} / 宽 ${onCtrl.w}`);
+  check('松开 Ctrl 后线收回', offCtrl === '0', `opacity ${offCtrl}`);
 
-  // 桌面端拖出来的宽度会跟着用户到手机上：520px 在 1024 的笔记本上正好，在 390 的手机上就盖满一屏。
-  // 先把宽度写成 520 再重进，看抽屉有没有被 84vw 兜住。
-  await mp.evaluate(() => localStorage.setItem('donote.sidebar-w', '520'));
-  await reloadPage(mp);
-  await mp.waitForTimeout(2000);
-  await mp.locator('header.topbar button[aria-label="收起或展开侧边栏"]').click();
-  await mp.waitForTimeout(700);
-  const drawerW = await mp.locator('aside.rail').evaluate((el) => el.getBoundingClientRect().width);
-  check('手机上抽屉宽度被 84vw 兜住', drawerW <= Math.round(390 * 0.84) + 2, `${drawerW}px`);
-  check('手机上不出现调宽手柄', (await mp.locator('aside.rail .rail-resizer').count()) === 0);
-  check('抽屉加宽后无横向溢出', (await overflows(mp)) <= 1, `${await overflows(mp)}px`);
-  await shoot(mp, 'm3-drawer-capped');
-
-  await mobCtx.close();
+  await narrowCtx.close();
 
   /* ============================ 清理 ============================ */
   if (created) {

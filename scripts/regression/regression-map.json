@@ -56,9 +56,9 @@
     "stage7": {
       "file": "stage7-walk.cjs",
       "title": "布局与交互走查",
-      "covers": "桌面 / 移动两套布局、侧栏与抽屉（含拖拽调宽：夹取上下限 / 落盘 / 刷新后仍在 / 往左拖不被原生 dragstart 掐断 / 两处兜底宽度）、文件夹页折叠（默认只露最顶层 / 箭头收放真的动行）、同路由换参（开着一篇笔记或一个文件夹再点侧栏里另一条，地址与画面都要跟着换）、底栏、浮动层不跨栏等必须手工确认的交互",
-      "estSeconds": 72,
-      "checks": 55
+      "covers": "桌面一套布局（最窄 880 窗仍是桌面：无底部标签栏 / 无抽屉遮罩、内容列与侧栏不重叠、无横向溢出）、窄窗下工具栏仍在正文框之上且不溢出、侧栏拖拽调宽（夹取上下限 / 落盘 / 刷新后仍在 / 往左拖不被原生 dragstart 掐断 / 两处兜底宽度）、正文框调宽提示线（只贴正文框那一层、Ctrl 才亮、松开收回）、文件夹页折叠（默认只露最顶层 / 箭头收放真的动行）、同路由换参（开着一篇笔记或一个文件夹再点侧栏里另一条，地址与画面都要跟着换）、浮动层不跨栏等必须手工确认的交互",
+      "estSeconds": 76,
+      "checks": 59
     },
     "actions": {
       "file": "actions-e2e.fixed.cjs",
@@ -188,7 +188,6 @@
       "title": "顶栏与底栏外壳",
       "paths": [
         "apps/web/src/components/AppHeader.vue",
-        "apps/web/src/components/BottomTabs.vue",
         "apps/web/src/components/ThemeToggle.vue"
       ],
       "suites": [
