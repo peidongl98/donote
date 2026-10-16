@@ -12,6 +12,14 @@
  *
  * 代价：`[[…]]` 不能整体删除、可以往中间插字。按「先跑通」接受。
  *
+ * ## 两种形态
+ *
+ * - 混在句子里的（「相关：`[[A]]`」）→ **行内链接**：染色 + 底色，方括号照常显示
+ * - **独占一整段的** → **页面块**：整段出图标与底色，两个方括号藏掉（字符仍在文档里）
+ *
+ * 判据只看一件事：这一整段去掉首尾空白后是不是只有这一个 `[[名字]]`。
+ * 所以落盘一个字节都不用改 —— 换形态只发生在渲染层。
+ *
  * ## 位置怎么来
  *
  * 每次文档变化时扫一遍所有 text 节点，用正则找出 `[[…]]` 的**文档位置**（不是屏幕位置），
@@ -39,9 +47,18 @@ export interface WikilinkHandlers {
 }
 
 export interface WikilinkSpan {
+  /** 整个 `[[名字]]`（含方括号与可能的转义）的区间 */
   from: number;
   to: number;
   name: string;
+  /** 名字本体的区间（行：`[[` 之后到 `]]` 之前） */
+  nameFrom: number;
+  nameTo: number;
+  /** 这一整段只有这一个 `[[名字]]` → 渲染成页面块 */
+  block: boolean;
+  /** 所在段落的文档区间（block 为 true 时才有意义） */
+  blockFrom: number;
+  blockTo: number;
 }
 
 const KEY = new PluginKey<WikilinkSpan[]>('donote-wikilink');
@@ -54,12 +71,35 @@ const PATTERN = /(?:\\?\[){2}([^[\]\n]+)(?:\\?\]){2}/g;
 /** 扫全文找出所有 `[[…]]` 的文档位置 */
 function scan(doc: ProseNode): WikilinkSpan[] {
   const out: WikilinkSpan[] = [];
-  doc.descendants((node, pos) => {
+  doc.descendants((node, pos, parent) => {
     if (!node.isText || !node.text) return;
     for (const hit of node.text.matchAll(PATTERN)) {
       const from = pos + (hit.index ?? 0);
       const name = hit[1].trim();
-      if (name) out.push({ from, to: from + hit[0].length, name });
+      if (!name) continue;
+
+      /*
+       * 「独占一整段」的判据：段落只有一个文本子节点，且它去掉反斜杠与首尾空白之后
+       * 恰是这个 `[[名字]]`。反斜杠是序列化器给 `[` 加的转义，不算内容。
+       */
+      const solo =
+        parent && parent.isTextblock && parent.childCount === 1
+          ? (parent.firstChild?.text ?? '').replace(/\\/g, '').trim() === `[[${name}]]`
+          : false;
+
+      // 名字的起点：`[[` 可能带转义，所以按实际字符找，不写死 2
+      const offset = hit[0].indexOf(hit[1]);
+      out.push({
+        from,
+        to: from + hit[0].length,
+        name,
+        nameFrom: from + offset,
+        nameTo: from + offset + hit[1].length,
+        block: solo,
+        // 段落开标签占 1 位，所以文本位置减 1 就是段落自己
+        blockFrom: pos - 1,
+        blockTo: pos - 1 + (parent?.nodeSize ?? 0),
+      });
     }
   });
   return out;
@@ -78,20 +118,43 @@ export function wikilinks(handlers: WikilinkHandlers) {
           decorations(state) {
             const spans = KEY.getState(state) ?? [];
             if (!spans.length) return null;
-            return DecorationSet.create(
-              state.doc,
-              spans.map((span) =>
-                Decoration.inline(span.from, span.to, {
-                  class: handlers.resolve(span.name)
-                    ? 'donote-wikilink'
-                    : 'donote-wikilink is-missing',
-                }),
-              ),
-            );
+
+            const decos: Decoration[] = [];
+            for (const span of spans) {
+              const cls = handlers.resolve(span.name)
+                ? 'donote-wikilink'
+                : 'donote-wikilink is-missing';
+
+              if (!span.block) {
+                decos.push(Decoration.inline(span.from, span.to, { class: cls }));
+                continue;
+              }
+
+              /*
+               * 页面块：整段挂一个 class 出底色与图标，两个方括号各自藏掉。
+               * 方括号的字符还在文档里 —— 落盘那块一个字节都没动，只是画不出来。
+               */
+              decos.push(
+                Decoration.node(span.blockFrom, span.blockTo, { class: 'donote-wikilink-block' }),
+              );
+              decos.push(Decoration.inline(span.from, span.nameFrom, { class: 'donote-wikilink-bracket' }));
+              decos.push(Decoration.inline(span.nameTo, span.to, { class: 'donote-wikilink-bracket' }));
+              decos.push(Decoration.inline(span.nameFrom, span.nameTo, { class: cls }));
+            }
+
+            // DecorationSet.create 要求按位置有序
+            decos.sort((a, b) => a.from - b.from || a.to - b.to);
+            return DecorationSet.create(state.doc, decos);
           },
           handleClickOn(view, pos, _node, _nodePos, event) {
             const spans = KEY.getState(view.state) ?? [];
-            const hit = spans.find((span) => pos >= span.from && pos <= span.to);
+            /*
+             * 先认点中的那个 `[[…]]`；没认出来再看是不是落在某个页面块里 ——
+             * 块的左右内边距与图标那一片不是文本，点在那儿也该进同一篇笔记。
+             */
+            const hit =
+              spans.find((span) => pos >= span.from && pos <= span.to) ??
+              spans.find((span) => span.block && pos >= span.blockFrom && pos <= span.blockTo);
             if (!hit) return false;
             event.preventDefault();
             handlers.open(hit.name, handlers.resolve(hit.name) !== null);

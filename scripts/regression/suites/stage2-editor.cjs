@@ -223,6 +223,48 @@ function check(name, ok, detail = '') {
     await page.screenshot({ path: path.join(SHOTS, '04-paste.png') });
     fs.writeFileSync(path.join(H.ART, 'stage2-paste.txt'), pasteNote + '\n' + (await surface.innerText()));
 
+    // ---------- 11c. 建议标签：虚线显示，点一下才写进 frontmatter ----------
+    //
+    // 这一组的重点不是「提取得准不准」，而是**没点之前绝不落盘**：
+    // 提取算法以后可以换，但「只是建议、用户点了才算数」是这个功能的前提。
+    await surface.click();
+    await page.keyboard.press('Control+End');
+    await page.keyboard.press('Enter');
+    await page.keyboard.type(
+      '沉浸感 沉浸感 沉浸感 全屏留白 全屏留白 正文区 正文区 正文区 正文区 字号 字号 字号 ' +
+        '标题 标题 标签 标签 内容 内容 滚动 滚动 留白 留白 宽度 宽度 档位 档位 按钮 按钮 面板 面板 公式 公式',
+    );
+    // ⚠️ 必须等到**真的落盘**再读文件：编辑器是「序列化 200ms + 保存 1200ms」两段防抖，
+    // 只等 800ms 会读到还没写完的旧版本，后面的「正文逐字节不变」就会假失败。
+    // 不用「等状态变成已保存」——刚敲完时它本来就还停在上一轮的「已保存」上，会立刻通过。
+    await page.waitForTimeout(2600);
+
+    const chips = page.locator('.tag-suggest');
+    const words = (await chips.allInnerTexts()).map((t) => t.replace(/^\+\s*/, '').trim());
+    check('11c 正文够长时给出建议标签（最多 5 条）', words.length > 0 && words.length <= 5, JSON.stringify(words));
+
+    const dashStyle = (await chips.count())
+      ? await chips.first().evaluate((el) => getComputedStyle(el).borderTopStyle)
+      : '';
+    check('11c 建议标签是虚线框（＝还没采纳）', dashStyle === 'dashed', dashStyle || '没有建议标签');
+
+    const tagsLineOf = (t) => ((t || '').match(/^tags:.*$/m) || [''])[0];
+    const bodyOnly = (t) => (t || '').replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n/, '');
+    const beforeTags = await davText(`${TITLE}.md`);
+    check('11c 没点之前 tags 仍是空的（只是显示，不落盘）', /tags:\s*\[\s*\]/.test(beforeTags || ''), tagsLineOf(beforeTags));
+
+    const picked = words[0] ?? '（没有建议标签可点）';
+    if (words.length) await chips.first().click();
+    await page.waitForTimeout(1600);
+    const afterTags = await davText(`${TITLE}.md`);
+    check('11c 点一下 → 写进 frontmatter 的 tags', tagsLineOf(afterTags).includes(picked), tagsLineOf(afterTags));
+    check('11c 采纳标签没有动正文（正文逐字节不变）', bodyOnly(beforeTags) === bodyOnly(afterTags));
+    check(
+      '11c 采纳过的不再出现在建议里',
+      !(await chips.allInnerTexts()).map((t) => t.replace(/^\+\s*/, '').trim()).includes(picked),
+      picked,
+    );
+
     // ---------- 12. console ----------
     check('12 全程没有意外的 console 错误', consoleErrors.length === 0, consoleErrors.slice(0, 3).join(' || '));
 

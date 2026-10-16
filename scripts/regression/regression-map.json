@@ -30,14 +30,14 @@
       "title": "编辑器集成",
       "covers": "Milkdown 挂载 / 输入规则 / 自动保存 / 落盘是 Markdown / 刷新不丢 / 源码模式字节精确",
       "estSeconds": 23,
-      "checks": 24
+      "checks": 30
     },
     "stage4": {
       "file": "stage4-toolbar.cjs",
       "title": "编辑器工具栏",
-      "covers": "17 项工具栏：每一项既看 DOM 变化，也看最终落盘的 Markdown；含表格增删的边界（表头行 / 最后一行）与思维导图块的 NodeView + 源码面板",
+      "covers": "19 项工具栏：每一项既看 DOM 变化，也看最终落盘的 Markdown；含表格增删的边界（表头行 / 最后一行）与思维导图块的 NodeView + 源码面板",
       "estSeconds": 38,
-      "checks": 52
+      "checks": 55
     },
     "stage5": {
       "file": "stage5-image.cjs",
@@ -72,7 +72,7 @@
       "title": "笔记嵌套与笔记间导航",
       "covers": "index.md 页面模型（顶层页面 / 新建子页面 / 侧栏层级 / 面包屑 / 拖 .md 变子页面 / 整棵删除与恢复 / 普通笔记行为不变），以及 [[…]] 链接（补全菜单 / 跳转 / 缺失变红与一键创建 / 反向链接 / 改名后引用跟着改 / 搜索结果带层级路径 / 删除被引用笔记后链接变红）",
       "estSeconds": 75,
-      "checks": 32
+      "checks": 36
     },
     "math": {
       "file": "math-e2e.cjs",

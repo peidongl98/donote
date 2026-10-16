@@ -1,5 +1,5 @@
 /**
- * 阶段 4 验收：Word 式工具栏 17 项。
+ * 阶段 4 验收：Word 式工具栏 19 项（18 个按钮 ＋ 段落样式下拉）。
  *
  * 真实坚果云，无 mock。每一项都既看编辑器 DOM 变了没，也看最终落盘的 Markdown 对不对 ——
  * 只验 DOM 会漏掉「看着对、存下来是错的」这类问题。
@@ -125,7 +125,7 @@ function check(name, ok, detail = '') {
     // ---------- 1. 工具栏在 ----------
     check('1 工具栏出现在编辑器顶部', await page.locator('.toolbar').isVisible());
     const toolCount = await page.locator('.toolbar button[aria-label]').count();
-    check('1 16 个操作按钮齐全（＋段落样式下拉共 17 项）', toolCount === 16, `${toolCount} 个按钮`);
+    check('1 18 个操作按钮齐全（＋段落样式下拉共 19 项）', toolCount === 18, `${toolCount} 个按钮`);
     check('1 段落样式下拉在', await page.locator('.toolbar select').count() === 1);
     await page.screenshot({ path: path.join(SHOTS, '01-toolbar.png') });
 
@@ -361,6 +361,40 @@ function check(name, ok, detail = '') {
     check('11 代码块写成围栏', !!raw && raw.includes('```'));
     check('11 分割线写成 ---', !!raw && /^---$/m.test(raw));
     check('11 思维导图写成 ```mermaid', !!raw && /^```mermaid$/m.test(raw));
+
+    // ---------- 11b. 正文字号（± 两按钮，不显示数字；只改渲染，不落盘） ----------
+    //
+    // 放在最后，借前面已经敲好的正文：这里只按按钮，不再往正文里插字，
+    // 免得把上面那批「落盘写成什么」的断言搅乱。
+    //
+    // 关键：**标题也要跟着变**。只断言正文会假绿 —— 标题本来就是 em 相对单位，
+    // 哪天有人把标题改成 px，正文照样会变，但「所有标题级随之等比放大」这条就废了。
+    const sizeOf = (sel) =>
+      page.locator(sel).first().evaluate((el) => parseFloat(getComputedStyle(el).fontSize));
+    const before0 = { h1: await sizeOf('.donote-surface h1'), p: await sizeOf('.donote-surface p') };
+    await tool('放大正文字号').click();
+    await page.waitForTimeout(300);
+    const after0 = { h1: await sizeOf('.donote-surface h1'), p: await sizeOf('.donote-surface p') };
+    check(
+      '11b 按 A+ 后正文与 h1 都同比变大',
+      after0.p > before0.p && after0.h1 > before0.h1,
+      `正文 ${before0.p}→${after0.p} / h1 ${before0.h1}→${after0.h1}`,
+    );
+
+    // Ctrl+0 回标准档 —— 「用户不需要知道字号」的代价是必须有回头路
+    await surface.click();
+    await page.keyboard.press('Control+0');
+    await page.waitForTimeout(300);
+    const backSize = await sizeOf('.donote-surface p');
+    check('11b Ctrl+0 回到标准字号', backSize === before0.p, `${after0.p} → ${backSize}（标准 ${before0.p}）`);
+
+    // 落盘里不该出现任何字号痕迹（纯 CSS + localStorage），正文也仍是那一行 md
+    const fontFile = await davText(`${TITLE}.md`);
+    check(
+      '11b 字号不落盘（正文仍是 md 原文，没有字号痕迹）',
+      /^# 一级标题$/m.test(fontFile || '') && !/font-size|字号/.test(fontFile || ''),
+      (fontFile || '').split('\n').filter(Boolean).slice(-2).join(' | '),
+    );
 
     check('12 全程没有意外的 console 错误', consoleErrors.length === 0, consoleErrors.slice(0, 3).join(' || '));
     console.log('\n--- 落盘 Markdown ---\n' + (raw || '') + '\n--- /落盘 ---');

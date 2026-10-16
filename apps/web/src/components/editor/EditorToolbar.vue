@@ -40,6 +40,7 @@ import {
   toggleTaskList,
   type ToolbarSnapshot,
 } from './commands';
+import { canGrowFont, canShrinkFont, growDocFont, shrinkDocFont } from './doc-font';
 
 const props = defineProps<{
   editor: Editor | null;
@@ -333,6 +334,54 @@ function dropLink(): void {
 <template>
   <div class="toolbar" :class="{ 'is-disabled': disabled }">
     <div class="row">
+      <!-- 正文字号：只改渲染（标题是 em 相对单位，会等比跟着变），不落盘 -->
+      <button
+        type="button"
+        class="tool"
+        aria-label="缩小正文字号"
+        title="缩小字号 (Ctrl+-)"
+        :disabled="disabled || !canShrinkFont"
+        @mousedown.prevent
+        @click="shrinkDocFont()"
+      >
+        <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+          <path
+            d="M4.5 17.2 8 7.6l3.5 9.6"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.7"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          />
+          <path d="M5.9 13.8h4.2" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" />
+          <path d="M14.2 14.8h5.2" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" />
+        </svg>
+      </button>
+      <button
+        type="button"
+        class="tool"
+        aria-label="放大正文字号"
+        title="放大字号 (Ctrl+=)"
+        :disabled="disabled || !canGrowFont"
+        @mousedown.prevent
+        @click="growDocFont()"
+      >
+        <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+          <path
+            d="M4.5 17.2 8 7.6l3.5 9.6"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.7"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          />
+          <path d="M5.9 13.8h4.2" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" />
+          <path d="M14.2 14.8h5.2" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" />
+          <path d="M16.8 12.2v5.2" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" />
+        </svg>
+      </button>
+      <span class="divider" aria-hidden="true" />
+
       <label class="picker">
         <select :value="currentHeading" :disabled="disabled" aria-label="段落样式" @change="onHeading">
           <option v-for="h in HEADINGS" :key="h.value" :value="h.value">{{ h.label }}</option>

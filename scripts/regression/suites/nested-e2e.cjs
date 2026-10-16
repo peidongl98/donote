@@ -210,20 +210,25 @@ function check(name, ok, detail = '') {
       .catch(() => false);
   }
 
-  /** 等反向链接区块里出现某个名字 */
-  async function waitForBacklink(name, timeout = 20000) {
-    return page
-      .waitForFunction(
-        (n) => {
-          const sections = Array.from(document.querySelectorAll('section.children'));
-          const box = sections.find((el) => el.textContent.includes('被以下笔记提到'));
-          return !!box && box.textContent.includes(n);
-        },
-        name,
-        { timeout },
-      )
+  /**
+   * 展开正文顶部的反向链接那一行，返回列出来的名字。
+   *
+   * 新版形态：正文**上方**一行「N 篇笔记提到这里」，默认收起，点一下才列名字。
+   * 所以先等这一行出现，再（若是收起状态）点开，最后读条目。
+   */
+  async function readBacklinks(timeout = 20000) {
+    const bar = page.locator('.backlink-bar');
+    const appeared = await bar
+      .first()
+      .waitFor({ state: 'visible', timeout })
       .then(() => true)
       .catch(() => false);
+    if (!appeared) return [];
+    if ((await page.locator('.backlink-list').count()) === 0) {
+      await page.locator('.backlink-toggle').click();
+      await page.waitForTimeout(400);
+    }
+    return page.locator('.backlink-item').allInnerTexts();
   }
 
   try {
@@ -257,6 +262,9 @@ function check(name, ok, detail = '') {
     check('嵌套 1 落盘成 目录/index.md', (await davText(`${PARENT}/index.md`)) !== null);
 
     // ---------- 嵌套 2：详情页新建子页面 → 侧栏层级 ----------
+    // 「新建子页面」已从正文下方的子页面区搬进顶栏 ⋯ 菜单（Notion 对齐：正文外不再列一份）
+    await page.locator('.more').click();
+    await page.waitForTimeout(400);
     await page.getByRole('button', { name: '新建子页面', exact: true }).click();
     await page.waitForURL((u) => /\/notes\//.test(u.pathname), { timeout: 20000 });
     await page.waitForTimeout(1200);
@@ -278,18 +286,23 @@ function check(name, ok, detail = '') {
     check('嵌套 2 子页面落盘成 父目录/子目录/index.md', (await davText(`${PARENT}/${CHILD}/index.md`)) !== null);
     await page.screenshot({ path: path.join(SHOTS, '01-sidebar-tree.png') });
 
-    // ---------- 嵌套 3：点父页面 → 正文 + 子项列表 ----------
+    // ---------- 嵌套 3：点父页面 → 正文 + 正文外不再重复列子项 ----------
     await openNoteByTitle(PARENT);
     check('嵌套 3 打开父页面，正文编辑器在', await surface.isVisible());
-    const childCard = page.locator('.children-list .child-card').filter({ hasText: CHILD });
-    check('嵌套 3 正文下方列出子项', (await childCard.count()) > 0);
+    // 对齐 Notion 之后，正文下方那块「子页面」列表已经删掉 —— 层级统一看侧栏树。
+    // 这条是「删干净了」的断言：三个痕迹（区块 / 卡片 / 标题字样）都得为 0。
+    const leftovers =
+      (await page.locator('.children').count()) +
+      (await page.locator('.child-card').count()) +
+      (await page.getByText('子页面', { exact: true }).count());
+    check('嵌套 3 正文外不再有「子页面」区', leftovers === 0, `残留 ${leftovers} 处`);
     await page.screenshot({ path: path.join(SHOTS, '02-parent-page.png') });
 
-    // ---------- 嵌套 4：点子项 → 进入 ----------
-    await childCard.first().click();
+    // ---------- 嵌套 4：点侧栏子行 → 进入 ----------
+    await treeRow(CHILD).locator('.tree-label').click();
     await page.waitForTimeout(1200);
     check(
-      '嵌套 4 点子项进入子页面',
+      '嵌套 4 点侧栏子行进入子页面',
       (await page.locator('input.title-input').inputValue()) === CHILD,
       page.url().split('/notes/')[1] || '',
     );
@@ -372,6 +385,61 @@ function check(name, ok, detail = '') {
     );
     await settled();
 
+    // ---------- 导航 2b：页面块（独占一段）vs 行内链接（混在句子里） ----------
+    // 两条都要断言：只验一条会假绿 —— 全都变成块、或全都不变块，都能骗过单条断言。
+    //
+    // ⚠️ 这里必须**轮询等形状到位**，不能读完一次就下结论：
+    // 装饰（Decoration）是 ProseMirror 下一帧才画到 DOM 上的，改完正文立刻读会读到上一帧，
+    // 实测过「文档其实是对的、断言却报 blockCount=0」这种抖动。
+    const readBlockShape = async (timeout = 8000) => {
+      const probe = () =>
+        page.evaluate(() => {
+          const block = document.querySelector('.donote-surface p.donote-wikilink-block');
+          const bracket = block?.querySelector('.donote-wikilink-bracket');
+          return {
+            blockCount: document.querySelectorAll('.donote-surface p.donote-wikilink-block').length,
+            blockName: block?.querySelector('.donote-wikilink')?.textContent ?? '',
+            // 方括号必须还在 DOM 里（只是用 font-size:0 藏起来，不是 display:none
+            // —— 后者光标进不去那一段，键盘就挪不到链接上改字了）
+            bracketFont: bracket ? getComputedStyle(bracket).fontSize : '',
+            inlineCount: document.querySelectorAll(
+              '.donote-surface p:not(.donote-wikilink-block) .donote-wikilink',
+            ).length,
+          };
+        });
+      const deadline = Date.now() + timeout;
+      let last = await probe();
+      while (last.blockCount !== 1 && Date.now() < deadline) {
+        await page.waitForTimeout(200);
+        last = await probe();
+      }
+      return last;
+    };
+
+    const soloState = await readBlockShape();
+    check(
+      '导航 2b 独占一段的 [[…]] 渲染成页面块（方括号藏起来）',
+      soloState.blockCount === 1 && soloState.blockName === TARGET && soloState.bracketFont === '0px',
+      JSON.stringify(soloState),
+    );
+
+    // 同一篇里再写一条**混在句子里**的，它必须还是行内链接。
+    //
+    // ⚠️ 这里**不要**再 `surface.click()` + `Control+End` 去挪光标：实测这样会抖 ——
+    // 点落的位置不一样，Control+End 又不一定真的挪到文末，回车偶尔会把上一条链接
+    // 从中间劈开（文档变成 `[[目标` / `]]相关：…`），断言就假失败。
+    // 直接回车即可：上一步刚用补全菜单插完链接，光标本来就停在那条链接的右端。
+    await page.keyboard.press('Enter');
+    await page.waitForTimeout(200);
+    await page.keyboard.type(`相关：[[${TARGET}]] 也提到过。`);
+    await settled();
+    const mixedState = await readBlockShape();
+    check(
+      '导航 2b 混在句子里的 [[…]] 仍是行内链接（不变块）',
+      mixedState.blockCount === 1 && mixedState.inlineCount >= 1,
+      JSON.stringify(mixedState),
+    );
+
     // ---------- 导航 3：点链接 → 跳到目标 ----------
     const link = surface.locator('.donote-wikilink').filter({ hasText: TARGET });
     const resolved = await waitForLink(TARGET);
@@ -387,14 +455,33 @@ function check(name, ok, detail = '') {
     check('导航 3 点链接 → 跳到目标笔记', jumped, page.url().split('/notes/')[1] || '');
     await page.screenshot({ path: path.join(SHOTS, '04-jump.png') });
 
-    // ---------- 导航 5：反向链接 ----------
-    const backSection = page.locator('section.children').filter({ hasText: '被以下笔记提到' });
-    const hasBacklink = await waitForBacklink(PARENT);
-    const backText = (await backSection.first().count()) ? await backSection.first().innerText() : '';
+    // ---------- 导航 5：反向链接（正文顶部一行，默认收起，点开才列名字） ----------
+    // 先读**初始形态**（还没点任何东西）：那一行在、明细列表不在 —— 这才是「默认收起」。
+    // ⚠️ 别用「再进一次笔记」来验初始态：展开状态是视图里的一个 ref，同路由换参会留着。
+    const arrivalBar = await page.locator('.backlink-bar').count();
+    const arrivalList = await page.locator('.backlink-list').count();
     check(
-      '导航 5 目标详情页底部列出反向链接',
-      hasBacklink && backText.includes(PARENT),
-      backText.replace(/\s+/g, ' ').slice(0, 90),
+      '导航 5 反链以「一行、默认收起」的形态出现',
+      arrivalBar === 1 && arrivalList === 0,
+      `bar=${arrivalBar} list=${arrivalList}`,
+    );
+
+    const backNames = await readBacklinks();
+    const backText = (await page.locator('.backlink-bar').count())
+      ? await page.locator('.backlink-bar').innerText()
+      : '';
+    check(
+      '导航 5 展开后列出「谁提到这里」',
+      backNames.some((t) => t.includes(PARENT)),
+      `${backText.replace(/\s+/g, ' ').slice(0, 40)} | 条目 ${JSON.stringify(backNames)}`,
+    );
+
+    const barBox5 = await page.locator('.backlink-bar').boundingBox();
+    const surfaceBox5 = await page.locator('.donote-surface').boundingBox();
+    check(
+      '导航 5 反链条在正文上方，不是正文下方',
+      !!barBox5 && !!surfaceBox5 && barBox5.y + barBox5.height <= surfaceBox5.y + 2,
+      `bar 底 ${Math.round((barBox5?.y ?? 0) + (barBox5?.height ?? 0))} / 正文顶 ${Math.round(surfaceBox5?.y ?? 0)}`,
     );
 
     // ---------- 导航 6：改名 → 引用自动更新 ----------

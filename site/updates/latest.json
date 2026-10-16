@@ -1,11 +1,11 @@
 {
-  "version": "0.4.1",
-  "notes": "图标统一换成新的了：桌面端、浏览器标签页、侧栏、登录页和下载页都用了同一枚蓝底「D」标识。这个版本也把近期的新功能一并带齐 —— 笔记嵌套成子页面（侧栏树、面包屑、详情页子项列表跟着层级走，拖 .md 到编辑页会变成当前页的子页面）、[[笔记名]] 链接与反向链接、KaTeX 块级与行内公式（点开面板改 LaTeX，右边实时预览）。",
-  "pub_date": "2026-10-16T06:39:27Z",
+  "version": "0.4.2",
+  "notes": "正文区按看笔记的样子重做了一遍。整段独占的 [[笔记名]] 现在渲染成一行带图标的页面块，夹在句子里的仍是普通行内链接；正文去掉卡片外壳，全屏时两侧留白从 21% 收到 3.6%（窗口化宽度不变）；工具栏最前面多了 A− / A+ 调正文字号，Ctrl+加减、Ctrl+0 回默认，只改显示不写进 .md。原来压在正文上下的两块挪了位置：「新建子页面」进右上角 ⋯ 菜单，被提到变成正文顶部一行、点开才展开。新增建议标签：按正文词频给出最多 5 个虚线标签，点一下才写进笔记。\n\n另修图标：安装向导与卸载程序之前画的是 Windows 默认图标，这版换成应用自己的图标；装完还会通知系统刷新图标缓存，所以从旧版更新过来的机器，资源管理器和任务栏里的图标也会跟着换掉。",
+  "pub_date": "2026-10-16T08:40:04Z",
   "platforms": {
     "windows-x86_64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSWTRLN1pZbGY4NGlaRGhFWVNSRE5yZDFDSUZNNk5xTDFZTGJ2VGlVaThnYlRHZGNFcEtqT1VpZXowVkdnSGZXR25VelYzWGlVMk5HOTZVTEJsS0ZJZzd2b21MdHo0RVFRPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkyMTMyNzY3CWZpbGU6RG9Ob3RlXzAuNC4xX3g2NC1zZXR1cC5leGUJdmVyc2lvbjowLjQuMQpPSVRqb0RSenZ5Zis3cGJnVUZGY3A2NCtJSTBRc3RkS0JXM0lKUGt2WmxiR1czOXdQM3B6aUVqM0xnY3V4RGQ4ZnN4VTc3VktJQ1pZOWg3RVZWOFJDZz09Cg==",
-      "url": "https://donote.pages.dev/downloads/DoNote-0.4.1-win-x64.exe"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSWTRLN1pZbGY4NG1jS2plczRURlFyYjViL1ZseDE1SkVDTE1meC84aUdVcXp1dGlucndOVThXNXI0Z2hoSkFCdFdEeDdMc2VENS8zWUZqVWFQWjAxNWZ5QXNQSkJaNXdNPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkyMTQwMDA0CWZpbGU6RG9Ob3RlXzAuNC4yX3g2NC1zZXR1cC5leGUJdmVyc2lvbjowLjQuMgo1NHpzcGJwdTFiQkwzUjFTaTZQTHhmT0lxWHNZMTcrQnJUTVZJSVBWV2hOcnZOL05qQmNQd0llNVpIZ01wWG90aVhTMFgrdU4wMm5TN1gzbithWGdDUT09Cg==",
+      "url": "https://donote.pages.dev/downloads/DoNote-0.4.2-win-x64.exe"
     }
   }
 }

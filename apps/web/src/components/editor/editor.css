@@ -16,11 +16,15 @@
 
 .donote-surface .ProseMirror {
   outline: none;
-  font-size: 15px;
+  /*
+   * 基础字号由 --doc-font-size 给（工具栏的 ± 控制，存 localStorage）。
+   * 标题与行内代码全是 em 相对单位，改这一个值它们就等比跟着变 —— 不落盘。
+   */
+  font-size: var(--doc-font-size, 15px);
   line-height: 1.75;
   color: var(--text);
   word-break: break-word;
-  /* 撑满卡片：正文短的时候，下方空白也算编辑器，点那儿光标才会落到文末 */
+  /* 撑满：正文短的时候，下方空白也算编辑器，点那儿光标才会落到文末 */
   flex: 1 1 auto;
 }
 
@@ -382,6 +386,67 @@ html[data-theme='dark'] .donote-surface .ProseMirror {
   background: var(--danger-soft);
   text-decoration: underline dotted;
   text-underline-offset: 2px;
+}
+
+/*
+ * 独占一整段的 `[[名字]]` → 页面块（判据与实现都在 wikilink.ts）。
+ *
+ * 落盘仍是 `[[名字]]` 原文 —— 这里只换渲染：整段出一个页面图标与悬停底色，
+ * 两个方括号被 .donote-wikilink-bracket 藏掉（字符还在文档里，只是画不出来）。
+ */
+.donote-surface .ProseMirror .donote-wikilink-block {
+  position: relative;
+  margin: 0.4em 0;
+  padding: 0.4em 0.7em 0.4em 2.3em;
+  border-radius: var(--r-sm);
+  cursor: pointer;
+  transition: background-color var(--dur-fast) var(--ease-smooth);
+}
+
+.donote-surface .ProseMirror .donote-wikilink-block:hover {
+  background: var(--accent-soft);
+}
+
+/* 页面图标：和侧栏导航项用的是同一枚文档线稿 */
+.donote-surface .ProseMirror .donote-wikilink-block::before {
+  content: '';
+  position: absolute;
+  left: 0.7em;
+  top: 50%;
+  width: 17px;
+  height: 17px;
+  transform: translateY(-50%);
+  background-color: currentColor;
+  opacity: 0.7;
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M7 3h7.2L19 7.8V21H7Z' fill='none' stroke='%23000' stroke-width='1.7' stroke-linejoin='round'/%3E%3Cpath d='M14 3v5h5' fill='none' stroke='%23000' stroke-width='1.7' stroke-linejoin='round'/%3E%3C/svg%3E")
+    center / contain no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M7 3h7.2L19 7.8V21H7Z' fill='none' stroke='%23000' stroke-width='1.7' stroke-linejoin='round'/%3E%3Cpath d='M14 3v5h5' fill='none' stroke='%23000' stroke-width='1.7' stroke-linejoin='round'/%3E%3C/svg%3E")
+    center / contain no-repeat;
+}
+
+/* 块里的名字：去掉行内链接那套底色与染色，跟着正文走 */
+.donote-surface .ProseMirror .donote-wikilink-block .donote-wikilink {
+  background: none;
+  color: inherit;
+  padding: 0;
+  border-radius: 0;
+}
+
+/* 目标还不存在这件事仍然要说出来 */
+.donote-surface .ProseMirror .donote-wikilink-block .donote-wikilink.is-missing {
+  color: var(--danger);
+  text-decoration: underline dotted;
+  text-underline-offset: 2px;
+}
+
+/*
+ * 页面块里不画方括号。
+ * 用 font-size: 0 而不是 display: none —— 后者会让光标进不去那一段，键盘就没法把
+ * 光标挪到链接上改了。字符本身仍在文档里，落盘照旧。
+ */
+.donote-surface .ProseMirror .donote-wikilink-bracket {
+  font-size: 0;
+  letter-spacing: 0;
 }
 
 /* ---------------------------- 光标 ---------------------------- */

@@ -20,6 +20,7 @@ import { editorViewCtx, serializerCtx } from '@milkdown/kit/core';
 import { createNoteEditor } from './create-editor';
 import { EMPTY_SNAPSHOT, insertImage, snapshotOf, type ToolbarSnapshot } from './commands';
 import { refreshWikilinks, type WikilinkHandlers } from './wikilink';
+import { docFontSize, growDocFont, resetDocFont, shrinkDocFont } from './doc-font';
 import EditorToolbar from './EditorToolbar.vue';
 import FloatingToolbar from './FloatingToolbar.vue';
 import BlockHandle from './BlockHandle.vue';
@@ -172,6 +173,30 @@ function onSurfaceScroll(): void {
   float.value = null;
 }
 
+/**
+ * 正文字号快捷键。
+ *
+ * 挂在正文容器上而不是 window：事件只在编辑器内部有焦点时才冒泡到这里，
+ * 所以侧栏、列表页按 Ctrl+± 仍然是浏览器缩放 —— 不全域接管。
+ */
+function onFontKey(event: KeyboardEvent): void {
+  if (!(event.ctrlKey || event.metaKey) || event.altKey) return;
+  if (event.key === '=' || event.key === '+') {
+    event.preventDefault();
+    growDocFont();
+    return;
+  }
+  if (event.key === '-') {
+    event.preventDefault();
+    shrinkDocFont();
+    return;
+  }
+  if (event.key === '0') {
+    event.preventDefault();
+    resetDocFont();
+  }
+}
+
 /** 当前正文的 Markdown。序列化要 ctx，而 ctx 在刷新回调里存过一份，这里同步取得到 */
 function currentMarkdown(): string | null {
   const view = lastCtx?.get(editorViewCtx);
@@ -215,7 +240,9 @@ defineExpose({
       v-if="mode === 'wysiwyg'"
       ref="host"
       class="donote-surface"
+      :style="{ '--doc-font-size': `${docFontSize}px` }"
       @scroll="onSurfaceScroll"
+      @keydown="onFontKey"
     />
 
     <!-- 块级手柄：悬停块左侧的 ⋮⋮（fixed 定位，不能放进 .donote-surface，会被 overflow 裁掉） -->
@@ -279,12 +306,12 @@ defineExpose({
   flex-direction: column;
   flex: 1 1 auto;
   min-height: 46vh;
-  padding: var(--sp-3) var(--sp-4);
-  border-radius: var(--r-lg);
-  background: var(--surface);
-  border: 1px solid var(--surface-border);
+  /*
+   * 正文直接铺在页面背景上，不做卡片 —— 底色 / 边框 / 圆角 / 内边距都不给。
+   * 滚动留在这一层：标题输入框与标签条在它**外面**（同级、更靠上），
+   * 所以滚正文时标题与标签条不会跟着走，一直看得见自己在哪篇笔记。
+   */
   overflow-y: auto;
-  transition: background-color var(--dur) var(--ease-smooth);
 }
 
 /* 正文为空时告诉用户这里可以写。所见即所得里不该提 Markdown —— 正文根本不出现符号，
