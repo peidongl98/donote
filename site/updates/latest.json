@@ -1,11 +1,11 @@
 {
-  "version": "0.4.4",
-  "notes": "桌面版不再带一套手机布局。窗口宽度掉到 1023px 以下时（桌面窗口最窄 880px，很容易碰到），界面会被判成手机：底部冒出一条只有手机才该有的标签栏、侧栏变成抽屉盖住内容、编辑页的工具栏还跑到正文框下面。现在整个桌面窗口只走一套布局，最窄也正常。原来为了躲开那条标签栏，列表页的新建按钮和批量操作条都悬在离底边 84px 的地方，现在回到正常位置。\\n\\n正文框的宽度提示线重画：以前是一条 2px 实心蓝线，从标题一路贯到页面底部；现在只在正文框左右两侧各一条 1px 半透明线，上下各留 8px 收口，按住 Ctrl 才出现，松开就收。侧栏那条调宽线也一并改成同样的粗细和透明度。\\n\\n正文块左边的 ⋮⋮ 手柄不再残留。以前聚焦正文后往下滚，偶尔会有一个跟当前鼠标位置不相干的块冒出 ⋮⋮，还要过一会儿才收 —— 滚动监听挂错了元素，挂到了编辑器外壳上，真正滚动的是更外层的容器。现在一滚就收，滚完浏览器补发的那一次鼠标移动也不会再把它点亮。",
-  "pub_date": "2026-10-16T16:20:30Z",
+  "version": "0.4.5",
+  "notes": "自动更新不再把新版本装到 C 盘去。0.4.4 的自动更新会在系统盘的用户目录下另装一份，而原来那一份停在旧版本 —— 打开的还是旧的，快捷方式却指到新的，看起来像凭空多出一次安装。\\n\\n原因是安装器只在注册表里的一条记录上找原来的位置，那条记录一空就直接落回系统盘；而「装到可用空间最大的盘」这个默认值，只有手动双击安装包、弹出安装界面时才会算出来，自动更新是静默的，走不到那一段。\\n\\n现在改成按四条线索依次找原位置：注册表里的记录、卸载信息里记的安装位置、各个盘根目录下的 DoNote 目录、以及系统盘上的默认位置 —— 每一条都要求「那个目录里真的躺着 donote.exe」才算数，过期的记录不会被采纳，免得把安装拽到一个已经不存在的地方。四条都找不到才按首次安装处理；命令行显式指定的目录仍然优先。\\n\\n安装时也不再在系统盘留下一个空的 DoNote 目录。本版只有这一处改动。",
+  "pub_date": "2026-10-16T16:38:23Z",
   "platforms": {
     "windows-x86_64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSWTRLN1pZbGY4NGc3M1c0bkFZK3RiMnJpVmpyWjk2TXhpbjQzOHJQQzJ2alY5NlRlSUEzTTRFa3FDaURVVXJVTDRENENIY0FqM3RVcDVWbFdKa3RkeVBHWUtWNVBycXdnPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkyMTY3NjMwCWZpbGU6RG9Ob3RlXzAuNC40X3g2NC1zZXR1cC5leGUJdmVyc2lvbjowLjQuNApqQkZyY3NVWHhHTExrUmo2UkJlZWQ2NXYweWg1WitzRlpoS2pidnlZVkxNVW5oRGRpTE9xV2c2dGRKeWx1a3BHRW9ZaUE5U0VaMmh4TWhaTDV2QllCQT09Cg==",
-      "url": "https://donote.pages.dev/downloads/DoNote-0.4.4-win-x64.exe"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSWTRLN1pZbGY4NGd3bm9WUEJpbStSOWdyZ0VJeVA4YVhYdnN3SWkvVTFLT1pPZnVMVE5VWXN6MmhVb1lqTWNBZWNuZGg4dlMxZkhUaUpHbWRuZEw2akR2SyswSFNGb2dvPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkyMTY4NzAzCWZpbGU6RG9Ob3RlXzAuNC41X3g2NC1zZXR1cC5leGUJdmVyc2lvbjowLjQuNQpWcnQxREl1b0JCSnZET0VFS1p2c0FLSVdZWnYxTkxPdWZ1TzZLNTE1QWxlRVdMYnk0NE44V0NJbjUvQ0kxSDhKeUVNMEkyTTNMYzdNb1B6dEN5M2VCdz09Cg==",
+      "url": "https://donote.pages.dev/downloads/DoNote-0.4.5-win-x64.exe"
     }
   }
 }

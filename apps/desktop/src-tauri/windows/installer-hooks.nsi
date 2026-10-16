@@ -8,32 +8,115 @@
 ;
 ; ── 一、为什么需要「装到哪就更新到哪」 ───────────────────────────────────────
 ;
-; 实测记录：0.2.6 的自动更新在本机产出过第二份安装 —— 用户 10-10 手动装到
+; 实测记录一：0.2.6 的自动更新在本机产出过第二份安装 —— 用户 10-10 手动装到
 ;   D:\DoNote，10-14 自动更新之后 %LOCALAPPDATA%\DoNote 又多出一份，两处并存，
 ;   快捷方式被改指到新那份。
 ;
-; 模板（tauri-cli 2.12.1 生成的 installer.nsi）在 .onInit 里其实有一次还原尝试
-;   —— 在 `$INSTDIR == placeholder` 分支里 `Call RestorePreviousInstallLocation`，
-;   读的也是 HKCU\Software\donote\DoNote 的默认值。本节这段与它**重叠**，作为兜底
-;   保留：它在安装段里再确认一次 $INSTDIR 是不是上次记录的位置，不是就改回去，
-;   不依赖上面那个分支是否被执行到。0.2.8 带上这段之后做过真装真更新：删掉主程序
-;   再跑 /S /UPDATE，能写回原目录，%LOCALAPPDATA% 始终没被创建。
+; 实测记录二：0.4.4 的自动更新**又**踩了一次同样的坑 —— 10-16 23:07 更新到 0.4.3
+;   时还正常落在 D:\DoNote；10-17 00:22 更新到 0.4.4，D:\DoNote 停在 0.4.3，
+;   %LOCALAPPDATA%\DoNote 里多出一份 0.4.4。
+;
+; 两次都是「找不到原位置 → 落回系统盘」。0.4.4 这次的去向在清理时得到了确认：
+;   %LOCALAPPDATA%\DoNote 的目录创建时间正好是 00:22，D:\DoNote\donote.exe 停在
+;   0.4.3 的构建时间。
+;
+; 为什么会找不到 —— 模板里只有**一处**尝试：
+;   installer.nsi 的 .onInit 在 `$INSTDIR == placeholder` 分支里 Call
+;   RestorePreviousInstallLocation，它 ReadRegStr SHCTX "${MANUPRODUCTKEY}" ""，
+;   一条记录定生死。这条记录一旦为空（被卸载器清过、装过别的形态、版本间漂移），
+;   就直接落到 `$INSTDIR = $LOCALAPPDATA\${PRODUCTNAME}` —— 系统盘。
+;
+; 而「可用空间最大的固定盘」那套逻辑挂在 .onGUIInit（本文件第三节），**只有 GUI
+;   安装才跑**。自动更新走 updater 的 /P 被动模式，根本不经过它，所以也救不回来。
+;
+; 所以这里不再只信一条记录。更新安装时按下面的顺序找，**每一个候选都要求
+;   「该目录下真的躺着 donote.exe」**才算数（过期的记录不该把安装拽到别处）：
+;
+;     1. Tauri 自己的恢复键 ${MANUPRODUCTKEY} 的默认值
+;     2. 卸载键 ${UNINSTKEY} 的 InstallLocation（去成对引号、去尾反斜杠）
+;     3. 逐个固定盘找 <盘>:\<产品>\donote.exe
+;     4. %LOCALAPPDATA%\<产品>\donote.exe
+;     5. 都没有 → 当没装过，取「可用空间最大的固定盘」（与首次安装的默认一致）
+;
+;   /D=<目录> 优先级最高，命令行给了就不找。
+;
+; 注意第 2 条与第 1 条为什么会分家：两者由同一次安装一起写，但卸载器清的是
+;   "${MANUPRODUCTKEY}"（`DeleteRegValue` 那个 Installer Language + `/ifempty`
+;   整个键），卸载键则按 ARP 的规则单独存活。0.4.4 那次就是恢复键的值已经不是
+;   原位置、只剩卸载键还留着线索的情形。
 ;
 ; 执行时机：模板的 Section Install 里，紧跟在 SetOutPath $INSTDIR 之后、
 ;   写文件与写注册表之前（!ifmacrodef NSIS_HOOK_PREINSTALL）。所以这里改掉
 ;   $INSTDIR 之后必须自己重设 SetOutPath，后续的 File / 注册表 / 快捷方式
 ;   才会一起落到新位置。
+;
+; 本机真机验证（2026-10-17，用重编译的安装包，不重新发版）：
+;   1. 把恢复键与卸载键**都改成指向一个已经不存在的 C 盘路径**（复现 0.4.4 的处境），
+;      跑 `/S /UPDATE` 且不给 /D= —— 文件正确落到 D:\DoNote，注册表与快捷方式都指回
+;      D 盘。这一条同时证明了「过期记录会被拒绝」。
+;   2. 扫描与归一化单独跑了一遍（用一个只调用这两个函数的小脚本）：
+;      C:\DoNote 是空壳（0 个文件）而 D:\DoNote 有 exe 时返回 D:\DoNote（空壳被跳过）；
+;      "D:\DoNote"（成对引号）与 D:\DoNote\（尾反斜杠）都归一到 D:\DoNote；
+;      指向不存在目录的记录返回空。
 
 !macro NSIS_HOOK_PREINSTALL
+  ; 函数在 include 时立即展开，用不了后面才定义的 ${PRODUCTNAME} / ${MAINBINARYNAME}，
+  ; 所以由宏（在模板第 634 行展开，那时所有 define 都生效了）把值塞进变量传进去。
+  StrCpy $DNTMain "${MAINBINARYNAME}.exe"
+  StrCpy $DNTProd "${PRODUCTNAME}"
+  StrCpy $DNTFound ""
+
+  ; /D=<目录>：企业静默部署显式指定的，优先级最高，给了就不找
+  ${GetParameters} $DNTParams
+  ${GetOptions} $DNTParams "/D=" $DNTD
+  ${IfNot} ${Errors}
+    Goto dnt_pre_done
+  ${EndIf}
+
   ${If} $UpdateMode = 1
-    ReadRegStr $R8 SHCTX "${MANUPRODUCTKEY}" ""
-    ${If} $R8 != ""
-    ${AndIf} $R8 != $INSTDIR
-      DetailPrint "Reusing previous install location: $R8"
-      StrCpy $INSTDIR $R8
+    ; 1) Tauri 自己的恢复键
+    ReadRegStr $DNTCand SHCTX "${MANUPRODUCTKEY}" ""
+    Call DoNoteAcceptDir
+
+    ; 2) 卸载键的 InstallLocation（ARP 里写作 "D:\DoNote"，带引号）
+    ${If} $DNTFound == ""
+      ReadRegStr $DNTCand SHCTX "${UNINSTKEY}" "InstallLocation"
+      Call DoNoteAcceptDir
+    ${EndIf}
+
+    ; 3) 逐个固定盘找 <盘>:\<产品>\<主程序>.exe
+    ${If} $DNTFound == ""
+      Call DoNoteScanDrives
+    ${EndIf}
+
+    ; 4) 系统盘上的默认位置（确实有用户就装在这儿）
+    ${If} $DNTFound == ""
+      StrCpy $DNTCand "$LOCALAPPDATA\${PRODUCTNAME}"
+      Call DoNoteAcceptDir
+    ${EndIf}
+
+    ; 5) 一个都没找到 —— 按没装过处理，取可用空间最大的固定盘：
+    ;    与首次安装的默认一致，好过默不作声地往系统盘塞第二份。
+    ${If} $DNTFound == ""
+      StrCpy $DNTName "${PRODUCTNAME}"
+      Call DoNotePickInstallDir
+      StrCpy $DNTFound $DNTBestDir
+    ${EndIf}
+
+    ${If} $DNTFound != ""
+    ${AndIf} $DNTFound != $INSTDIR
+      ; 模板在调用本宏之前已经 SetOutPath 过一遍默认目录 —— SetOutPath 会把目录建出来。
+      ; 于是每次把安装重定向回原位置，系统盘上都会留下一个空壳：0.4.4 那次之后，
+      ; %LOCALAPPDATA%\DoNote 与 C:\DoNote 各留了一个（都是 0 个文件）。
+      ; RMDir 不带 /r 只删空目录，里面有东西就不动，删不掉也不会让安装失败。
+      RMDir "$INSTDIR"
+      DetailPrint "DoNote: 更新回到已安装的位置 $DNTFound"
+      StrCpy $INSTDIR $DNTFound
       SetOutPath $INSTDIR
     ${EndIf}
   ${EndIf}
+
+  dnt_pre_done:
 !macroend
 
 
@@ -85,13 +168,14 @@
 ;   2. 已经装过 —— 用户手动重跑安装包时不动他现有的位置
 ;   3. 命令行带 /D=<目录>（企业静默部署）
 ; 用户在目录页自己改的仍然算数：这里只改「默认值」，改的时机在目录页显示之前。
-; 注意：/S 完全静默安装不触发 GUI 回调，会落回 %LOCALAPPDATA%；那种场景一般自带 /D=。
+; 注意：/S 完全静默安装不触发 GUI 回调 —— 更新走的 /P、/S 两种模式都靠上面的
+;   PREINSTALL 找原位置，这里是「首次安装的默认值」这一条路。
 ;
 ; 产品名不写死：本文件被 !include 在模板 !define PRODUCTNAME 之前（见生成的
 ;   installer.nsi：第 32 行 include、第 37 行才定义产品名），函数体在 include 处就
 ;   立即展开，这里引用 ${PRODUCTNAME} 会直接报「未定义」。改成运行期从安装目录的
 ;   最后一段取——那个目录名本身就是产品名，改名也不用回来动这里。
-
+;
 ; 全程用自己声明的变量，一个 $R0–$R9 都不碰。
 ; 那批寄存器是 NSIS 安装器跨页面在用的：.onInit 里算出来的旧版本号放在 $R0，
 ; 后面的 EarlyChecks / 重装页都要读它。这一段的执行时机（GUI 初始化）在这些页面
@@ -106,6 +190,59 @@ Var DNTBestDir
 Var DNTParams
 Var DNTD
 Var DNTName
+Var DNTCand
+Var DNTFound
+Var DNTQ
+Var DNTMain
+Var DNTProd
+
+; 入参 $DNTCand。出参 $DNTFound = 通过校验的目录（"" 表示不合格）。
+; 校验两件事：去掉成对引号与尾反斜杠；该目录下真的有 $DNTMain。
+Function DoNoteAcceptDir
+  StrCpy $DNTFound ""
+
+  ; 卸载键的 InstallLocation 写作 "D:\DoNote"，首尾各一个双引号
+  StrCpy $DNTQ $DNTCand 1
+  ${If} $DNTQ == '"'
+    StrCpy $DNTCand $DNTCand "" 1          ; 去掉首字符
+    StrLen $DNTQ $DNTCand
+    IntOp $DNTQ $DNTQ - 1
+    StrCpy $DNTCand $DNTCand $DNTQ         ; 去掉尾字符
+  ${EndIf}
+
+  ; 尾反斜杠：D:\DoNote\ 与 D:\DoNote 是同一个地方
+  StrCpy $DNTQ $DNTCand 1 -1               ; 取最后一个字符
+  ${If} $DNTQ == "\"
+    StrLen $DNTQ $DNTCand
+    ${If} $DNTQ > 3                        ; "D:\" 本身就是盘根，别削成 "D:"
+      IntOp $DNTQ $DNTQ - 1
+      StrCpy $DNTCand $DNTCand $DNTQ
+    ${EndIf}
+  ${EndIf}
+
+  ; 目录里真的躺着主程序才算数 —— 一条过期的记录不该把安装拽到别处
+  ${If} $DNTCand != ""
+  ${AndIf} ${FileExists} "$DNTCand\$DNTMain"
+    StrCpy $DNTFound $DNTCand
+  ${EndIf}
+FunctionEnd
+
+; 逐个固定盘找 <盘>:\<产品>\<主程序>。入参 $DNTProd / $DNTMain，出参 $DNTFound。
+; 不做「本地固定盘」的判定：路径上真的存在主程序已经足够强的信号，
+; 网络盘上恰好有同名同结构安装的概率可以忽略。
+Function DoNoteScanDrives
+  StrCpy $DNTFound ""
+  StrCpy $DNTAlphabet "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+  StrCpy $DNTIndex 2                       ; 下标 2 = 'C'
+  ${DoWhile} $DNTIndex <= 25
+    ${If} $DNTFound == ""
+      StrCpy $DNTLetter $DNTAlphabet 1 $DNTIndex
+      StrCpy $DNTCand "$DNTLetter:\$DNTProd"
+      Call DoNoteAcceptDir
+    ${EndIf}
+    IntOp $DNTIndex $DNTIndex + 1
+  ${Loop}
+FunctionEnd
 
 ; 入参 $DNTName = 产品名（安装目录的最后一段）。出参 $DNTBestDir。
 Function DoNotePickInstallDir
