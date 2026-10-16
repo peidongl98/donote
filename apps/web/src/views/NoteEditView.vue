@@ -2,7 +2,8 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import type { FolderDTO, NoteDTO } from '@donote/shared';
-import { DavError, decodeId, foldersApi, notesApi } from '@/storage/notes';
+import { DavError, containerDirOf, decodeId, encodeId, foldersApi, notesApi, pageDirOf } from '@/storage/notes';
+import type { PageChild } from '@/storage/notes';
 import { uploadAttachment } from '@/services/attachments';
 import { pickImage } from '@/services/pick-image';
 import { useEditingStore } from '@/stores/editing';
@@ -132,16 +133,181 @@ function settleIdle(): void {
 }
 
 const isTrashed = computed(() => note.value?.deleted_at != null);
-const folderName = computed(() => {
-  const id = note.value?.folder_id;
-  if (!id) return '未归类';
-  return folders.value.find((f) => f.id === id)?.name ?? '未归类';
+
+/** 顶栏面包屑。用局部类型是因为 `*.vue` 只声明了 default 导出，拿不到 AppHeader 里的 Crumb */
+interface Crumb {
+  label: string;
+  to?: string;
+}
+
+/** 路径逐级累积：'a/b/c' → ['a', 'a/b'] */
+function pathChain(rel: string): string[] {
+  const segments = rel.split('/').filter(Boolean);
+  const out: string[] = [];
+  let acc = '';
+  for (const segment of segments) {
+    acc = acc ? `${acc}/${segment}` : segment;
+    out.push(acc);
+  }
+  return out;
+}
+
+/**
+ * 层级面包屑：`框架笔记 / 子笔记B / 当前页`。
+ *
+ * 页面（目录 + index.md）→ 链到那篇笔记；纯文件夹 → 链到文件夹详情；最后一段是当前这篇，
+ * 不可点。回收站里的笔记没有层级可言，返回空数组让顶栏退回「回收站中的笔记」标题形态。
+ */
+const crumbs = computed<Crumb[]>(() => {
+  if (isTrashed.value || loading.value) return [];
+  const rel = decodeId(noteId.value);
+  const pageDir = pageDirOf(rel);
+  // 祖先链：页面的「所在目录」就是它自己，要去掉末段才是祖先；普通笔记去掉文件名即可。
+  const ancestorDir =
+    pageDir === null
+      ? rel.slice(0, Math.max(0, rel.lastIndexOf('/')))
+      : pageDir.slice(0, Math.max(0, pageDir.lastIndexOf('/')));
+  const dirs = pathChain(ancestorDir);
+
+  const out: Crumb[] = dirs.map((dirPath) => {
+    const folder = folders.value.find((item) => decodeId(item.id) === dirPath);
+    const label = folder?.name ?? dirPath.slice(dirPath.lastIndexOf('/') + 1);
+    if (folder?.page_id) return { label, to: `/notes/${folder.page_id}` };
+    return folder ? { label, to: `/folders/${folder.id}` } : { label };
+  });
+
+  const last =
+    pageDir === null
+      ? title.value.trim() || '无标题笔记'
+      : pageDir.slice(pageDir.lastIndexOf('/') + 1);
+  out.push({ label: last });
+  return out;
 });
+
+/** 正文下方的子项：这篇笔记所在目录里的直系条目 */
+const children = ref<PageChild[]>([]);
+
+async function loadChildren(): Promise<void> {
+  if (isTrashed.value) {
+    children.value = [];
+    return;
+  }
+  try {
+    children.value = await notesApi.childrenOf(noteId.value);
+  } catch {
+    children.value = [];
+  }
+}
+
+/**
+ * 文件夹列表：面包屑的每一段靠它判「这一段是页面还是纯文件夹」，所以它必须跟着当前笔记刷新 ——
+ * 只在挂载时取一次的话，**换一篇笔记之后新建的那几层在列表里根本不存在**，
+ * 面包屑会退化成不可点的纯文字（看起来像「点了没反应」）。
+ */
+async function loadFolders(): Promise<void> {
+  try {
+    folders.value = (await foldersApi.list()).items;
+  } catch {
+    // 拉取失败只影响「移动」弹窗与面包屑，不阻塞编辑
+  }
+}
+
+/** 新建子页面：页面 → 它自己的目录；普通笔记 → 它所在的目录 */
+async function addChildPage(): Promise<void> {
+  if (busy.value) return;
+  busy.value = true;
+  try {
+    await flush(); // 先把自己落盘，别让刚打的字跟着丢
+    const res = await notesApi.createPage({ parent_dir: containerDirOf(decodeId(noteId.value)) });
+    await loadFolders(); // 新目录要进列表，面包屑下一层才认得出它
+    ui.toast('已创建子页面');
+    await router.push(`/notes/${res.note.id}`);
+  } catch {
+    ui.toast('新建子页面失败，请稍后重试');
+  } finally {
+    busy.value = false;
+  }
+}
+
+function openChild(child: PageChild): void {
+  void router.push(child.kind === 'folder' ? `/folders/${child.id}` : `/notes/${child.id}`);
+}
+
+const CHILD_ICON: Record<PageChild['kind'], string> = {
+  page: '📄',
+  folder: '📁',
+  note: '📝',
+};
+
+/* --------------------------- 笔记链接 [[…]] --------------------------- */
+
+/**
+ * 笔记名 → 笔记 id。`[[…]]` 的着色、补全候选、点击跳转全靠它。
+ * 从同一次目录遍历里算（不多发请求），所以每次进详情页重取一次即可。
+ */
+const titleIndex = ref<Record<string, string>>({});
+
+async function loadTitleIndex(): Promise<void> {
+  try {
+    titleIndex.value = await notesApi.titleIndex();
+  } catch {
+    titleIndex.value = {};
+  }
+}
+
+/**
+ * 「反向链接」：谁的正文里提到了这篇的标题。
+ *
+ * 出链是补摘要时顺手记进摘要缓存的，所以这里只是把缓存补齐再派生 ——
+ * 不额外读正文、不落第二个索引文件。缓存热的时候一次就返回（不耗请求）。
+ */
+const backlinks = ref<Array<{ id: string; title: string }>>([]);
+
+async function loadBacklinks(): Promise<void> {
+  // 用**已落盘**的标题查：反链是按名字索引的，拿正在输入中的半截标题去查必然查不到
+  const name = note.value?.title?.trim() ?? '';
+  if (isTrashed.value || !name) {
+    backlinks.value = [];
+    return;
+  }
+  try {
+    backlinks.value = await notesApi.backlinks(name);
+  } catch {
+    backlinks.value = [];
+  }
+}
+
+/**
+ * 确保名字对应的笔记存在，返回它的 id。
+ *
+ * 两个入口共用：补全菜单里的「创建『X』」、点开一条红色的 `[[…]]`。
+ * 新笔记建在**这篇所在的目录**，跟它摆在一起，而不是丢到根上。
+ */
+async function ensureNote(name: string): Promise<string | null> {
+  const existing = titleIndex.value[name];
+  if (existing) return existing;
+  const dir = containerDirOf(decodeId(noteId.value));
+  try {
+    const res = await notesApi.create({ title: name, folder_id: dir ? encodeId(dir) : null });
+    await loadTitleIndex(); // 立刻重建索引，让正文里那条链接当场变蓝
+    ui.toast(`已创建「${name}」`);
+    return res.note.id;
+  } catch {
+    ui.toast('创建失败，请稍后重试');
+    return null;
+  }
+}
+
+async function openWikilink(name: string, exists: boolean): Promise<void> {
+  // 换笔记时落盘由路由 watcher 负责（这里不重复一次）
+  const id = exists ? (titleIndex.value[name] ?? null) : await ensureNote(name);
+  if (id) await router.push(`/notes/${id}`);
+}
 
 const statusText = computed(() => {
   switch (status.value) {
     case 'dirty':
-      return '未保存';
+      return '编辑中';
     case 'saving':
       return '保存中…';
     case 'saved':
@@ -369,12 +535,30 @@ async function restore(): Promise<void> {
 
 onMounted(async () => {
   await load();
-  try {
-    folders.value = (await foldersApi.list()).items;
-  } catch {
-    // 文件夹列表拉取失败只影响「移动」弹窗，不阻塞编辑
-  }
+  await loadTitleIndex();
+  await loadFolders();
+  await loadChildren();
 });
+
+/**
+ * 换笔记 / 改名之后要跟着重取的东西。
+ *
+ * 🔴 只放在 `watch(noteId)` 里是不够的：**此刻 title 还是上一篇的**（`load()` 在路由 watcher 里
+ * 晚一步才跑），反链按名字查，用错名字等于查不到。所以：
+ *   · 依赖 id 的（子项、索引、文件夹列表）跟着 noteId 走；
+ *   · 依赖标题的（反链）跟着**已落盘的标题**走 —— 它由 load() / save() 写进 `note`，
+ *     换笔记与改名两条路都覆盖到，也不会因为打字而重跑。
+ */
+watch(noteId, () => {
+  void loadChildren();
+  void loadTitleIndex();
+  void loadFolders();
+});
+
+watch(
+  () => note.value?.title ?? '',
+  () => void loadBacklinks(),
+);
 
 // 标记「这篇笔记正开着」，列表 / 文件夹 / 回收站的动作菜单据此禁用重命名 / 移动 / 删除。
 // 标题改了会换 id，所以跟着 noteId 走而不是只在挂载时标一次。
@@ -406,9 +590,14 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="editor">
-    <AppHeader :title="isTrashed ? '回收站中的笔记' : '编辑'" :subtitle="folderName" back>
+    <!--
+      顶栏左边是**层级面包屑**（框架笔记 / 子笔记B / 当前页），每段可点、末段是当前这篇。
+      不放「编辑」这种没有信息量的词，也不放「编辑中 / 已保存」这类状态字：保存是自动的，
+      一直挂个字反而吵。保存状态只留给屏幕阅读器播报（视觉上隐藏），保存失败另外走 toast。
+    -->
+    <AppHeader :title="isTrashed ? '回收站中的笔记' : ''" :crumbs="crumbs" back>
       <template #actions>
-        <span class="status mono" :class="`is-${status}`">{{ statusText }}</span>
+        <span class="sr-only status" role="status" aria-live="polite">{{ statusText }}</span>
         <button
           class="icon-btn"
           type="button"
@@ -515,10 +704,53 @@ onBeforeUnmount(() => {
           v-model="content"
           :mode="mode"
           :readonly="isTrashed"
+          :title-index="titleIndex"
           @save="scheduleSave"
           @pick-image="pickAndInsertImage"
+          @open-wikilink="openWikilink"
+          @create-note="ensureNote"
         />
       </template>
+
+      <!-- 子页面：这篇笔记所在目录里的直系条目（页面 / 纯文件夹 / 笔记） -->
+      <section v-if="!loading && !isTrashed" class="children">
+        <div class="children-head">
+          <h2 class="children-title">子页面</h2>
+          <button type="button" class="btn-ghost small" :disabled="busy" @click="addChildPage">
+            新建子页面
+          </button>
+        </div>
+        <p v-if="!children.length" class="children-empty">还没有子页面</p>
+        <ul v-else class="children-list">
+          <li v-for="child in children" :key="child.id">
+            <button type="button" class="child-card" @click="openChild(child)">
+              <span class="child-icon" aria-hidden="true">{{ CHILD_ICON[child.kind] }}</span>
+              <span class="child-text">
+                <span class="child-title">{{ child.title }}</span>
+                <span v-if="child.excerpt" class="child-excerpt">{{ child.excerpt }}</span>
+              </span>
+            </button>
+          </li>
+        </ul>
+      </section>
+
+      <!-- 反向链接：谁的正文里写了 [[这篇的标题]] -->
+      <section v-if="!loading && !isTrashed" class="children">
+        <div class="children-head">
+          <h2 class="children-title">被以下笔记提到</h2>
+        </div>
+        <p v-if="!backlinks.length" class="children-empty">还没有笔记链接到这里</p>
+        <ul v-else class="children-list">
+          <li v-for="link in backlinks" :key="link.id">
+            <button type="button" class="child-card" @click="router.push(`/notes/${link.id}`)">
+              <span class="child-icon" aria-hidden="true">🔗</span>
+              <span class="child-text">
+                <span class="child-title">{{ link.title }}</span>
+              </span>
+            </button>
+          </li>
+        </ul>
+      </section>
     </div>
 
     <!-- 更多操作 -->
@@ -643,14 +875,84 @@ onBeforeUnmount(() => {
   transition: padding-left var(--follow-dur) var(--ease-smooth);
 }
 
-.status {
-  font-size: 12px;
+/* ------------------------------ 子页面 ------------------------------ */
+
+.children {
+  margin-top: var(--sp-4);
+  padding-top: var(--sp-3);
+  border-top: 1px solid var(--divider);
+}
+
+.children-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-2);
+  margin-bottom: 12px;
+}
+
+.children-title {
+  font-size: var(--fs-sm);
+  font-weight: 600;
   color: var(--text-2);
+}
+
+.children-empty {
+  font-size: var(--fs-xs);
+  color: var(--text-2);
+}
+
+.children-list {
+  display: grid;
+  gap: 8px;
+  list-style: none;
+}
+
+.child-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--surface-border);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  text-align: left;
+  transition:
+    background-color var(--dur-fast) var(--ease-smooth),
+    border-color var(--dur-fast) var(--ease-smooth);
+}
+
+.child-card:hover {
+  background: var(--surface-2);
+}
+
+.child-icon {
+  flex: none;
+  font-size: 15px;
+}
+
+.child-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.child-title {
+  font-size: var(--fs-sm);
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.status.is-error {
-  color: var(--danger);
+.child-excerpt {
+  font-size: var(--fs-xs);
+  color: var(--text-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .more {

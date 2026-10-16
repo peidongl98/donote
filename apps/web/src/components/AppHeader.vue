@@ -155,8 +155,10 @@ function closeWindow(): void {
     </nav>
 
     <div v-else class="titles">
-      <h1 class="title">{{ title }}</h1>
-      <p v-if="subtitle" class="subtitle">{{ subtitle }}</p>
+      <h1 v-if="title" class="title">{{ title }}</h1>
+      <p v-if="subtitle || $slots.subtitle" class="subtitle">
+        <slot name="subtitle">{{ subtitle }}</slot>
+      </p>
     </div>
 
     <div class="actions">
@@ -171,7 +173,7 @@ function closeWindow(): void {
       />
       <ThemeToggle />
 
-      <div v-if="isDesktop" class="win-controls">
+      <div v-if="isDesktop" class="win-controls" :class="{ 'is-maximized': maximized }">
         <button class="win-btn" type="button" aria-label="最小化" @click="minimize">
           <svg viewBox="0 0 12 12" width="12" height="12" aria-hidden="true">
             <path d="M1.5 6h9" fill="none" stroke="currentColor" stroke-width="1" />
@@ -302,7 +304,15 @@ a.crumb:hover {
   text-overflow: ellipsis;
 }
 
+/*
+ * 副标题位是「文件元信息」的位置（文件夹名 + 保存状态这类），
+ * 所以是 flex 行：几段信息并排、各自可截断，不换行把顶栏撑高。
+ */
 .subtitle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
   font-size: var(--fs-xs);
   color: var(--text-2);
 }
@@ -312,6 +322,12 @@ a.crumb:hover {
   align-items: center;
   gap: 4px;
   flex: none;
+  /*
+   * 撑满顶栏，窗口按钮区才有 48px 可贴 —— 默认按内容撑高（≈41px）再垂直居中，
+   * 关闭按钮的红色块上下各会露 3px 顶栏底色，看着像没贴边。
+   * 其余子项靠 align-items: center 保持居中，不受影响。
+   */
+  align-self: stretch;
 }
 
 /* 同步状态点：绿=已同步，黄=有待推改动/冲突，灰=离线用缓存 */
@@ -347,6 +363,16 @@ a.crumb:hover {
   align-self: stretch;
   margin-right: calc(var(--page-gutter) * -1);
   margin-left: 4px;
+  /*
+   * 窗口是无边框的，右上角圆角由 DWM 裁（Win11 = 8px 逻辑像素）；
+   * hover 底色是直角矩形，不跟这个角就是月牙形缺口，一眼看出没贴边。
+   * 最大化时系统不裁圆角，所以这里要跟着回到直角。
+   */
+  --win-corner: 8px;
+}
+
+.win-controls.is-maximized {
+  --win-corner: 0px;
 }
 
 .win-btn {
@@ -354,6 +380,11 @@ a.crumb:hover {
   align-items: center;
   justify-content: center;
   width: 46px;
+  /*
+   * 顶栏下沿有 1px 分隔线。不吃掉它，hover 底色就压不到窗口边缘，
+   * 红块下面会留一条灰线 —— 只有 hover 时看得见，但正是「不贴边」的来源。
+   */
+  margin-bottom: -1px;
   color: var(--text-2);
   transition:
     background-color var(--dur-fast) var(--ease-smooth),
@@ -363,6 +394,11 @@ a.crumb:hover {
 .win-btn:hover {
   background: var(--surface);
   color: var(--text);
+}
+
+/* 只有最右这个按钮压在窗口右上角上，圆角只给它 */
+.win-btn.is-close {
+  border-top-right-radius: var(--win-corner);
 }
 
 .win-btn.is-close:hover {

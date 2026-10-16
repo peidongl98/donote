@@ -167,7 +167,8 @@ function check(name, ok, detail = '') {
     check('7 刷新后正文不丢', (await surface.innerText()).includes(TOKEN));
 
     // ---------- 9. 源码模式字节精确 ----------
-    await page.getByRole('button', { name: '源码' }).click();
+    // `exact` 是为了跟正文下方的子页面卡片（可访问名 = 笔记标题）区分开
+    await page.getByRole('button', { name: '源码', exact: true }).click();
     await source.waitFor({ state: 'visible', timeout: 10000 });
     await page.waitForTimeout(300);
     const sourceText = await source.inputValue();
@@ -190,7 +191,7 @@ function check(name, ok, detail = '') {
 
     // ---------- 11. 切回所见即所得 ----------
     // 切回要把正文重新过一遍 Milkdown 的解析 → 序列化，第一次会先问一句
-    await page.getByRole('button', { name: '所见即所得' }).click();
+    await page.getByRole('button', { name: '所见即所得', exact: true }).click();
     const keepGoing = page.locator('[role="dialog"] .major');
     await keepGoing.waitFor({ state: 'visible', timeout: 5000 }).catch(() => undefined);
     check('11 首次切回会先提示格式会被规范化', await keepGoing.isVisible().catch(() => false));

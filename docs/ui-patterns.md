@@ -141,3 +141,18 @@
     真正的滚动容器是 `.page-body`。整页滚时滚动条属于文档，会从窗口最顶端一路盖到标题栏的
     最小化 / 最大化 / 关闭那一条上。内容列居中由 `.page-body` 的左右 padding 承担
     （`--content-pad`，按改前 `max-width` + `margin:auto` 的 border box 几何反推）。
+12. **无边框窗口：右上角按钮的悬停底色必须与窗口边缘严丝合缝（`components/AppHeader.vue`）**。
+    窗口没有原生边框（`decorations: false`），三面都要自己对齐，缺一条就露缝：
+    - 右边缘：`.win-controls` 用 `margin-right: calc(var(--page-gutter) * -1)` 抵消顶栏内边距。
+    - 下边缘：`.win-btn` 用 `margin-bottom: -1px` 吃掉顶栏那条 `border-bottom` ——
+      不吃的后果是 hover 底色下面横着一条灰线，只有悬停时可见。
+    - 右上角：关闭按钮压着 DWM 裁出来的圆角（Win11 = 8px 逻辑像素），要
+      `border-top-right-radius: var(--win-corner)` 跟着走，否则角上留一块月牙形缺口。
+      最大化时系统**不裁**圆角，`.win-controls.is-maximized` 得把 `--win-corner` 归零。
+    只给最右那个按钮圆角：其余两个不落在角上。
+13. **编辑页顶栏不放「编辑」这类零信息量的词，也不放保存状态字（`views/NoteEditView.vue`）**。
+    标题位留给真正的信息，没有就不渲染（`AppHeader` 的 `h1` 是 `v-if="title"`）。副标题位只放
+    「这篇在哪」——文件夹名，`--fs-xs` + `--text-2` 淡灰小字。保存是自动的，视觉上一直挂
+    「编辑中 / 已保存」只会吵。保存状态改成 `.sr-only` 的 `role="status" aria-live="polite"`
+    元素，只给屏幕阅读器播报，**别删**：回归套件（stage2 / stage4 / stage5 / stage6 / notes）
+    靠它判定「自动保存完成」。保存失败另走 toast。

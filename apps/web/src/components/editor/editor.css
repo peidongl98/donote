@@ -252,28 +252,70 @@ html[data-theme='dark'] .donote-surface .ProseMirror {
 
 /* ---------------------------- 公式 ---------------------------- */
 
-/* 本批次不接 KaTeX，公式显示为等宽的 LaTeX 原文 */
+/* 这一层就是公式自己的 DOM（NodeView 接管了 math_inline / math_block，见 math.ts）：
+   正文里只有 KaTeX 排出来的式子，LaTeX 源码在点开的面板里改 */
+
+/* 行内：跟着文字流走，只留一点内边距，不动行高 */
 .donote-surface .ProseMirror .donote-math-inline {
-  font-family: var(--font-mono);
-  font-size: 0.88em;
-  padding: 0.1em 0.35em;
-  border-radius: 6px;
-  background: var(--accent-soft);
-  color: var(--text);
-  cursor: default;
+  padding: 0 2px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background-color var(--dur-fast) var(--ease-smooth);
 }
 
+.donote-surface .ProseMirror .donote-math-inline:hover {
+  background: var(--accent-soft);
+}
+
+/* 块级：独立成块，居中 */
 .donote-surface .ProseMirror .donote-math-block {
-  font-family: var(--font-mono);
-  font-size: 0.88em;
-  line-height: 1.6;
-  white-space: pre-wrap;
   margin: 0.9em 0;
   padding: 12px 14px;
   border-radius: var(--r-sm);
-  background: var(--accent-soft);
-  color: var(--text);
+  background: var(--surface-2);
+  border: 1px solid var(--surface-border);
   overflow-x: auto;
+  text-align: center;
+  cursor: pointer;
+  transition: border-color var(--dur-fast) var(--ease-smooth);
+}
+
+.donote-surface .ProseMirror .donote-math-block:hover {
+  border-color: var(--accent-ring);
+}
+
+.donote-surface .ProseMirror .donote-math-inline:focus-visible,
+.donote-surface .ProseMirror .donote-math-block:focus-visible {
+  outline: 2px solid var(--accent-ring);
+  outline-offset: 2px;
+}
+
+.donote-surface .ProseMirror .donote-math-inline.is-selected,
+.donote-surface .ProseMirror .donote-math-block.is-selected {
+  outline: 2px solid var(--accent-ring);
+}
+
+/* 空的公式：退成一句提示，别让用户对着一片空白猜该干什么 */
+.donote-surface .ProseMirror .donote-math-inline.is-empty,
+.donote-surface .ProseMirror .donote-math-block.is-empty {
+  font-family: var(--font-mono);
+  font-size: 0.88em;
+  color: var(--text-2);
+}
+
+/* 公式跟着正文一个颜色 —— KaTeX 自己不设 color，暗 / 亮两套主题靠令牌自动切 */
+.donote-surface .ProseMirror .katex {
+  color: var(--text);
+}
+
+/* 语法错时 KaTeX 把出错的那一段画成红色；它是内联 style，得 !important 才压得住 */
+.donote-surface .ProseMirror .katex-error {
+  color: var(--danger) !important;
+}
+
+/* 块级公式的上下留白由容器给，KaTeX 自带那一份归零 */
+.donote-surface .ProseMirror .donote-math-block .katex-display {
+  margin: 0;
 }
 
 /* ---------------------------- 思维导图块 ---------------------------- */
@@ -319,6 +361,27 @@ html[data-theme='dark'] .donote-surface .ProseMirror {
   color: var(--danger);
   border-color: var(--danger-soft);
   cursor: default;
+}
+
+/* ---------------------------- 笔记链接 [[…]] ---------------------------- */
+
+/* 这一层是 Decoration.inline 生成的 span（见 wikilink.ts）。正文里 `[[名字]]` 是**纯文本**，
+   没有任何节点或标记 —— 这里只上色，落盘一个字节都不受影响。
+   蓝色 = 目标存在，点一下跳过去 */
+.donote-surface .ProseMirror .donote-wikilink {
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-radius: 4px;
+  padding: 0 2px;
+  cursor: pointer;
+}
+
+/* 红色 = 还没有这篇笔记，点一下会建出来 */
+.donote-surface .ProseMirror .donote-wikilink.is-missing {
+  color: var(--danger);
+  background: var(--danger-soft);
+  text-decoration: underline dotted;
+  text-underline-offset: 2px;
 }
 
 /* ---------------------------- 光标 ---------------------------- */

@@ -35,7 +35,7 @@
     "stage4": {
       "file": "stage4-toolbar.cjs",
       "title": "编辑器工具栏",
-      "covers": "15 项工具栏：每一项既看 DOM 变化，也看最终落盘的 Markdown；含表格增删的边界（表头行 / 最后一行）与思维导图块的 NodeView + 源码面板",
+      "covers": "17 项工具栏：每一项既看 DOM 变化，也看最终落盘的 Markdown；含表格增删的边界（表头行 / 最后一行）与思维导图块的 NodeView + 源码面板",
       "estSeconds": 38,
       "checks": 52
     },
@@ -66,6 +66,20 @@
       "covers": "右键 /「更多」菜单 → 重命名 / 移动 / 删除；回收站菜单 → 恢复 / 彻底删除；编辑态标记",
       "estSeconds": 57,
       "checks": 23
+    },
+    "nested": {
+      "file": "nested-e2e.cjs",
+      "title": "笔记嵌套与笔记间导航",
+      "covers": "index.md 页面模型（顶层页面 / 新建子页面 / 侧栏层级 / 面包屑 / 拖 .md 变子页面 / 整棵删除与恢复 / 普通笔记行为不变），以及 [[…]] 链接（补全菜单 / 跳转 / 缺失变红与一键创建 / 反向链接 / 改名后引用跟着改 / 搜索结果带层级路径 / 删除被引用笔记后链接变红）",
+      "estSeconds": 75,
+      "checks": 32
+    },
+    "math": {
+      "file": "math-e2e.cjs",
+      "title": "公式（KaTeX 渲染与编辑面板）",
+      "covers": "块级与行内公式的 KaTeX 排版、点击弹编辑面板并实时预览、关闭写回正文、工具栏「公式」按钮、输入规则（`$$` 与成对的 `$…$`，价格文本不误转）、落盘保真（`$$…$$` / `$…$` / `\\,` 间距指令）、暗亮两套主题下的颜色、思维导图块不受影响",
+      "estSeconds": 75,
+      "checks": 15
     }
   },
   "modules": {
@@ -132,7 +146,9 @@
         "stage2",
         "stage4",
         "stage5",
-        "stage6"
+        "stage6",
+        "nested",
+        "math"
       ]
     },
     "sidebar": {
@@ -142,7 +158,8 @@
         "apps/web/src/components/SidebarTree.vue"
       ],
       "suites": [
-        "stage7"
+        "stage7",
+        "nested"
       ]
     },
     "chrome": {
@@ -167,7 +184,8 @@
       ],
       "suites": [
         "actions",
-        "stage7"
+        "stage7",
+        "nested"
       ]
     },
     "ui-kit": {
@@ -193,7 +211,8 @@
       "suites": [
         "notes",
         "actions",
-        "life"
+        "life",
+        "nested"
       ]
     },
     "views-note": {
@@ -205,7 +224,9 @@
         "stage2",
         "stage4",
         "stage5",
-        "stage6"
+        "stage6",
+        "nested",
+        "math"
       ]
     },
     "views-folders": {
@@ -229,7 +250,8 @@
       "suites": [
         "notes",
         "actions",
-        "life"
+        "life",
+        "nested"
       ]
     },
     "views-login": {
@@ -301,6 +323,17 @@
       "suites": [
         "notes",
         "stage7"
+      ]
+    },
+    "notes-model": {
+      "title": "笔记数据层（index.md 页面模型 / [[…]] / 反链索引）",
+      "paths": [
+        "apps/web/src/storage/**"
+      ],
+      "suites": [
+        "notes",
+        "nested",
+        "life"
       ]
     }
   },

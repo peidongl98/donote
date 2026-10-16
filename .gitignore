@@ -45,4 +45,4 @@ scripts/regression/.logs/
 .updater-key/
 
 # 安装包是可再生成的产物（每次发版都变、体积 MB 级），由 scripts/make-release.mjs 铺出来
-site/downloads/*.exe
+site/downloads/*

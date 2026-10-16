@@ -103,8 +103,18 @@ export function serializeNote(meta: NoteMeta, body: string): string {
   return `${lines.join('\n')}\n${body}`;
 }
 
-/** 列表里展示的摘要：跳过空行，截到 240 字 */
+/**
+ * 列表里展示的摘要：跳过空行，截到 240 字。
+ *
+ * 顺手把 `\[\[` / `\]\]` 还原成 `[[` / `]]` —— 序列化器会把方括号转义（见
+ * `notes.ts` 的 `WIKILINK_RE`），摘要只是给人看的，带着一堆反斜杠很脏。
+ * **只影响展示**：摘要是从正文派生出来的缓存，从不写回文件。
+ */
 export function excerptOf(body: string): string {
-  const text = body.replace(/\s+/g, ' ').trim();
+  const text = body
+    .replace(/\\\[\\\[/g, '[[')
+    .replace(/\\\]\\\]/g, ']]')
+    .replace(/\s+/g, ' ')
+    .trim();
   return text.length > 240 ? text.slice(0, 240) : text;
 }

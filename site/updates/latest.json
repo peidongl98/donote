@@ -1,11 +1,11 @@
 {
-  "version": "0.3.0",
-  "notes": "绿色版来了：免安装的 zip 包，解压即用，配置和缓存都留在解压目录里。安装版会在启动后自动把新版本下好，你点一下「重启以更新」就装上了。",
-  "pub_date": "2026-10-15T10:28:52Z",
+  "version": "0.4.0",
+  "notes": "笔记可以嵌套成子页面了：一个目录配一个 index.md 就是一篇页面，侧栏树、面包屑、详情页的子项列表都跟着层级走，拖 .md 到编辑页会变成当前页的子页面。正文里写 [[笔记名]] 就是一条指向其他笔记的链接，点一下跳过去，目标不存在时显示红色并能顺手建出来；详情页底部会列出所有提到这篇的笔记，改名时指向旧名字的链接一起改掉。公式也能排版了：块级与行内公式交给 KaTeX 渲染，点一下弹面板改 LaTeX、右边实时预览，工具栏新增「公式」按钮。",
+  "pub_date": "2026-10-16T02:01:49Z",
   "platforms": {
     "windows-x86_64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSWTRLN1pZbGY4NHN6eUdvNEJTL0lLZGxhYWFqNGppdTRzbE11YjRZaE1tM3B0SzFlNjhraS94RTVNRlAxQUpzdWFXQm1INDhZcG11VVlkeVNlcVpUQTNwVWYvSWt6SkE0PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkyMDU5NzQwCWZpbGU6RG9Ob3RlXzAuMy4wX3g2NC1zZXR1cC5leGUJdmVyc2lvbjowLjMuMApHSm1adkxuM3RkWHFrZjBpM3VvQ2hDV0tIa3c3S3l0NVBMS05kbm9nQ3luYWkyZmZRK3BEVmovdkh6VjlZSk5hTnRGZ2prWVoxTENxRlNqZ2RaeStBQT09Cg==",
-      "url": "https://donote.pages.dev/downloads/DoNote-0.3.0-win-x64.exe"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSWTRLN1pZbGY4NGtWSG0zOEZ6d0RsU3FyOG5QQ2FXK0JLTWl1akNQTnZTbHNWY0YyZUp1NG9sbTIrTFpaYmRLY09hMjlndmF4Z2hLcURHTnB6Zjl6cGJJNCtMV0Z2cEEwPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkyMTE2MTA4CWZpbGU6RG9Ob3RlXzAuNC4wX3g2NC1zZXR1cC5leGUJdmVyc2lvbjowLjQuMApVMHZQdGdrVWpTeUlDU1lHRnFWNlIxL3VXdy90QnFSQWc5ZkZpQ1J2dE5uTkNBQStYZ1A5UFNMTHkrck8xSUJLUDBLVTBwR3VLMElnWk94dTlHNThBUT09Cg==",
+      "url": "https://donote.pages.dev/downloads/DoNote-0.4.0-win-x64.exe"
     }
   }
 }

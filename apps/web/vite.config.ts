@@ -80,6 +80,10 @@ export default defineConfig({
       // 多数 WebDAV 服务不返回 CORS 响应头，浏览器直连必被拦。
       // dev 用代理转发，让网页端能调试；端上（Tauri / 鸿蒙）走原生网络栈，不需要它。
       // ⚠️ 代理目标写死，因此只有坚果云在 dev 下可用；换别的服务器只能靠端上。
+      //
+      // 🔴 网页端**不是产品形态**（详见 docs/PLAN.md）：线上要让浏览器连上 WebDAV，就得
+      // 自己架一层反代，那样用户的账号密码与全部笔记都会经过那台服务器。这条代理只服务
+      // 本地开发与回归测试，永远不要把它当成「部署网页版」的现成方案。
       '/nutdav': {
         target: 'https://dav.jianguoyun.com',
         changeOrigin: true,

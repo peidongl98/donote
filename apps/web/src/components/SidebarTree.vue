@@ -14,7 +14,7 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import type { FolderDTO, NoteSummaryDTO } from '@donote/shared';
 import { RouterLink, useRoute, useRouter } from 'vue-router';
-import { DavError, decodeId, foldersApi, notesApi } from '@/storage/notes';
+import { DavError, containerDirOf, decodeId, foldersApi, notesApi } from '@/storage/notes';
 import { buildExportHtml, saveExportHtml } from '@/services/export-html';
 import { useLayoutStore } from '@/stores/layout';
 import { useSyncStore } from '@/stores/sync';
@@ -144,7 +144,8 @@ watch(() => props.reloadToken, refresh);
 type MenuKind = 'folder' | 'note' | 'blank';
 
 const MENU_W = 208;
-const MENU_H = 336;
+/** 贴边翻转用的高度估值：菜单项最多的一项（文件夹行，页面时 9 项） */
+const MENU_H = 380;
 
 const menu = ref<{
   kind: MenuKind;
@@ -276,6 +277,41 @@ async function newNote(folder: FolderDTO | null): Promise<void> {
   } finally {
     busy.value = false;
   }
+}
+
+/**
+ * 新建子页面（目录 + index.md）。
+ *
+ * 落点分三种：目录行 → 该目录；笔记行 → 那篇笔记的**所在目录**（`containerDirOf`：
+ * 页面用自己的目录，普通笔记用所在目录）；空白处 → 根目录。
+ */
+async function newSubPage(folder: FolderDTO | null, noteId?: string): Promise<void> {
+  closeMenu();
+  if (busy.value) return;
+  busy.value = true;
+  try {
+    const parentDir = noteId
+      ? containerDirOf(decodeId(noteId))
+      : folder
+        ? decodeId(folder.id)
+        : '';
+    const res = await notesApi.createPage({ parent_dir: parentDir });
+    if (folder) expand(folder.id);
+    layout.close();
+    await router.push(`/notes/${res.note.id}`);
+  } catch {
+    ui.toast('新建子页面失败，请稍后重试');
+  } finally {
+    busy.value = false;
+  }
+}
+
+/** 打开目录行代表的页面（那个目录里有 index.md） */
+function openPage(folder: FolderDTO): void {
+  closeMenu();
+  if (!folder.page_id) return;
+  layout.close();
+  void router.push(`/notes/${folder.page_id}`);
 }
 
 function openCreateFolder(parent: FolderDTO | null): void {
@@ -526,7 +562,9 @@ const deleteCounts = computed(() =>
         'is-branch': row.kind === 'folder',
         'is-current':
           (row.kind === 'note' && row.note.id === currentNoteId) ||
-          (row.kind === 'folder' && row.folder.id === currentFolderId),
+          (row.kind === 'folder' &&
+            (row.folder.id === currentFolderId ||
+              (!!row.pageId && row.pageId === currentNoteId))),
       }"
       :style="{ paddingLeft: `${row.depth * 18}px` }"
       @click="onRowClick(row)"
@@ -554,12 +592,16 @@ const deleteCounts = computed(() =>
         </button>
         <span v-else class="twist" aria-hidden="true" />
 
+        <!--
+          目录里有 index.md → 这个目录本身是一个**页面**：图标换成 📄、点它进笔记详情页。
+          展开箭头照旧（页面也能装子项）。没有 index.md 的目录仍是 📁 → 文件夹详情页。
+        -->
         <RouterLink
           class="tree-link"
-          :to="`/folders/${row.folder.id}`"
+          :to="row.pageId ? `/notes/${row.pageId}` : `/folders/${row.folder.id}`"
           @click.stop="layout.close()"
         >
-          <span class="tree-label">📁 {{ row.folder.name }}</span>
+          <span class="tree-label">{{ row.pageId ? '📄' : '📁' }} {{ row.folder.name }}</span>
         </RouterLink>
         <!-- 名字只占自己的宽度，右边这片留给「点行 = 展开折叠」。
              名字撑满整行的话，用户点哪儿都是跳转，等于没有「点行折叠」这个操作 -->
@@ -570,8 +612,8 @@ const deleteCounts = computed(() =>
             class="act"
             type="button"
             :disabled="busy"
-            aria-label="在此文件夹新建笔记"
-            @click.stop="newNote(row.folder)"
+            :aria-label="row.pageId ? '在此新建子页面' : '在此文件夹新建笔记'"
+            @click.stop="row.pageId ? newSubPage(row.folder) : newNote(row.folder)"
           >
             <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true">
               <path
@@ -647,8 +689,24 @@ const deleteCounts = computed(() =>
         </p>
 
         <template v-if="menu.kind === 'folder'">
+          <button
+            v-if="menu.folder?.page_id"
+            type="button"
+            class="menu-item"
+            @click="openPage(menu.folder!)"
+          >
+            打开页面
+          </button>
           <button type="button" class="menu-item" :disabled="busy" @click="newNote(menu.folder)">
             新建笔记
+          </button>
+          <button
+            type="button"
+            class="menu-item"
+            :disabled="busy"
+            @click="newSubPage(menu.folder)"
+          >
+            新建子页面
           </button>
           <button type="button" class="menu-item" @click="openCreateFolder(menu.folder)">
             新建子文件夹
@@ -677,13 +735,30 @@ const deleteCounts = computed(() =>
           >
             删除…
           </button>
-          <button type="button" class="menu-item" @click="openDismiss(menu.folder!)">
+          <!--
+            「解散（内容上移）」对页面没有意义：页面自己就是那个 index.md，解散会把它变成一个
+            同名的 X.md，等于把页面悄悄拆掉。有页面的目录不提供这一项。
+          -->
+          <button
+            v-if="!menu.folder?.page_id"
+            type="button"
+            class="menu-item"
+            @click="openDismiss(menu.folder!)"
+          >
             解散（内容上移）
           </button>
         </template>
 
         <template v-else-if="menu.kind === 'note'">
           <button type="button" class="menu-item" @click="openNote(menu.note!)">打开</button>
+          <button
+            type="button"
+            class="menu-item"
+            :disabled="busy"
+            @click="newSubPage(null, menu.note!.id)"
+          >
+            新建子页面
+          </button>
           <button type="button" class="menu-item" @click="openRename('note', menu.note!)">
             重命名
           </button>
@@ -713,6 +788,9 @@ const deleteCounts = computed(() =>
         <template v-else>
           <button type="button" class="menu-item" :disabled="busy" @click="newNote(null)">
             新建笔记
+          </button>
+          <button type="button" class="menu-item" :disabled="busy" @click="newSubPage(null)">
+            新建页面
           </button>
           <button type="button" class="menu-item" @click="openCreateFolder(null)">
             新建文件夹

@@ -1,5 +1,5 @@
 /**
- * 阶段 4 验收：Word 式工具栏 15 项。
+ * 阶段 4 验收：Word 式工具栏 17 项。
  *
  * 真实坚果云，无 mock。每一项都既看编辑器 DOM 变了没，也看最终落盘的 Markdown 对不对 ——
  * 只验 DOM 会漏掉「看着对、存下来是错的」这类问题。
@@ -125,7 +125,7 @@ function check(name, ok, detail = '') {
     // ---------- 1. 工具栏在 ----------
     check('1 工具栏出现在编辑器顶部', await page.locator('.toolbar').isVisible());
     const toolCount = await page.locator('.toolbar button[aria-label]').count();
-    check('1 14 个操作按钮齐全（＋段落样式下拉共 15 项）', toolCount === 14, `${toolCount} 个按钮`);
+    check('1 16 个操作按钮齐全（＋段落样式下拉共 17 项）', toolCount === 16, `${toolCount} 个按钮`);
     check('1 段落样式下拉在', await page.locator('.toolbar select').count() === 1);
     await page.screenshot({ path: path.join(SHOTS, '01-toolbar.png') });
 

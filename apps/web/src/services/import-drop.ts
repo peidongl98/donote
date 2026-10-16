@@ -34,6 +34,12 @@ export interface ImportOptions {
   onProgress?: (done: number, total: number) => void;
   /** 都导到哪个文件夹下；null / 省略 = 同步根 */
   baseFolderId?: string | null;
+  /**
+   * 拖进**笔记详情页**时给的落点（相对同步根的目录路径）：这些 .md 各变成一个**子页面**
+   * （`<父目录>/<名字>/index.md`），而不是同级笔记。`null` / 省略 = 老行为。
+   * 用 `null` 与 `''` 区分「没指定」（老行为）与「落在根目录」（也是子页面语义）。
+   */
+  asChildPagesOf?: string | null;
 }
 
 interface DirEntryDto {
@@ -107,13 +113,34 @@ export async function importItems(
   items: ImportItem[],
   options: ImportOptions = {},
 ): Promise<ImportResult> {
-  const { onProgress, baseFolderId = null } = options;
+  const { onProgress, baseFolderId = null, asChildPagesOf = null } = options;
   const folderIds = new Map<string, string | null>([['', baseFolderId]]);
   const pending = items.filter((item) => MARKDOWN.test(item.rel));
   const skipped = items.filter((item) => !MARKDOWN.test(item.rel)).map((item) => item.rel);
   let folders = 0;
   let notes = 0;
   let done = 0;
+
+  /**
+   * 拖进笔记详情页：每篇 .md 变成一个子页面。这一路**不建中间目录** ——
+   * 拖进来的散文件都落在同一个父页面下（拖文件夹进来也是全放平），
+   * 否则「拖到 A 页面下」会变成「拖出一整棵新树挂在 A 下」，与所见不符。
+   */
+  if (asChildPagesOf !== null) {
+    for (const item of pending) {
+      const file = item.rel.split('/').pop() as string;
+      const { title, body } = splitFrontmatter(await item.read());
+      await notesApi.createPage({
+        parent_dir: asChildPagesOf,
+        title: title ?? file.replace(MARKDOWN, ''),
+        content: body,
+      });
+      notes += 1;
+      done += 1;
+      onProgress?.(done, pending.length);
+    }
+    return { notes, folders, skipped };
+  }
 
   const ensureFolder = async (rel: string): Promise<string | null> => {
     const cached = folderIds.get(rel);

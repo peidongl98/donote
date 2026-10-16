@@ -20,7 +20,9 @@ import {
   dropTable,
   insertHr,
   insertMermaid,
+  insertMath,
   insertTable,
+  insertWikilink,
   removeCol,
   removeLink,
   removeRow,
@@ -44,11 +46,16 @@ const props = defineProps<{
   state: ToolbarSnapshot;
   /** 只读时整条工具栏不响应 */
   disabled?: boolean;
+  /** 笔记名 → 笔记 id，只用来给「链接到笔记」的输入框做候选 */
+  titleIndex?: Record<string, string>;
 }>();
 
 const emit = defineEmits<{ image: [] }>();
 
 const ui = useUiStore();
+
+/** 「链接到笔记」输入框的候选：所有笔记名（原生 datalist，零 JS 也能用） */
+const noteTitles = computed(() => Object.keys(props.titleIndex ?? {}).sort((a, b) => a.localeCompare(b, 'zh')));
 
 /** 图标用一条或多条 stroke 路径描述；fill 一律 none，靠 currentColor 上色 */
 interface Tool {
@@ -140,6 +147,15 @@ const BLOCK_TOOLS: Tool[] = [
     paths: ['M10.6 13.4a3.6 3.6 0 0 1 0-5.1l1.9-1.9a3.6 3.6 0 0 1 5.1 5.1l-.9.9', 'M13.4 10.6a3.6 3.6 0 0 1 0 5.1l-1.9 1.9a3.6 3.6 0 0 1-5.1-5.1l.9-.9'],
   },
   {
+    id: 'note-link',
+    label: '链接到笔记',
+    paths: [
+      'M6.2 5.5h5.6v13H6.2z',
+      'M14.4 9.4a2.6 2.6 0 1 1 3.6 3.6l-1.1 1.1',
+      'M17.4 14.6a1.5 1.5 0 1 1-2.1 2.1',
+    ],
+  },
+  {
     id: 'image',
     label: '图片',
     paths: ['M4.5 6h15v12h-15z', 'M8.6 10.6a1.4 1.4 0 1 0 0-2.8 1.4 1.4 0 0 0 0 2.8', 'm5 16.5 4.2-4.6 3.6 3.6 2.4-2.4 3.8 3.4'],
@@ -155,6 +171,11 @@ const BLOCK_TOOLS: Tool[] = [
     active: 'mermaid',
     paths: ['M3.8 12h5', 'M8.8 5.5v13', 'M8.8 5.5h4M8.8 12h4M8.8 18.5h4', 'M14.8 3.5h5v4h-5zM14.8 10h5v4h-5zM14.8 16.5h5v4h-5z'],
   },
+  {
+    id: 'formula',
+    label: '公式',
+    paths: ['M17.6 6.4H7.2l5.4 5.8-5.4 5.8h10.4', 'M19.6 9.6v4.8'],
+  },
 ];
 
 const HEADINGS = [
@@ -169,6 +190,10 @@ const HEADINGS = [
 
 const linkOpen = ref(false);
 const linkValue = ref('');
+
+/** 「链接到笔记」的输入框。和「链接」一样是贴按钮的 dropdown */
+const noteLinkOpen = ref(false);
+const noteLinkValue = ref('');
 
 /** 表格尺寸网格：点「表格」弹 8×8，悬停选尺寸，点了才插；初始高亮 3×3 */
 const GRID_MAX = 8;
@@ -243,6 +268,10 @@ function onTool(tool: Tool): void {
       linkValue.value = props.state.link ?? '';
       linkOpen.value = true;
       break;
+    case 'note-link':
+      noteLinkValue.value = '';
+      noteLinkOpen.value = true;
+      break;
     case 'image':
       emit('image');
       break;
@@ -252,6 +281,9 @@ function onTool(tool: Tool): void {
     case 'mindmap':
       insertMermaid(e);
       break;
+    case 'formula':
+      insertMath(e);
+      break;
     default:
       break;
   }
@@ -260,6 +292,17 @@ function onTool(tool: Tool): void {
 function confirmLink(): void {
   applyLink(props.editor, linkValue.value.trim());
   linkOpen.value = false;
+}
+
+/**
+ * 「链接到笔记」：把输入框里的名字写成 `[[名字]]`。
+ *
+ * 输入框留空 = 拿当前选中的文字当名字（`选中「框架笔记」→ 点这里 → 确定`）。
+ * 名字不在索引里也没关系 —— 落盘还是那条原文，渲染成红色，点一下就能建。
+ */
+function confirmNoteLink(): void {
+  insertWikilink(props.editor, noteLinkValue.value);
+  noteLinkOpen.value = false;
 }
 
 /**
@@ -419,6 +462,25 @@ function dropLink(): void {
       <button type="button" class="chip is-primary" @click="confirmLink">确定</button>
       <button v-if="state.link" type="button" class="chip" @click="dropLink">移除</button>
       <button type="button" class="chip" @click="linkOpen = false">取消</button>
+    </div>
+
+    <!-- 链接到笔记：填名字（有候选列表），或直接拿选中的文字当名字 -->
+    <div v-if="noteLinkOpen" class="popover">
+      <input
+        v-model="noteLinkValue"
+        class="pop-input"
+        type="text"
+        list="donote-note-titles"
+        placeholder="笔记名，留空则用选中的文字"
+        aria-label="链接到笔记"
+        @keydown.enter.prevent="confirmNoteLink"
+        @keydown.esc.prevent="noteLinkOpen = false"
+      />
+      <datalist id="donote-note-titles">
+        <option v-for="name in noteTitles" :key="name" :value="name" />
+      </datalist>
+      <button type="button" class="chip is-primary" @click="confirmNoteLink">确定</button>
+      <button type="button" class="chip" @click="noteLinkOpen = false">取消</button>
     </div>
   </div>
 </template>

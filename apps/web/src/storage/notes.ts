@@ -3,8 +3,13 @@
  *
  * 文件模型
  *   <同步根>/<文件夹…>/<标题>.md   一篇笔记 = 一个 .md 文件
+ *   <同步根>/<目录…>/index.md      该目录是一个**页面**（可写正文，也可装子页面）
  *   <同步根>/.trash/<时间>-<随机>-<标题>.md   删除先进回收站，frontmatter 记原路径
  *   文件夹 = 真目录；以 `.` 开头的目录（含 .trash）不参与展示
+ *
+ * 页面的判定只看一条：目录里有 index.md（大小写不敏感）→ 页面；没有 → 纯文件夹。
+ * 因此**零迁移**：现有笔记与文件夹在新模型下行为完全不变，index.md 只在用户主动建子页面时出现。
+ * 页面笔记的 id 与普通笔记同一套（路径的 base64url），所以 /notes/:id 直接复用。
  *
  * 网络请求全部交给 services/storage 的适配器，这里只做业务：
  * 路径与命名规则、目录遍历与缓存、DTO 组装、搜索。
@@ -67,6 +72,48 @@ function stemOf(name: string): string {
   return name.toLowerCase().endsWith('.md') ? name.slice(0, -3) : name;
 }
 
+/**
+ * 是不是「页面文件」——即某个目录下的 `index.md`。
+ *
+ * ⚠️ 判据必须带目录前缀（`/index.md`）：同步根下的 `index.md`（rel 就是 `index.md`）
+ * 只是根目录里一篇普通笔记，根目录本身不是页面。
+ */
+export function isPageFile(rel: string): boolean {
+  return rel.toLowerCase().endsWith('/index.md');
+}
+
+/** 页面所在的目录路径；不是页面文件返回 null */
+export function pageDirOf(rel: string): string | null {
+  return isPageFile(rel) ? parentOf(rel) : null;
+}
+
+/**
+ * 「这篇笔记的子页面该落在哪」——页面用它自己的目录，普通笔记用它所在的目录。
+ *
+ * 普通笔记没有属于自己的目录，所以退化到所在目录（子页面与它平级）：可预期，且
+ * 不需要挪动用户的任何既有文件。详见 docs/index-md-design.md §2.5。
+ */
+export function containerDirOf(rel: string): string {
+  return pageDirOf(rel) ?? parentOf(rel);
+}
+
+/** 显示标题：页面取目录末段名（fs 里那个文件叫 index.md，不能拿它当标题） */
+function titleOf(rel: string): string {
+  const dir = pageDirOf(rel);
+  return dir === null ? baseName(rel) : lastSegment(dir);
+}
+
+/** 目录里有没有 index.md —— 建同名笔记时要拿它判「会不会与页面撞车」 */
+async function hasIndexFile(dirRel: string): Promise<boolean> {
+  if (!dirRel) return false;
+  try {
+    const entries = await getStorage().list(dirRel, { fresh: true });
+    return entries.some((entry) => !entry.isDirectory && entry.name.toLowerCase() === 'index.md');
+  } catch {
+    return false;
+  }
+}
+
 /** 文件名里不能出现的字符换掉；给用户看的标题不受影响 */
 function sanitize(name: string): string {
   const cleaned = name
@@ -111,6 +158,13 @@ async function readOrNull(rel: string, preferCache = false): Promise<string | nu
 interface Tree {
   notes: DirEntry[];
   dirs: DirEntry[];
+  /** 目录路径 → 该目录里的 index.md 条目。**有值即「这个目录是一个页面」** */
+  pages: Map<string, DirEntry>;
+}
+
+/** 全部「笔记条目」，含页面（页面的条目就是它目录里的 index.md） */
+function allEntries(data: Tree): DirEntry[] {
+  return [...data.notes, ...data.pages.values()];
 }
 
 const MAX_DIRS = 300;
@@ -118,7 +172,7 @@ const MAX_DEPTH = 8;
 
 /** 广度优先递归；同层并发 4，避免一条条串行把加载拖到十几秒 */
 async function walkTree(): Promise<Tree> {
-  const acc: Tree = { notes: [], dirs: [] };
+  const acc: Tree = { notes: [], dirs: [], pages: new Map() };
   let frontier: { rel: string; depth: number }[] = [{ rel: '', depth: 0 }];
   let visited = 0;
 
@@ -131,8 +185,23 @@ async function walkTree(): Promise<Tree> {
 
     results.forEach((entries, index) => {
       visited++;
-      const depth = group[index].depth;
+      const { rel, depth } = group[index];
+
+      // 这一层有没有 index.md：有的话**这个目录就是一个页面**，index.md 不再算普通笔记，
+      // 它由 pages 单独代表（标题取目录名，而不是「index」）。
+      // ⚠️ 同步根不算页面：根目录里的 index.md 只是根下一篇普通笔记。
+      const indexEntry = rel
+        ? entries.find(
+            (entry) =>
+              !entry.isDirectory &&
+              !entry.name.startsWith('.') &&
+              entry.name.toLowerCase() === 'index.md',
+          )
+        : undefined;
+      if (indexEntry) acc.pages.set(rel, indexEntry);
+
       for (const entry of entries) {
+        if (entry === indexEntry) continue;
         // 点开头的是内部目录（.trash 等）；`.assets` 是笔记的附件目录。
         // 两者都不是笔记，也不往下递归 —— .assets 内部约定平铺。
         if (entry.name.startsWith('.') || isAssetsDir(entry.name)) continue;
@@ -189,6 +258,8 @@ interface CacheRow {
   e: string;
   /** 顺手存下来的标签：补摘要时已经读过整篇，不额外发请求 */
   t?: string[];
+  /** 出链（正文里出现的 `[[名字]]`）：同样是顺手，反链索引由它派生 */
+  l?: string[];
 }
 
 let excerptCache: Record<string, CacheRow> | null = null;
@@ -232,9 +303,9 @@ async function mapLimited<T, R>(items: T[], limit: number, fn: (item: T) => Prom
 
 /** 后台补齐摘要。返回本次真正读回了几篇，供视图决定要不要刷一次列表 */
 export async function hydrateExcerpts(limit = HYDRATE_BATCH): Promise<number> {
-  const { notes } = await tree();
+  const data = await tree();
   const filled = cache();
-  const pending = notes
+  const pending = allEntries(data)
     .filter((entry) => !filled[entry.path] || filled[entry.path].m !== entry.mtime)
     .sort((a, b) => (b.mtime ?? 0) - (a.mtime ?? 0))
     .slice(0, limit);
@@ -250,6 +321,7 @@ export async function hydrateExcerpts(limit = HYDRATE_BATCH): Promise<number> {
         m: entry.mtime ?? 0,
         e: excerptOf(parsed.body),
         t: parsed.tags,
+        l: wikilinksIn(parsed.body),
       };
       done++;
     } catch {
@@ -262,6 +334,102 @@ export async function hydrateExcerpts(limit = HYDRATE_BATCH): Promise<number> {
 
 /* ------------------------------ 组装 DTO ------------------------------ */
 
+/**
+ * `[[笔记名]]`。
+ *
+ * 🔴 开头那对方括号要**容忍反斜杠**：Markdown 序列化器怕 `[` 被当成链接起头，
+ * 落盘时会把它转义成 `\[\[名字]]`（实测见 `.workbuddy/tmp/probe-wikilink.cjs` 的输出）。
+ * 编辑器里读回来仍然是 `[[名字]]`（解析时会还原），所以链接本身不受影响；
+ * 但**正文级的扫描器**（出链、改名改写、摘要）看的是磁盘原文，认不出转义形式就等于
+ * 反链永远为空、改名永远不同步。两种写法都认，用户手写哪一种都行。
+ */
+const WIKILINK_RE = /(?:\\?\[){2}([^[\]\n]+)(?:\\?\]){2}/g;
+
+/**
+ * 取出正文里所有的 `[[笔记名]]`（去重、保序）。
+ *
+ * 落盘存的就是原文 `[[名字]]`，**不存路径** —— 笔记改名或搬家后引用不会失效，
+ * 解析时按名字反查（`notesApi.titleIndex`）。索引由摘要缓存派生，可随时重建。
+ */
+export function wikilinksIn(body: string): string[] {
+  const out: string[] = [];
+  for (const hit of body.matchAll(WIKILINK_RE)) {
+    const name = hit[1].trim();
+    if (name && !out.includes(name)) out.push(name);
+  }
+  return out;
+}
+
+/**
+ * 把正文里指向 `from` 的 `[[…]]` 换成 `to`。一个都没命中时返回 null（调用方据此跳过写盘）。
+ *
+ * 逐段走与 `wikilinksIn` 同一个正则、比的是 trim 过的名字 ——
+ * 不用带正则元字符的字符串拼接去 replace，名字里有 `.` `(` 也不会误伤。
+ * 换出来的统一是**没转义**的 `[[名字]]`，对用户最直观。
+ */
+function replaceWikilink(body: string, from: string, to: string): string | null {
+  let hit = false;
+  const out = body.replace(WIKILINK_RE, (whole, name: string) => {
+    if (name.trim() !== from) return whole;
+    hit = true;
+    return `[[${to}]]`;
+  });
+  return hit ? out : null;
+}
+
+/**
+ * 改名之后，把别的笔记里指向**旧名字**的 `[[…]]` 一起改成新名字。
+ *
+ * 链接落盘存的是名字不是路径，所以「改名」这一步必须补上，否则引用会挂掉。
+ * 只动摘要缓存里**确实记过提到过旧名字**的那几篇（那份清单本来就是反链要用的，零额外遍历）——
+ * 不扫全仓、不读没提到过它的正文。
+ *
+ * 每篇走的是与 `notesApi.update` 完全相同的「读 → parseNote → serializeNote → 写回」，
+ * 不新增任何序列化路径。**单篇失败只让那一条链接留在旧名字上**（渲染成红色），
+ * 绝不抛出去影响调用方 —— 改名本身已经落盘了，不能被这里的失败连累。
+ *
+ * 缓存没补齐时可能有漏网的引用（那些链接会显示成红色，点一下能重建）。
+ */
+async function propagateRename(from: string, to: string): Promise<number> {
+  if (!from || from === to) return 0;
+  const rows = entryTitles(await tree()).filter((row) => cache()[row.rel]?.l?.includes(from));
+  let done = 0;
+
+  for (const row of rows) {
+    try {
+      const raw = await readOrNull(row.rel);
+      if (raw === null) continue;
+      const parsed = parseNote(raw, row.title, Date.now());
+      const body = replaceWikilink(parsed.body, from, to);
+      if (body === null) continue;
+      const meta: NoteMeta = {
+        title: parsed.title,
+        created: parsed.created,
+        updated: parsed.updated,
+        tags: parsed.tags,
+        deleted_from: parsed.deleted_from,
+        deleted_at: parsed.deleted_at,
+      };
+      await getStorage().write(row.rel, serializeNote(meta, body));
+      delete cache()[row.rel];
+      done++;
+    } catch {
+      // 这一篇没改成：那条链接留在旧名字上，用户看得见（红色），其它篇继续
+    }
+  }
+
+  if (done) {
+    persistCache();
+    invalidateTree();
+  }
+  return done;
+}
+
+/** 目录路径 → 给人看的层级串（`a/b` → `a / b`） */
+function folderLabel(dir: string): string {
+  return dir ? dir.split('/').join(' / ') : '';
+}
+
 function summaryOf(entry: DirEntry): NoteSummaryDTO {
   const folder = parentOf(entry.path);
   return {
@@ -273,6 +441,27 @@ function summaryOf(entry: DirEntry): NoteSummaryDTO {
     updated_at: entry.mtime ?? 0,
     deleted_at: null,
     tags: cachedTags(entry),
+    path_label: folderLabel(folder),
+  };
+}
+
+/**
+ * 页面的列表项。标题取**目录末段名**（fs 里那个文件叫 `index.md`，不能拿它当标题），
+ * id 与普通笔记同一套（路径 base64url），folder_id 是页面的**父目录** ——
+ * 于是页面在侧栏里与同级条目并列，`/notes/:id` 也不用新增路由。
+ */
+function pageSummaryOf(dirRel: string, entry: DirEntry): NoteSummaryDTO {
+  const parent = parentOf(dirRel);
+  return {
+    id: encodeId(entry.path),
+    folder_id: parent ? encodeId(parent) : null,
+    title: lastSegment(dirRel),
+    excerpt: cachedExcerpt(entry),
+    created_at: entry.mtime ?? 0,
+    updated_at: entry.mtime ?? 0,
+    deleted_at: null,
+    tags: cachedTags(entry),
+    path_label: folderLabel(parent),
   };
 }
 
@@ -291,15 +480,45 @@ function noteOf(rel: string, meta: NoteMeta, body: string): NoteDTO {
   };
 }
 
-/** 目标目录下挑一个没被占用的文件名 */
-async function uniqueRel(dir: string, stem: string, ext: string, exclude?: string): Promise<string> {
+/**
+ * 目标目录下挑一个没被占用的文件名。
+ *
+ * `avoidMdFile` 只给**建页面 / 改页面标题**用（`ext === ''`）：页面名要避让同名的 `X.md`，
+ * 否则「页面 X」与「笔记 X」会并列出现（设计 §2.2）。纯文件夹命名不传它 ——
+ * 目录与同名 .md 共存是既有行为，不动。
+ */
+async function uniqueRel(
+  dir: string,
+  stem: string,
+  ext: string,
+  exclude?: string,
+  avoidMdFile = false,
+): Promise<string> {
   const entries = await listDir(dir, true);
   const taken = new Set(
     entries.filter((entry) => entry.path !== exclude).map((entry) => entry.name),
   );
+
+  /**
+   * 建**笔记**（`ext === '.md'`）时还要避让「同名目录是个页面」：
+   * `X/` 里有 index.md 时，`X.md` 与它同名不同物，并列摆着必然让用户困惑（设计 §2.2）。
+   * 只在真的撞上同名目录时才多查一次，平时零额外请求。
+   * 反方向（建页面时避让已有 `X.md`）在 createPage 里挡。
+   */
+  const clashesPage = async (name: string): Promise<boolean> => {
+    if (ext !== '.md') return false;
+    const same = stemOf(name);
+    if (!taken.has(same)) return false;
+    return hasIndexFile(dir ? `${dir}/${same}` : same);
+  };
+
   let candidate = `${stem}${ext}`;
   let n = 2;
-  while (taken.has(candidate)) {
+  while (
+    taken.has(candidate) ||
+    (await clashesPage(candidate)) ||
+    (avoidMdFile && ext === '' && taken.has(`${candidate}.md`))
+  ) {
     candidate = `${stem} ${n}${ext}`;
     n++;
   }
@@ -336,6 +555,14 @@ async function moveAssets(fromDir: string, toDir: string): Promise<void> {
   await getStorage().delete(fromDir);
 }
 
+/** 全部笔记条目（含页面）的「相对路径 + 显示名」 */
+function entryTitles(data: Tree): Array<{ rel: string; title: string }> {
+  return [
+    ...data.notes.map((entry) => ({ rel: entry.path, title: baseName(entry.path) })),
+    ...[...data.pages].map(([dirRel, entry]) => ({ rel: entry.path, title: lastSegment(dirRel) })),
+  ];
+}
+
 /* ------------------------------ 笔记 API ------------------------------ */
 
 export interface NoteListQuery {
@@ -351,6 +578,16 @@ export interface NoteListQuery {
 
 const TRASH_DIR = '.trash';
 const MAX_TRASH = 60;
+
+/** 笔记详情页正文下方「子项」列表的一行 */
+export interface PageChild {
+  /** page = 子目录里有 index.md；folder = 纯文件夹；note = 普通笔记 */
+  kind: 'page' | 'folder' | 'note';
+  id: string;
+  title: string;
+  updated_at: number;
+  excerpt: string;
+}
 
 async function listTrash(): Promise<NoteSummaryDTO[]> {
   const entries = (await listDir(TRASH_DIR))
@@ -374,6 +611,7 @@ async function listTrash(): Promise<NoteSummaryDTO[]> {
         created_at: parsed.created,
         updated_at: deletedAt,
         deleted_at: deletedAt,
+        path_label: '',
       };
     } catch {
       return null;
@@ -391,8 +629,13 @@ export const notesApi = {
     if (query.trash) {
       rows = await listTrash();
     } else {
-      const { notes } = await tree();
-      rows = notes.map(summaryOf);
+      const data = await tree();
+      // 页面（有 index.md 的目录）本身就是一篇笔记，跟普通笔记进同一个列表 ——
+      // 列表页、搜索、文件夹详情都要能看到它
+      rows = [
+        ...data.notes.map(summaryOf),
+        ...[...data.pages].map(([dirRel, entry]) => pageSummaryOf(dirRel, entry)),
+      ];
 
       if (query.folder_id) {
         // 只算直系子级：与 FolderDTO.note_count 一个口径。
@@ -439,12 +682,121 @@ export const notesApi = {
     return { note: noteOf(rel, meta, body) };
   },
 
+  /**
+   * 新建一个**页面**：`<父目录>/<名字>/index.md`。
+   * 页面 = 目录 + index.md，所以是两步：建目录、写正文（WebDAV 没有多步原子操作）。
+   */
+  async createPage(input: { parent_dir?: string; title?: string; content?: string }) {
+    const parent = input.parent_dir ?? '';
+    if (parent) await getStorage().ensureDir(parent);
+
+    const wanted = input.title?.trim() || '未命名';
+    // avoidMdFile：页面名要避让同名的 X.md，不然「页面 X」与「笔记 X」并列摆着
+    const dir = await uniqueRel(parent, sanitize(wanted), '', undefined, true);
+    await getStorage().mkdir(dir);
+
+    const now = Date.now();
+    // 标题以**落盘的目录名**为准（查重可能补过后缀）
+    const meta: NoteMeta = { title: lastSegment(dir), created: now, updated: now, tags: [] };
+    const body = input.content ?? '';
+    const rel = `${dir}/index.md`;
+    await getStorage().write(rel, serializeNote(meta, body));
+    invalidateTree();
+    return { note: noteOf(rel, meta, body) };
+  },
+
+  /**
+   * 笔记详情页正文下方要列的子项：**这篇笔记所在目录**里的直系条目。
+   * 页面 → 它自己的目录；普通笔记 → 它所在的目录（子页面与它平级）。
+   * 页面自己（那个 index.md）不出现在结果里。
+   */
+  async childrenOf(id: string): Promise<PageChild[]> {
+    const rel = decodeId(id);
+    const dir = containerDirOf(rel);
+    const entries = await listDir(dir);
+    const out: PageChild[] = [];
+
+    for (const entry of entries) {
+      if (entry.name.startsWith('.') || isAssetsDir(entry.name)) continue;
+      if (entry.isDirectory) {
+        const isPage = await hasIndexFile(entry.path);
+        out.push({
+          kind: isPage ? 'page' : 'folder',
+          id: isPage ? encodeId(`${entry.path}/index.md`) : encodeId(entry.path),
+          title: entry.name,
+          updated_at: entry.mtime ?? 0,
+          excerpt: '',
+        });
+      } else if (
+        entry.name.toLowerCase().endsWith('.md') &&
+        // 别把「这篇」自己列成它自己的子项（普通笔记的落点就是它所在的目录）
+        entry.path !== rel &&
+        !isPageFile(entry.path)
+      ) {
+        out.push({
+          kind: 'note',
+          id: encodeId(entry.path),
+          title: baseName(entry.path),
+          updated_at: entry.mtime ?? 0,
+          excerpt: cachedExcerpt(entry),
+        });
+      }
+    }
+
+    // 先页面 / 文件夹（按名），后笔记（新的在前）—— 与列表页、侧栏同一个口味
+    out.sort((a, b) => {
+      if (a.kind !== b.kind) return a.kind === 'note' ? 1 : -1;
+      return a.kind === 'note'
+        ? b.updated_at - a.updated_at
+        : a.title.localeCompare(b.title, 'zh');
+    });
+    return out;
+  },
+
+  /**
+   * 笔记名 → 笔记 id。`[[wiki]]` 链接的补全与解析都用它。
+   * 从同一次目录遍历里算，不额外发请求；同名多篇时取**路径最浅**的那一篇（最靠外的）。
+   */
+  async titleIndex(): Promise<Record<string, string>> {
+    const rows = entryTitles(await tree()).sort(
+      (a, b) => a.rel.split('/').length - b.rel.split('/').length,
+    );
+    const out: Record<string, string> = {};
+    for (const row of rows) {
+      if (!(row.title in out)) out[row.title] = encodeId(row.rel);
+    }
+    return out;
+  },
+
+  /**
+   * 反向链接：谁的正文里提到了 `title`。
+   *
+   * 出链是在补摘要时顺手记进摘要缓存的（`CacheRow.l`），所以这里先确保缓存补齐、
+   * 再从缓存派生 —— 不额外读任何一篇正文，也不落第二个索引文件（可随时重建）。
+   *
+   * 🔴 只补**一轮**（40 篇），不循环到补完为止：坚果云免费版限 600 请求 / 30 分钟，
+   * 一循环就会在每次打开笔记时把整个仓库重读一遍，额度烧光之后同步直接 503
+   * （表现出来是「笔记打不开」，不像限流）。缓存热的时候这一轮返回 0，一次请求都不发；
+   * 冷缓存下反链是**逐步收敛**的 —— 列表页本来就在后台补摘要，多来几次就齐了。
+   */
+  async backlinks(title: string): Promise<Array<{ id: string; title: string }>> {
+    await hydrateExcerpts();
+    const out: Array<{ id: string; title: string }> = [];
+    for (const row of entryTitles(await tree())) {
+      if (row.title === title) continue;
+      const link = cache()[row.rel]?.l;
+      if (link?.includes(title)) out.push({ id: encodeId(row.rel), title: row.title });
+    }
+    return out.sort((a, b) => a.title.localeCompare(b.title, 'zh'));
+  },
+
   async get(id: string) {
     const rel = decodeId(id);
     // 打开笔记：有本地副本就先给副本，秒开；后台再对一次指纹
     const raw = await readOrNull(rel, true);
     if (raw === null) throw new StorageError('not_found', '笔记不存在', 404);
-    const parsed = parseNote(raw, baseName(rel), Date.now());
+    // 页面（…/index.md）的标题是它所在的目录名
+    const parsed = parseNote(raw, titleOf(rel), Date.now());
     const meta: NoteMeta = {
       title: parsed.title,
       created: parsed.created,
@@ -466,9 +818,8 @@ export const notesApi = {
     for (let round = 0; round < 20; round += 1) {
       if ((await hydrateExcerpts()) === 0) break;
     }
-    const { notes } = await tree();
     const count = new Map<string, number>();
-    for (const entry of notes) {
+    for (const entry of allEntries(await tree())) {
       for (const tag of cachedTags(entry)) count.set(tag, (count.get(tag) ?? 0) + 1);
     }
     return [...count.entries()]
@@ -484,8 +835,11 @@ export const notesApi = {
     const raw = await readOrNull(rel);
     if (raw === null) throw new StorageError('not_found', '笔记不存在', 404);
 
-    const folderNow = parentOf(rel);
-    const parsed = parseNote(raw, baseName(rel), Date.now());
+    // 页面（…/index.md）在文件系统里是**一个目录**：改标题 = 重命名目录、换目录 = 移动目录。
+    // folder_id 的语义两边一致 —— 都是「这篇笔记挂在哪个目录下」。
+    const pageDir = pageDirOf(rel);
+    const folderNow = pageDir === null ? parentOf(rel) : parentOf(pageDir);
+    const parsed = parseNote(raw, titleOf(rel), Date.now());
 
     const title = patch.title !== undefined ? patch.title.trim() || '无标题笔记' : parsed.title;
     let body = patch.content !== undefined ? patch.content : parsed.body;
@@ -494,21 +848,32 @@ export const notesApi = {
 
     let target = rel;
     const stem = sanitize(title);
-    if (folderNext !== folderNow || stem !== stemOf(rel.slice(rel.lastIndexOf('/') + 1))) {
+    const currentStem = pageDir === null ? stemOf(lastSegment(rel)) : lastSegment(pageDir);
+    if (folderNext !== folderNow || stem !== currentStem) {
       if (folderNext !== folderNow && folderNext) await getStorage().ensureDir(folderNext);
-      target = await uniqueRel(folderNext, stem, '.md', rel);
-      if (target !== rel) {
-        await getStorage().move(rel, target);
-        // 附件目录与笔记同级，跟着一起走；标题变了，正文里指向它的引用也要改
-        const fromDir = getAssetsDirPath(rel);
-        const toDir = getAssetsDirPath(target);
-        if (fromDir !== toDir) {
-          await moveAssets(fromDir, toDir);
-          const fromName = assetsDirName(rel);
-          const toName = assetsDirName(target);
-          if (fromName !== toName) body = rewriteAssetRefs(body, fromName, toName);
+      if (pageDir !== null) {
+        // 一次 MOVE 带走整棵子树：子笔记、子页面、附件全在目录里
+        const targetDir = await uniqueRel(folderNext, stem, '', pageDir, true);
+        if (targetDir !== pageDir) {
+          await getStorage().move(pageDir, targetDir);
+          target = `${targetDir}/index.md`;
+          invalidateTree();
         }
-        invalidateTree();
+      } else {
+        target = await uniqueRel(folderNext, stem, '.md', rel);
+        if (target !== rel) {
+          await getStorage().move(rel, target);
+          // 附件目录与笔记同级，跟着一起走；标题变了，正文里指向它的引用也要改
+          const fromDir = getAssetsDirPath(rel);
+          const toDir = getAssetsDirPath(target);
+          if (fromDir !== toDir) {
+            await moveAssets(fromDir, toDir);
+            const fromName = assetsDirName(rel);
+            const toName = assetsDirName(target);
+            if (fromName !== toName) body = rewriteAssetRefs(body, fromName, toName);
+          }
+          invalidateTree();
+        }
       }
     }
 
@@ -524,6 +889,10 @@ export const notesApi = {
     delete later[rel];
     persistCache();
 
+    // 改名：把别的笔记里指向旧名字的 `[[…]]` 一起改成新名字。
+    // 放在**改名已经落盘之后**，所以这里失败也不会让笔记处于半改状态。
+    if (title !== parsed.title) await propagateRename(parsed.title, title);
+
     return { note: noteOf(target, meta, body) };
   },
 
@@ -538,6 +907,13 @@ export const notesApi = {
       await getStorage().delete(trashAssetsPath(rel));
       invalidateTree();
       return { hard: true };
+    }
+
+    // 页面：删一篇 = 删它**整个目录**（子笔记、子页面、附件都在里面），整棵进回收站
+    const pageDir = pageDirOf(rel);
+    if (pageDir !== null) {
+      await foldersApi.trash(encodeId(pageDir));
+      return { hard: false };
     }
 
     const raw = await readOrNull(rel);
@@ -576,7 +952,7 @@ export const notesApi = {
 
 export const foldersApi = {
   async list() {
-    const { notes, dirs } = await tree();
+    const { notes, dirs, pages } = await tree();
 
     const countByDir = new Map<string, number>();
     for (const note of notes) {
@@ -586,13 +962,17 @@ export const foldersApi = {
 
     const items: FolderDTO[] = dirs.map((dir) => {
       const parent = parentOf(dir.path);
+      const page = pages.get(dir.path);
       return {
         id: encodeId(dir.path),
         parent_id: parent ? encodeId(parent) : null,
         name: dir.name,
         created_at: dir.mtime ?? 0,
         updated_at: dir.mtime ?? 0,
+        // 直系 .md 数；页面自己的 index.md 不算（它代表这个目录本身）
         note_count: countByDir.get(dir.path) ?? 0,
+        // 目录里有 index.md → 这个目录是一个**页面**，给出那篇笔记的 id
+        page_id: page ? encodeId(page.path) : null,
       };
     });
     items.sort((a, b) => a.name.localeCompare(b.name, 'zh'));
@@ -617,6 +997,8 @@ export const foldersApi = {
         created_at: Date.now(),
         updated_at: Date.now(),
         note_count: 0,
+        // 刚建的目录一定是空的，不可能是页面
+        page_id: null,
       } satisfies FolderDTO,
     };
   },
@@ -636,6 +1018,8 @@ export const foldersApi = {
         created_at: Date.now(),
         updated_at: Date.now(),
         note_count: 0,
+        // 改的是目录名，页面身份跟着目录走
+        page_id: (await hasIndexFile(target)) ? encodeId(`${target}/index.md`) : null,
       } satisfies FolderDTO,
     };
   },
@@ -679,6 +1063,7 @@ export const foldersApi = {
         created_at: Date.now(),
         updated_at: Date.now(),
         note_count: 0,
+        page_id: (await hasIndexFile(target)) ? encodeId(`${target}/index.md`) : null,
       } satisfies FolderDTO,
     };
   },

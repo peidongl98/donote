@@ -69,8 +69,13 @@ function check(name, ok, detail = '') {
 
   const surface = page.locator('.donote-surface .ProseMirror');
   const source = page.locator('textarea.source');
-  /** 顶栏右侧那个开关：两种模式下 aria-label 不同，位置是同一个 */
-  const toggle = (label) => page.getByRole('button', { name: label });
+  /**
+   * 顶栏右侧那个开关：两种模式下 aria-label 不同，位置是同一个。
+   *
+   * ⚠️ 必须 `exact`：本套件的笔记叫「源码标题…」，正文下方的**子页面卡片**按钮的
+   * 可访问名就是笔记标题，模糊匹配会把「源码」同时命中它（strict mode violation）。
+   */
+  const toggle = (label) => page.getByRole('button', { name: label, exact: true });
   const dialogMajor = page.locator('[role="dialog"] .major');
 
   /** 笔记文件 = frontmatter + 正文，源码模式里看到的只是正文那一段 */

@@ -13,6 +13,11 @@ export interface SidebarFolderRow {
   kind: 'folder';
   depth: number;
   folder: FolderDTO;
+  /**
+   * 目录里有 index.md 时，这里是那篇**页面**笔记的 id（该目录本身是一个页面）；
+   * 纯文件夹是 null。侧栏据此决定这一行是 📄 还是 📁、点它去哪、给哪些菜单项。
+   */
+  pageId: string | null;
   /** 还有下一层可展开（子文件夹或笔记）。没有就不给展开箭头，免得点了没反应 */
   hasChildren: boolean;
   expanded: boolean;
@@ -56,8 +61,20 @@ export function buildSidebarRows(
   notes: NoteSummaryDTO[],
   expanded: Set<string>,
 ): SidebarRow[] {
+  /**
+   * 页面（目录里有 index.md）在侧栏由**它的目录行**代表：那一行渲染成 📄 并链到那篇笔记。
+   * 数据层的列表里页面也是一条笔记（列表页与搜索要看得到它），所以这里必须把它从笔记桶里
+   * 剔掉 —— 否则同一条东西在树上出现两次，而且目录的「展开箭头」会指向一行点不出来的东西。
+   */
+  const pageIds = new Set(
+    folders.map((folder) => folder.page_id).filter((id): id is string => id !== null),
+  );
+
   const foldersByParent = bucket(folders, (folder) => folder.parent_id);
-  const notesByFolder = bucket(notes, (note) => note.folder_id);
+  const notesByFolder = bucket(
+    notes.filter((note) => !pageIds.has(note.id)),
+    (note) => note.folder_id,
+  );
   const rows: SidebarRow[] = [];
   const emitted = new Set<string>();
 
@@ -69,7 +86,14 @@ export function buildSidebarRows(
         (foldersByParent.get(folder.id)?.length ?? 0) +
         (notesByFolder.get(folder.id)?.length ?? 0);
       const open = expanded.has(folder.id);
-      rows.push({ kind: 'folder', depth, folder, hasChildren: children > 0, expanded: open });
+      rows.push({
+        kind: 'folder',
+        depth,
+        folder,
+        pageId: folder.page_id,
+        hasChildren: children > 0,
+        expanded: open,
+      });
       if (open) walk(folder.id, depth + 1);
     }
     for (const note of byName(notesByFolder.get(parent) ?? [], (item) => item.title)) {

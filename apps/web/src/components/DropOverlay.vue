@@ -9,15 +9,36 @@
  *
  * 交互刻意做到最简：拖进来显示一层「松手导入」，松手后按「3/10」推进度，结束时 toast 汇总。
  */
-import { onBeforeUnmount, onMounted, ref } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
+import { useRoute } from 'vue-router';
 import { useUiStore } from '@/stores/ui';
 import { isTauriRuntime } from '@/storage/transport';
+import { containerDirOf, decodeId } from '@/storage/notes';
 import { importItems, itemsFromFiles, itemsFromPaths, type ImportItem } from '@/services/import-drop';
 
 const ui = useUiStore();
+const route = useRoute();
 const dragging = ref(false);
 const progress = ref('');
 const busy = ref(false);
+
+/**
+ * 正在看某篇笔记时，拖进来的 .md 变成它的**子页面**（Notion 的行为：拖到页面下 = 挂上去）。
+ * 其它页面维持原样（各变成一篇同级笔记）。
+ *
+ * 落点由 `containerDirOf` 决定：页面 → 它自己的目录；普通笔记 → 它所在的目录。
+ * `null` 表示「当前不是笔记详情页」，走老行为。
+ */
+const hostDir = computed<string | null>(() => {
+  if (route.name !== 'note') return null;
+  const id = String(route.params.id ?? '');
+  if (!id) return null;
+  try {
+    return containerDirOf(decodeId(id));
+  } catch {
+    return null; // id 不是合法 base64url（手改地址栏），当普通页面处理
+  }
+});
 
 async function run(items: ImportItem[]): Promise<void> {
   if (!items.length) {
@@ -26,14 +47,18 @@ async function run(items: ImportItem[]): Promise<void> {
   }
   busy.value = true;
   progress.value = `导入中 0/${items.length}`;
+  const host = hostDir.value;
   try {
     const result = await importItems(items, {
+      asChildPagesOf: host,
       onProgress: (done, total) => {
         progress.value = `导入中 ${done}/${total}`;
       },
     });
     ui.toast(
-      `已导入 ${result.notes} 篇笔记${result.folders ? `、${result.folders} 个文件夹` : ''}`,
+      host !== null
+        ? `已导入 ${result.notes} 个子页面`
+        : `已导入 ${result.notes} 篇笔记${result.folders ? `、${result.folders} 个文件夹` : ''}`,
       3200,
     );
   } catch (err) {
@@ -125,7 +150,13 @@ onBeforeUnmount(() => {
     <div v-if="dragging" class="drop-mask">
       <div class="drop-card">
         <p class="drop-title">松手导入</p>
-        <p class="drop-tip">.md 会各变成一篇笔记，文件夹会跟着建出来</p>
+        <p class="drop-tip">
+          {{
+            hostDir !== null
+              ? '.md 会变成这篇笔记的子页面'
+              : '.md 会各变成一篇笔记，文件夹会跟着建出来'
+          }}
+        </p>
       </div>
     </div>
   </Transition>

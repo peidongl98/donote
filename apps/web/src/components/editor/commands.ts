@@ -46,6 +46,7 @@ import {
 } from '@milkdown/kit/prose/tables';
 import { lift, wrapIn } from '@milkdown/kit/prose/commands';
 import { liftListItem, wrapInList } from '@milkdown/kit/prose/schema-list';
+import { mathEdit, writeMathBlock } from './math';
 
 /** 当前光标处的样式快照，工具栏据此高亮 */
 export interface ToolbarSnapshot {
@@ -423,6 +424,39 @@ export function insertMermaid(e: Editor | null): void {
 }
 
 /**
+ * 在当前光标处插入一个空的块级公式，并把编辑面板打开。
+ *
+ * 与「思维导图」不同的是这里多开一步面板：思维导图自带模板，插完就有图看；
+ * 空公式在正文里只有一行「点击输入公式」，不直接把面板推出来，用户得先猜一下要点它。
+ */
+export function insertMath(e: Editor | null): void {
+  if (!e) return;
+  void e.action((ctx) => {
+    const view = ctx.get(editorViewCtx);
+    const block = view.state.schema.nodes.math_block;
+    const empty = block?.createAndFill();
+    if (!block || !empty) return;
+
+    const tr = view.state.tr.replaceSelectionWith(empty).scrollIntoView();
+    view.dispatch(tr);
+    view.focus();
+
+    // 插入后从新文档里把自己的那一块找回来。不走位置映射：块级节点插进段落中间时会把段落
+    // 劈成两半，闭合标签也要占位，映射出来的下标会偏一格；`replaceSelectionWith` 是原样搬运，
+    // 节点对象还是同一个引用，直接认它最稳。
+    let pos = -1;
+    tr.doc.nodesBetween(0, tr.doc.content.size, (node, at) => {
+      if (node !== empty) return undefined;
+      pos = at;
+      return false;
+    });
+    if (pos < 0) return;
+
+    mathEdit.value = { latex: '', display: true, apply: (next) => writeMathBlock(view, pos, next) };
+  });
+}
+
+/**
  * 光标所在单元格：单元格节点位置、它所在的行列号、以及表格自己的映射表。
  *
  * 按 `$from`（光标那一头）走，不看选区另一头 —— 「删除本行 / 本列」的「本」是**光标**，
@@ -610,6 +644,35 @@ export function removeLink(e: Editor | null): void {
     const { from, to, empty } = state.selection;
     if (empty) return;
     view.dispatch(state.tr.removeMark(from, to, link));
+    view.focus();
+  });
+}
+
+/**
+ * 插入一条 `[[笔记名]]` 链接（工具栏的「链接到笔记」）。
+ *
+ * 选中文字时把那串文字当作笔记名（`选中「框架笔记」→ 点一下 → [[框架笔记]]`），
+ * 没选区时插入完整的一对括号并把光标停在正中间，接着打字就是补全。
+ *
+ * 🔴 落盘只写名字、不写路径；并且**必须清掉插入范围内的行内标记** ——
+ *    选区上带着 link / 加粗标记时，插进去的是 `[[[文字](url)]]` 或 `[[**文字**]]`，
+ *    正则认不出、序列化也把 `[[…]]` 拆散，等于把链接写坏。
+ */
+export function insertWikilink(e: Editor | null, name: string): void {
+  if (!e) return;
+  void e.action((ctx) => {
+    const view = ctx.get(editorViewCtx);
+    const { state } = view;
+    const { from, to, empty } = state.selection;
+    // 填了名字就用名字；没填就把选中的那串文字当名字
+    const label = name.trim() || (empty ? '' : state.doc.textBetween(from, to).trim());
+    if (!label) return;
+    const text = `[[${label}]]`;
+    const tr = state.tr.insertText(text, from, to);
+    if (!empty) tr.removeMark(from, from + text.length);
+    // 没选区时把光标收进括号中间（`[[|]]`），接着打字直接补全
+    if (empty) tr.setSelection(Selection.near(tr.doc.resolve(from + 2)));
+    view.dispatch(tr.scrollIntoView());
     view.focus();
   });
 }

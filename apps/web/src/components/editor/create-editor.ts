@@ -25,12 +25,18 @@ import '@milkdown/kit/prose/view/style/prosemirror.css';
 import '@milkdown/kit/prose/tables/style/tables.css';
 import { math } from './math';
 import { mermaid } from './mermaid';
+import { wikilinks, type WikilinkHandlers } from './wikilink';
 
 export interface EditorHooks {
   /** 初始内容。走 defaultValue 而不是建好后再 replace，打开笔记时不会有任何「写」的动作 */
   defaultValue?: string;
   /** 只读模式。返回 false 时编辑器不可编辑，但内容照常渲染 */
   editable?: () => boolean;
+  /**
+   * `[[笔记名]]` 链接。**不传就不装这个插件** ——
+   * 只读场景（回收站）与源码模式都没有它，装上去只是白扫一遍文档。
+   */
+  wikilink?: WikilinkHandlers;
   onMarkdownUpdated?: (markdown: string) => void;
   onBlur?: () => void;
   onFocus?: () => void;
@@ -40,7 +46,7 @@ export interface EditorHooks {
 }
 
 export function createNoteEditor(root: HTMLElement, hooks: EditorHooks = {}): Editor {
-  return Editor.make()
+  const editor = Editor.make()
     .config((ctx) => {
       ctx.set(rootCtx, root);
       ctx.set(defaultValueCtx, hooks.defaultValue ?? '');
@@ -78,4 +84,7 @@ export function createNoteEditor(root: HTMLElement, hooks: EditorHooks = {}): Ed
     .use(listener)
     .use(math)
     .use(mermaid);
+
+  if (hooks.wikilink) editor.use(wikilinks(hooks.wikilink));
+  return editor;
 }

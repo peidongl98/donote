@@ -56,6 +56,18 @@ function stemOf(name: string): string {
   return name.toLowerCase().endsWith('.md') ? name.slice(0, -3) : name;
 }
 
+/**
+ * 目录里的 index.md —— 它代表**那个目录**（一个页面），标题要取目录名而不是「index」。
+ * ⚠️ 同步根下的 `index.md` 不算（rel 里必须带目录前缀），与数据层的 isPageFile 同一口径。
+ */
+function isPageIndex(entry: DirEntry): boolean {
+  return entry.name.toLowerCase() === 'index.md' && entry.path.includes('/');
+}
+
+function lastSegment(rel: string): string {
+  return rel.slice(rel.lastIndexOf('/') + 1);
+}
+
 /** 请求根本没发出去 = 离线。只有这一类错误才有资格走缓存兜底 */
 function isOffline(error: unknown): boolean {
   return error instanceof StorageError && error.code === 'unreachable';
@@ -556,7 +568,7 @@ export class CachedStorage implements StorageAdapter {
         changed = true;
       }
       if (!row.title) {
-        row.title = stemOf(entry.name);
+        row.title = isPageIndex(entry) ? lastSegment(folder) : stemOf(entry.name);
         changed = true;
       }
     }

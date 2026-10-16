@@ -19,11 +19,14 @@ import type { Editor } from '@milkdown/kit/core';
 import { editorViewCtx, serializerCtx } from '@milkdown/kit/core';
 import { createNoteEditor } from './create-editor';
 import { EMPTY_SNAPSHOT, insertImage, snapshotOf, type ToolbarSnapshot } from './commands';
+import { refreshWikilinks, type WikilinkHandlers } from './wikilink';
 import EditorToolbar from './EditorToolbar.vue';
 import FloatingToolbar from './FloatingToolbar.vue';
 import BlockHandle from './BlockHandle.vue';
 import SlashMenu from './SlashMenu.vue';
+import WikilinkMenu from './WikilinkMenu.vue';
 import MermaidPanel from './MermaidPanel.vue';
+import MathPanel from './MathPanel.vue';
 import MarkdownView from '@/components/MarkdownView.vue';
 import './editor.css';
 
@@ -35,8 +38,13 @@ const props = withDefaults(
     readonly?: boolean;
     /** 所见即所得 / 源码 */
     mode?: 'wysiwyg' | 'source';
+    /**
+     * 笔记名 → 笔记 id。`[[…]]` 的着色、补全、以及「目标是否存在」都靠它。
+     * 由上层（详情页）拉好传下来，编辑器自己不碰数据层。
+     */
+    titleIndex?: Record<string, string>;
   }>(),
-  { readonly: false, mode: 'wysiwyg' },
+  { readonly: false, mode: 'wysiwyg', titleIndex: () => ({}) },
 );
 
 const emit = defineEmits<{
@@ -44,6 +52,10 @@ const emit = defineEmits<{
   save: [];
   /** 工具栏点了「图片」，交给上层决定从哪拿文件 */
   'pick-image': [];
+  /** 点开了 `[[…]]`。上层负责跳转；`exists` 为 false 时先把它建出来 */
+  'open-wikilink': [name: string, exists: boolean];
+  /** 补全菜单里选了「创建『X』」——插入正文之外还要真的把这篇建出来 */
+  'create-note': [name: string];
 }>();
 
 const host = ref<HTMLElement | null>(null);
@@ -90,11 +102,23 @@ function report(markdown: string): void {
   emit('save');
 }
 
+/**
+ * `[[…]]` 插件要的两个回调。
+ *
+ * `resolve` 必须同步，而 `titleIndex` 是上层异步拉来的 —— 这里只在**调用时**读
+ * `props.titleIndex`，索引更新后由下面那个 watcher 发一次空事务让 decorations 重算。
+ */
+const wikilink: WikilinkHandlers = {
+  resolve: (name) => props.titleIndex[name] ?? null,
+  open: (name, exists) => emit('open-wikilink', name, exists),
+};
+
 async function boot(): Promise<void> {
   if (props.mode !== 'wysiwyg' || !host.value) return;
   const instance = createNoteEditor(host.value, {
     defaultValue: props.modelValue,
     editable: () => !props.readonly,
+    wikilink,
     onMarkdownUpdated: report,
     onSelectionUpdated: (ctx) => refresh(ctx),
     onUpdated: (ctx) => refresh(ctx),
@@ -129,6 +153,13 @@ watch(
     await nextTick();
     await boot();
   },
+);
+
+// 索引到货 / 变新（刚建了一篇）之后，已经渲染出来的 `[[…]]` 要重新判一次「目标在不在」——
+// decorations 只在文档变化时重算，所以这里发一次空事务催它重算。
+watch(
+  () => props.titleIndex,
+  () => void refreshWikilinks(editorRef.value),
 );
 
 /** 源码模式下的输入：原样往上抛，不经过任何解析或序列化 */
@@ -176,6 +207,7 @@ defineExpose({
       class="dock"
       :editor="editorRef"
       :state="toolbarState"
+      :title-index="titleIndex"
       @image="emit('pick-image')"
     />
 
@@ -193,6 +225,13 @@ defineExpose({
       v-if="mode === 'wysiwyg' && !readonly"
       :editor="editorRef"
       @pick-image="emit('pick-image')"
+    />
+    <!-- `[[` 笔记链接补全：同样 fixed 定位 -->
+    <WikilinkMenu
+      v-if="mode === 'wysiwyg' && !readonly"
+      :editor="editorRef"
+      :title-index="titleIndex"
+      @create="emit('create-note', $event)"
     />
 
     <div v-else class="split">
@@ -220,6 +259,8 @@ defineExpose({
 
     <!-- 思维导图的源码面板：点编辑器里的图打开，开关状态在 mermaid.ts 里 -->
     <MermaidPanel />
+    <!-- 公式的面板：点正文里的公式打开（块级与行内共用），开关状态在 math.ts 里 -->
+    <MathPanel />
   </div>
 </template>
 
