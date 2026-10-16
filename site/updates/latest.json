@@ -1,11 +1,11 @@
 {
-  "version": "0.4.0",
-  "notes": "笔记可以嵌套成子页面了：一个目录配一个 index.md 就是一篇页面，侧栏树、面包屑、详情页的子项列表都跟着层级走，拖 .md 到编辑页会变成当前页的子页面。正文里写 [[笔记名]] 就是一条指向其他笔记的链接，点一下跳过去，目标不存在时显示红色并能顺手建出来；详情页底部会列出所有提到这篇的笔记，改名时指向旧名字的链接一起改掉。公式也能排版了：块级与行内公式交给 KaTeX 渲染，点一下弹面板改 LaTeX、右边实时预览，工具栏新增「公式」按钮。",
-  "pub_date": "2026-10-16T02:01:49Z",
+  "version": "0.4.1",
+  "notes": "图标统一换成新的了：桌面端、浏览器标签页、侧栏、登录页和下载页都用了同一枚蓝底「D」标识。这个版本也把近期的新功能一并带齐 —— 笔记嵌套成子页面（侧栏树、面包屑、详情页子项列表跟着层级走，拖 .md 到编辑页会变成当前页的子页面）、[[笔记名]] 链接与反向链接、KaTeX 块级与行内公式（点开面板改 LaTeX，右边实时预览）。",
+  "pub_date": "2026-10-16T06:39:27Z",
   "platforms": {
     "windows-x86_64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSWTRLN1pZbGY4NGtWSG0zOEZ6d0RsU3FyOG5QQ2FXK0JLTWl1akNQTnZTbHNWY0YyZUp1NG9sbTIrTFpaYmRLY09hMjlndmF4Z2hLcURHTnB6Zjl6cGJJNCtMV0Z2cEEwPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkyMTE2MTA4CWZpbGU6RG9Ob3RlXzAuNC4wX3g2NC1zZXR1cC5leGUJdmVyc2lvbjowLjQuMApVMHZQdGdrVWpTeUlDU1lHRnFWNlIxL3VXdy90QnFSQWc5ZkZpQ1J2dE5uTkNBQStYZ1A5UFNMTHkrck8xSUJLUDBLVTBwR3VLMElnWk94dTlHNThBUT09Cg==",
-      "url": "https://donote.pages.dev/downloads/DoNote-0.4.0-win-x64.exe"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSWTRLN1pZbGY4NGlaRGhFWVNSRE5yZDFDSUZNNk5xTDFZTGJ2VGlVaThnYlRHZGNFcEtqT1VpZXowVkdnSGZXR25VelYzWGlVMk5HOTZVTEJsS0ZJZzd2b21MdHo0RVFRPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkyMTMyNzY3CWZpbGU6RG9Ob3RlXzAuNC4xX3g2NC1zZXR1cC5leGUJdmVyc2lvbjowLjQuMQpPSVRqb0RSenZ5Zis3cGJnVUZGY3A2NCtJSTBRc3RkS0JXM0lKUGt2WmxiR1czOXdQM3B6aUVqM0xnY3V4RGQ4ZnN4VTc3VktJQ1pZOWg3RVZWOFJDZz09Cg==",
+      "url": "https://donote.pages.dev/downloads/DoNote-0.4.1-win-x64.exe"
     }
   }
 }

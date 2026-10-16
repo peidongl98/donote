@@ -1,0 +1,45 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1536 1536" width="1536" height="1536">
+  <defs>
+    <linearGradient id="dn-bg" x1="0" y1="0" x2="1" y2="0.13">
+      <stop offset="0" stop-color="#185FCB"/>
+      <stop offset="1" stop-color="#79CCE7"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="1536" height="1536" fill="url(#dn-bg)"/>
+
+  <!-- 白色字身：D 外轮廓 - 缺口(两条开槽 + 右侧楔形) + 笔身 + 笔头 -->
+  <path fill="#ffffff" fill-rule="evenodd" d="
+    M 326 296
+    H 785
+    C 975 296 1241 449 1241 769
+    C 1241 1089 975 1242 785 1242
+    H 326
+    Z
+
+    M 326 530
+    H 780
+    L 1100 770
+    L 780 1010
+    H 326
+    Z
+
+    M 326 574
+    H 703
+    L 619 680
+    L 670 770
+    L 619 860
+    L 703 966
+    H 326
+    Z
+
+    M 769 574
+    L 685 680
+    L 736 770
+    L 685 860
+    L 769 966
+    L 924 844
+    L 924 696
+    Z
+  "/>
+</svg>

@@ -4,6 +4,7 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>DoNote — 笔记存在你自己的网盘里</title>
+<link rel="icon" type="image/svg+xml" href="/logo.svg" />
 <meta name="description" content="DoNote 是一个本地优先的 Markdown 笔记客户端。笔记以 .md 文件存在你自己的 WebDAV 网盘里（坚果云、Nextcloud、群晖、自建均可），不经过任何第三方服务器。完全免费。" />
 <style>
   :root {
@@ -91,9 +92,10 @@
     display: inline-flex; align-items: center; justify-content: center;
     width: 48px; height: 48px; flex: none;
     border-radius: var(--r-md);
-    background: var(--accent-soft);
-    color: var(--accent);
+    overflow: hidden;
   }
+  /* 图标自带蓝渐变底，容器不再叠一层 accent-soft 底色 */
+  .mark img { display: block; width: 100%; height: 100%; }
   h1 { margin: 0; font-size: 25px; letter-spacing: -0.01em; }
   .tagline { margin: 3px 0 0; font-size: 13.5px; color: var(--text-2); }
 
@@ -172,12 +174,7 @@
     <div class="card">
       <div class="brand">
         <span class="mark" aria-hidden="true">
-          <svg viewBox="0 0 24 24" width="24" height="24">
-            <path d="M6 3.75h9.5a2.75 2.75 0 0 1 2.75 2.75v13.75H8.75A2.75 2.75 0 0 1 6 17.5V3.75Z"
-              fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" />
-            <path d="M9.5 8.5h5M9.5 12h5" fill="none" stroke="currentColor"
-              stroke-width="1.5" stroke-linecap="round" />
-          </svg>
+          <img src="/logo.svg" alt="" width="48" height="48" />
         </span>
         <div>
           <h1>DoNote</h1>
@@ -192,7 +189,7 @@
       </div>
 
       <div class="dl">
-        <a id="win" class="btn is-waiting" href="#" data-href="/downloads/DoNote-0.4.0-win-x64.exe">
+        <a id="win" class="btn is-waiting" href="#" data-href="/downloads/DoNote-0.4.1-win-x64.exe">
           <svg viewBox="0 0 24 24" width="19" height="19" aria-hidden="true">
             <path d="M5 6.5 11 5.6v6.1H5V6.5Zm0 6.4h6v6.2l-6-1V12.9Zm7-7.5 7-1v7.3h-7V5.4Zm0 7.5h7v7.4l-7-1V12.9Z"
               fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" />
@@ -201,7 +198,7 @@
         </a>
         <p class="meta" id="win-meta">支持 Windows 10 / 11（64 位）</p>
 
-        <a id="zip" class="btn sub is-waiting" href="#" data-href="/downloads/DoNote-0.4.0-win-x64-portable.zip">
+        <a id="zip" class="btn sub is-waiting" href="#" data-href="/downloads/DoNote-0.4.1-win-x64-portable.zip">
           <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
             <path d="M4.5 7.5 12 4.5l7.5 3v9l-7.5 3-7.5-3v-9Z" fill="none" stroke="currentColor"
               stroke-width="1.4" stroke-linejoin="round" />

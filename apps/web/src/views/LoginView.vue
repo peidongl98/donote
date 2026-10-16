@@ -103,16 +103,7 @@ watch(password, () => {
     <GlassCard class="panel lift">
       <div class="brand">
         <span class="mark" aria-hidden="true">
-          <svg viewBox="0 0 24 24" width="22" height="22">
-            <path
-              d="M6 3.75h9.5a2.75 2.75 0 0 1 2.75 2.75v13.75H8.75A2.75 2.75 0 0 1 6 17.5V3.75Z"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="1.5"
-              stroke-linejoin="round"
-            />
-            <path d="M9.5 8.5h5M9.5 12h5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
-          </svg>
+          <img src="/favicon.svg" alt="" width="44" height="44" />
         </span>
         <div>
           <h1 class="title">DoNote</h1>
@@ -224,9 +215,15 @@ watch(password, () => {
   width: 44px;
   height: 44px;
   border-radius: var(--r-md);
-  color: var(--accent);
-  background: var(--accent-soft);
+  overflow: hidden;
   flex: none;
+}
+
+/* 图标自带蓝渐变底，容器不再叠一层 accent-soft 底色 */
+.mark img {
+  display: block;
+  width: 100%;
+  height: 100%;
 }
 
 .title {

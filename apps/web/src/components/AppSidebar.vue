@@ -209,16 +209,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey));
   <aside class="rail" :class="{ 'is-drawer': isMobileDrawer }" aria-label="主导航">
     <div class="brand">
       <span class="logo" aria-hidden="true">
-        <svg viewBox="0 0 24 24" width="18" height="18">
-          <path
-            d="M7 3h7.2L19 7.8V21H7Z"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="1.7"
-            stroke-linejoin="round"
-          />
-          <path d="M14 3v5h5" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" />
-        </svg>
+        <img src="/favicon.svg" alt="" width="28" height="28" />
       </span>
       <span class="name">DoNote</span>
       <button class="rail-close" type="button" aria-label="收起侧边栏" @click="layout.toggle()">
@@ -461,9 +452,15 @@ html[data-resizing] .rail-resizer::after {
   width: 28px;
   height: 28px;
   border-radius: 9px;
-  background: var(--accent);
-  color: var(--on-accent);
+  overflow: hidden;
   flex: none;
+}
+
+/* 图标自带蓝渐变底，容器不再叠一层 accent 底色 */
+.logo img {
+  display: block;
+  width: 100%;
+  height: 100%;
 }
 
 .name {
