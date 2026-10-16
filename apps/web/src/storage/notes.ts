@@ -170,7 +170,12 @@ function allEntries(data: Tree): DirEntry[] {
 const MAX_DIRS = 300;
 const MAX_DEPTH = 8;
 
-/** 广度优先递归；同层并发 4，避免一条条串行把加载拖到十几秒 */
+/**
+ * 广度优先递归；同层一次提交 4 个目录。
+ *
+ * ⚠️ 出网其实仍是串行的 —— 全局闸门（storage/gate.ts）把并发压到了 1。
+ * 这里的 4 只是同时把 4 个任务排进闸门队列，省掉「等一个、再排下一个」的空转。
+ */
 async function walkTree(): Promise<Tree> {
   const acc: Tree = { notes: [], dirs: [], pages: new Map() };
   let frontier: { rel: string; depth: number }[] = [{ rel: '', depth: 0 }];
@@ -577,7 +582,12 @@ export interface NoteListQuery {
 }
 
 const TRASH_DIR = '.trash';
-const MAX_TRASH = 60;
+/**
+ * 回收站首屏最多列几条。
+ * 曾经是 60：副本 miss 时每篇都要 GET 一次正文，60 条就是 60 次请求，
+ * 而回收站首屏（且按 mtime 倒序）根本用不到 60 条 —— 20 条足够翻。
+ */
+const MAX_TRASH = 20;
 
 /** 笔记详情页正文下方「子项」列表的一行 */
 export interface PageChild {

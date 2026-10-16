@@ -17,6 +17,7 @@ const { chromium } = require('playwright-core');
 // 回归脚手架：默认走同源假 DAV（零坚果云额度），设 USE_REAL_DAV=1 才连真服务器。
 // 断言逻辑不受影响，见 harness/davmode.cjs 与 docs/regression-harness.md。
 const H = require('../harness/davmode.cjs');
+const { openPage, reloadPage } = require('../harness/nav.cjs');
 const fs = require('fs');
 const path = require('path');
 
@@ -90,7 +91,7 @@ function check(name, ok, detail = '') {
 
   try {
     // ---------- 1. 连接 ----------
-    await page.goto(BASE + '/', { waitUntil: 'networkidle' });
+    await openPage(page, BASE + '/');
     if (page.url().includes('/login')) {
       await page.getByPlaceholder('https://dav.example.com/dav').fill(SERVER);
       await page.getByPlaceholder('你的账号').fill(ACCOUNT);
@@ -102,7 +103,7 @@ function check(name, ok, detail = '') {
     check('1 连上服务器', !page.url().includes('/login'), page.url());
 
     // ---------- 2. 新建笔记 ----------
-    await page.goto(BASE + '/', { waitUntil: 'networkidle' });
+    await openPage(page, BASE + '/');
     await page.waitForTimeout(1000);
     await page.locator('button.fab').click();
     await page.waitForURL(/\/notes\//, { timeout: 20000 });
@@ -158,7 +159,7 @@ function check(name, ok, detail = '') {
     console.log('--- 落盘正文 ---\n' + savedBody + '--- /正文 ---');
 
     // ---------- 7 + 8. 刷新 ----------
-    await page.reload({ waitUntil: 'networkidle' });
+    await reloadPage(page);
     await surface.waitFor({ state: 'visible', timeout: 15000 });
     await page.waitForTimeout(1200);
     check('7 刷新后标题不丢', (await page.locator('input.title-input').inputValue()) === TITLE);

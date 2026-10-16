@@ -307,21 +307,37 @@ defineExpose({
   flex: 1 1 auto;
   min-height: 46vh;
   /*
-   * 正文直接铺在页面背景上，不做卡片 —— 底色 / 边框 / 圆角 / 内边距都不给。
+   * 正文区是一块可感知的范围（极淡底色 + 细边 + 圆角），不是纯白铺满 ——
+   * 与工具栏同一套配方，改回卡片式的那层「文本框」感。
+   *
+   * 内边距走 --surface-pad-*，提示文字用**同一组变量**定位：改一处两边同步。
+   * 之前提示比光标右下各偏 12 / 16 像素，就是内边距撤掉后提示的硬编码偏移没跟着动。
+   *
    * 滚动留在这一层：标题输入框与标签条在它**外面**（同级、更靠上），
    * 所以滚正文时标题与标签条不会跟着走，一直看得见自己在哪篇笔记。
    */
+  --surface-pad-y: var(--sp-3);
+  --surface-pad-x: var(--sp-4);
+  padding: var(--surface-pad-y) var(--surface-pad-x);
+  /* 圆角跟工具栏同一档（--r-md）：两块上下紧邻，半径不一致会很显眼 */
+  border-radius: var(--r-md);
+  background: var(--surface);
+  border: 1px solid var(--surface-border);
+  transition: background-color var(--dur) var(--ease-smooth);
   overflow-y: auto;
 }
 
 /* 正文为空时告诉用户这里可以写。所见即所得里不该提 Markdown —— 正文根本不出现符号，
-   提了反而让人以为要手写 # 和 **。源码模式那句（textarea 的 placeholder）是对的，保留。 */
+   提了反而让人以为要手写 # 和 **。源码模式那句（textarea 的 placeholder）是对的，保留。
+   位置与字号都跟着正文走：起点＝内边距，字号＝--doc-font-size。 */
 .donote-surface::before {
   content: '写点什么吧';
   position: absolute;
-  top: var(--sp-3);
-  left: var(--sp-4);
+  top: var(--surface-pad-y);
+  left: var(--surface-pad-x);
   color: var(--text-2);
+  font-size: var(--doc-font-size, 16px);
+  line-height: 1.75;
   opacity: 0;
   pointer-events: none;
 }
@@ -334,7 +350,8 @@ defineExpose({
   flex: 1 1 auto;
   min-height: 46vh;
   padding: var(--sp-3) var(--sp-4);
-  border-radius: var(--r-lg);
+  /* 与所见即所得模式同一档圆角：同一位置切换模式不该换形状 */
+  border-radius: var(--r-md);
   background: var(--surface);
   border: 1px solid var(--surface-border);
   font-size: var(--fs-base);
@@ -359,7 +376,7 @@ defineExpose({
 
 .source-preview {
   padding: var(--sp-3) var(--sp-4);
-  border-radius: var(--r-lg);
+  border-radius: var(--r-md);
   background: var(--surface);
   border: 1px solid var(--surface-border);
   overflow-y: auto;
@@ -377,7 +394,9 @@ defineExpose({
 
   .donote-surface {
     order: 1;
-    padding: var(--sp-2);
+    /* 提示文字的定位读的就是这两个变量 —— 改这里就够，不必再单独调 ::before */
+    --surface-pad-y: var(--sp-2);
+    --surface-pad-x: var(--sp-2);
     min-height: 40vh;
   }
 

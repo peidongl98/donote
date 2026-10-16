@@ -83,6 +83,8 @@ export const useSyncStore = defineStore('sync', () => {
 
     const worker = new BackgroundWork(next, {
       async listNotes() {
+        // 只拿普通笔记：不带 trash，且 `.trash` / `.assets` 都以 `.` 开头、走不进这个列表。
+        // 预拉取不该给回收站和附件目录烧额度 —— 这条不变量别改（见 sync-concurrency-plan.md §5-C）。
         const result = await notesApi.list({ limit: 100_000 });
         return result.items.map((item) => decodeId(item.id));
       },

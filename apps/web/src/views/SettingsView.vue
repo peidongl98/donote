@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue';
+import { computed, onMounted, onUnmounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { notesApi } from '@/storage/notes';
+import { requestBudget } from '@/storage/gate';
 import { isTauriRuntime } from '@/storage/transport';
 import {
   TRASH_DAYS_MAX,
@@ -26,6 +27,16 @@ const router = useRouter();
 const trashCount = ref<number | null>(null);
 const signingOut = ref(false);
 const syncing = ref(false);
+
+/**
+ * 请求预算：最近 30 分钟发出去了多少次同步请求。
+ *
+ * 坚果云免费版是 600 次 / 30 分钟，超了直接 503。这个数字以前拿不到 ——
+ * 同类应用被抱怨最多的就是「不知道额度用在哪」，所以摆出来让它可见。
+ * 每 5 秒刷一次即可（计数在内存里，没有额外请求）。
+ */
+const budget = ref(requestBudget());
+let budgetTimer: ReturnType<typeof setInterval> | null = null;
 
 /** 回收站自动清理（本机偏好，存 localStorage） */
 const trashAuto = ref<TrashAutoSetting>(readTrashAuto());
@@ -165,6 +176,12 @@ onMounted(async () => {
   } catch {
     // 统计失败不影响设置项本身
   }
+  budgetTimer = setInterval(() => (budget.value = requestBudget()), 5000);
+});
+
+onUnmounted(() => {
+  if (budgetTimer) clearInterval(budgetTimer);
+  budgetTimer = null;
 });
 
 async function onDisconnect(): Promise<void> {
@@ -270,7 +287,15 @@ async function onDisconnect(): Promise<void> {
           <span class="line-key">缓存目录</span>
           <span class="line-val mono" :title="sync.dir">{{ sync.dir || '—' }}</span>
         </p>
+        <p class="line">
+          <span class="line-key">同步请求</span>
+          <span class="line-val mono">{{ budget.used }} / {{ budget.limit }}</span>
+        </p>
       </div>
+      <p class="hint">
+        同步请求是最近 30 分钟发出的次数。坚果云免费版每 30 分钟 600 次，超了会被临时限流；
+        DoNote 已把所有请求排成一条队、每个至少隔 3.2 秒，正常用不会撞上。
+      </p>
       <p v-if="sync.fallback" class="hint">
         安装目录不可写，缓存已放到应用数据目录，不影响使用。
       </p>

@@ -34,6 +34,7 @@ import type {
   WriteResult,
 } from '@/services/storage';
 import { StorageError } from '@/services/storage';
+import { inBackoff } from '@/storage/backoff';
 import type { CacheStore } from './store';
 import {
   emptyMeta,
@@ -73,19 +74,12 @@ function isOffline(error: unknown): boolean {
   return error instanceof StorageError && error.code === 'unreachable';
 }
 
-/** 被服务端限流（坚果云免费版 30 分钟 600 次），先停一会儿再校验 */
-function isRateLimited(error: unknown): boolean {
-  return error instanceof StorageError && (error.status === 503 || error.status === 429);
-}
-
 /** 同一目录多久不重复校验。太短会把限流额度烧在反复切页上；跨进程保留，重开应用也算数 */
 const LIST_TTL_MS = 60_000;
-/** 后台校验的并行度。整树遍历一次会甩出上百个目录，不限住会撞穿限流 */
+/** 后台校验的并行度。出网已被全局闸门压成串行，这里的 2 只是不让队列一条条空等 */
 const CHECK_CONCURRENCY = 2;
 /** 两次后台校验之间的最小间隔 */
 const CHECK_GAP_MS = 150;
-/** 撞上限流后停多久 */
-const CHECK_COOLDOWN_MS = 5 * 60_000;
 
 /** 服务端 mtime 只到秒，本地写入给的是毫秒，比较前一律压到秒 */
 function sameSecond(a: number, b: number): boolean {
@@ -112,7 +106,6 @@ export class CachedStorage implements StorageAdapter {
   private queue: string[] = [];
   private queued = new Set<string>();
   private checking = 0;
-  private cooldownUntil = 0;
   private netHandler: (() => void) | null = null;
   private lifeHandler: (() => void) | null = null;
 
@@ -426,7 +419,7 @@ export class CachedStorage implements StorageAdapter {
       this.notifyData();
     } catch (error) {
       if (isOffline(error)) this.markOffline();
-      else if (isRateLimited(error)) this.cooldownUntil = Date.now() + CHECK_COOLDOWN_MS;
+      // 限流（503 / 429）不在这里处理：退避档位记在出网层，下一轮 enqueue 会读到
     } finally {
       this.inflight.delete(path);
     }
@@ -504,7 +497,8 @@ export class CachedStorage implements StorageAdapter {
 
   private enqueue(path: string): void {
     if (this.queued.has(path)) return;
-    if (Date.now() < this.cooldownUntil) return;
+    // 正在退避（撞过 503 / 429）就一个都别发 —— 退避档位是所有请求源共用的
+    if (inBackoff()) return;
     const last = this.checkedAt.get(path) ?? 0;
     if (Date.now() - last < LIST_TTL_MS) return;
     this.queued.add(path);
@@ -520,11 +514,8 @@ export class CachedStorage implements StorageAdapter {
         await this.fetchDir(path);
       } catch (error) {
         if (isOffline(error)) this.markOffline();
-        else if (isRateLimited(error)) {
-          // 被限流就把队列清掉，别跟服务端对着干
-          this.cooldownUntil = Date.now() + CHECK_COOLDOWN_MS;
-          this.queue = [];
-        }
+        // 被限流就把手上的队列清掉，别跟服务端对着干（退避档位由出网层记）
+        else if (inBackoff()) this.queue = [];
       } finally {
         this.checking--;
         this.queued.delete(path);

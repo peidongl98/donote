@@ -10,6 +10,7 @@ const { chromium } = require('playwright-core');
 // 回归脚手架：默认走同源假 DAV（零坚果云额度），设 USE_REAL_DAV=1 才连真服务器。
 // 断言逻辑不受影响，见 harness/davmode.cjs 与 docs/regression-harness.md。
 const H = require('../harness/davmode.cjs');
+const { openPage, reloadPage } = require('../harness/nav.cjs');
 const fs = require('fs');
 const path = require('path');
 
@@ -79,7 +80,7 @@ function check(name, ok, detail = '') {
 
   try {
     /* ------------------------- 0 连接 ------------------------- */
-    await page.goto(`${BASE}/`, { waitUntil: 'networkidle' });
+    await openPage(page, `${BASE}/`);
     if (page.url().includes('/login')) {
       await page.getByPlaceholder('https://dav.example.com/dav').fill(SERVER);
       await page.getByPlaceholder('你的账号').fill(ACCOUNT);
@@ -107,7 +108,7 @@ function check(name, ok, detail = '') {
     check('1 准备数据：笔记 + 文件夹 + 附件目录都在服务端', (await davStatus(`${TITLE}.md`)) === 207 && (await davStatus(FOLDER)) === 207 && (await davStatus(`${TITLE}.assets`)) === 207);
 
     /* ------------------------- 2 列表页菜单入口 ------------------------- */
-    await page.goto(`${BASE}/`, { waitUntil: 'networkidle' });
+    await openPage(page, `${BASE}/`);
     await page.waitForTimeout(3500);
 
     await cardOf(TITLE).click({ button: 'right' });
@@ -162,7 +163,7 @@ function check(name, ok, detail = '') {
     check('7 原位置已清空', (await davStatus(`${RENAMED}.md`)) === 404, `${RENAMED}.md`);
 
     /* ------------------------- 8 删除进回收站 ------------------------- */
-    await page.reload({ waitUntil: 'networkidle' });
+    await reloadPage(page);
     await page.waitForTimeout(3000);
     await cardOf(RENAMED).click({ button: 'right' });
     await page.waitForTimeout(400);
@@ -175,7 +176,7 @@ function check(name, ok, detail = '') {
     check('8 原位置已不在', (await davStatus(`${FOLDER}/${RENAMED}.md`)) === 404);
 
     /* ------------------------- 9 回收站页菜单 ------------------------- */
-    await page.goto(`${BASE}/trash`, { waitUntil: 'networkidle' });
+    await openPage(page, `${BASE}/trash`);
     await page.waitForTimeout(2500);
     const trashRow = page.locator('.row-card', { hasText: RENAMED }).first();
     await trashRow.click({ button: 'right' });
@@ -190,7 +191,7 @@ function check(name, ok, detail = '') {
     check('10 恢复后回到原来的文件夹', (await davStatus(`${FOLDER}/${RENAMED}.md`)) === 207, `${FOLDER}/${RENAMED}.md`);
 
     /* ------------------------- 11 编辑态标记 ------------------------- */
-    await page.goto(`${BASE}/`, { waitUntil: 'networkidle' });
+    await openPage(page, `${BASE}/`);
     await page.waitForTimeout(3000);
     await cardOf(RENAMED).click();
     await page.waitForURL(/\/notes\//, { timeout: 15000 });
@@ -202,7 +203,7 @@ function check(name, ok, detail = '') {
     check('11 打开详情页时标记了正在编辑的笔记', Boolean(editingId), String(editingId));
 
     // 离开详情页后标记要清掉
-    await page.goto(`${BASE}/`, { waitUntil: 'networkidle' });
+    await openPage(page, `${BASE}/`);
     await page.waitForTimeout(1200);
     const leftId = await page.evaluate(async () => {
       const { useEditingStore } = await import('/src/stores/editing.ts');
@@ -211,7 +212,7 @@ function check(name, ok, detail = '') {
     check('11 离开详情页后标记被清掉', leftId === null, String(leftId));
 
     /* ------------------------- 12 再删一次 → 彻底删除 ------------------------- */
-    await page.goto(`${BASE}/`, { waitUntil: 'networkidle' });
+    await openPage(page, `${BASE}/`);
     await page.waitForTimeout(3000);
     await cardOf(RENAMED).click({ button: 'right' });
     await page.waitForTimeout(400);
@@ -220,7 +221,7 @@ function check(name, ok, detail = '') {
     await page.locator('[role="dialog"] button', { hasText: '移入回收站' }).click();
     await page.waitForTimeout(2500);
 
-    await page.goto(`${BASE}/trash`, { waitUntil: 'networkidle' });
+    await openPage(page, `${BASE}/trash`);
     await page.waitForTimeout(2500);
     await page.locator('.row-card', { hasText: RENAMED }).first().click({ button: 'right' });
     await page.waitForTimeout(400);

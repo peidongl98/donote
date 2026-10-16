@@ -1,11 +1,11 @@
 {
-  "version": "0.4.2",
-  "notes": "正文区按看笔记的样子重做了一遍。整段独占的 [[笔记名]] 现在渲染成一行带图标的页面块，夹在句子里的仍是普通行内链接；正文去掉卡片外壳，全屏时两侧留白从 21% 收到 3.6%（窗口化宽度不变）；工具栏最前面多了 A− / A+ 调正文字号，Ctrl+加减、Ctrl+0 回默认，只改显示不写进 .md。原来压在正文上下的两块挪了位置：「新建子页面」进右上角 ⋯ 菜单，被提到变成正文顶部一行、点开才展开。新增建议标签：按正文词频给出最多 5 个虚线标签，点一下才写进笔记。\n\n另修图标：安装向导与卸载程序之前画的是 Windows 默认图标，这版换成应用自己的图标；装完还会通知系统刷新图标缓存，所以从旧版更新过来的机器，资源管理器和任务栏里的图标也会跟着换掉。",
-  "pub_date": "2026-10-16T08:40:04Z",
+  "version": "0.4.3",
+  "notes": "同步不再把坚果云的额度打满。所有对服务器的请求现在都先过一道闸门：一次只发一个，允许启动时先用一小段额度把笔记列表拉出来，之后每 3.2 秒一个 —— 正好卡住免费版 600 次 / 30 分钟这条线。万一还是撞上限流，会从 30 分钟起步、逐次翻倍、最长停 6 小时，并优先听服务器给的等待时间，不再反复撞。后台预取的笔记从一轮 6 篇减到 2 篇，回收站首屏从 60 条减到 20 条；设置页多一行「同步请求 N / 600」，能看到最近 30 分钟用了多少。\\n\\n正文默认字号从 15px 提到 16px，也不再在两侧留大片空白，直接铺满内容区。按住 Ctrl 拖动正文框的左右边框可以自己调宽度：最窄 30 字一行、最宽铺满，跟着窗口缩放；双击边框回默认，窗口一缩放也回默认。\\n\\n启动时会自检新版本，一发现就弹窗告诉你是哪个版本、改了什么，点「立即更新并重启」就地装好 —— 以前那条提示要等整个安装包下完才闪一下，太容易错过。另外，删除笔记或文件夹失败时会说清原因，撞上限流会写「服务器限流了」，不再是笼统的「删除失败」。",
+  "pub_date": "2026-10-16T14:44:35Z",
   "platforms": {
     "windows-x86_64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSWTRLN1pZbGY4NG1jS2plczRURlFyYjViL1ZseDE1SkVDTE1meC84aUdVcXp1dGlucndOVThXNXI0Z2hoSkFCdFdEeDdMc2VENS8zWUZqVWFQWjAxNWZ5QXNQSkJaNXdNPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkyMTQwMDA0CWZpbGU6RG9Ob3RlXzAuNC4yX3g2NC1zZXR1cC5leGUJdmVyc2lvbjowLjQuMgo1NHpzcGJwdTFiQkwzUjFTaTZQTHhmT0lxWHNZMTcrQnJUTVZJSVBWV2hOcnZOL05qQmNQd0llNVpIZ01wWG90aVhTMFgrdU4wMm5TN1gzbithWGdDUT09Cg==",
-      "url": "https://donote.pages.dev/downloads/DoNote-0.4.2-win-x64.exe"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSWTRLN1pZbGY4NGhJSVBMSThKVHF4RkN4RkJQUS9JeHJrekVKQ1ZVVkdnK2JXVmowREczdEFXN1ZYQU1XNzVLNFpQL2pNcVNPVmwxSFVUYytCVDYrcElrbkswV1RjbHd3PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkyMTYxODc0CWZpbGU6RG9Ob3RlXzAuNC4zX3g2NC1zZXR1cC5leGUJdmVyc2lvbjowLjQuMwppSUw2WWhCSnN1cjJJSkxxTjZQNTRVR1NXSUNWV0kvVUVNUlMwTXRZRkNsR0FlREpCa2Njem5HZzBrcW9UL0crMjFWUFZIeFB2ZlRmdmRqcjEvKzdEUT09Cg==",
+      "url": "https://donote.pages.dev/downloads/DoNote-0.4.3-win-x64.exe"
     }
   }
 }

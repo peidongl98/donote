@@ -12,6 +12,7 @@ const { chromium } = require('playwright-core');
 // 回归脚手架：默认走同源假 DAV（零坚果云额度），设 USE_REAL_DAV=1 才连真服务器。
 // 断言逻辑不受影响，见 harness/davmode.cjs 与 docs/regression-harness.md。
 const H = require('../harness/davmode.cjs');
+const { openPage, reloadPage } = require('../harness/nav.cjs');
 const fs = require('fs');
 const path = require('path');
 
@@ -103,7 +104,7 @@ function check(name, ok, detail = '') {
 
   try {
     // ---------- 登录 + 建一篇 ----------
-    await page.goto(BASE + '/', { waitUntil: 'networkidle' });
+    await openPage(page, BASE + '/');
     if (page.url().includes('/login')) {
       await page.getByPlaceholder('https://dav.example.com/dav').fill(SERVER);
       await page.getByPlaceholder('你的账号').fill(ACCOUNT);

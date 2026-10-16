@@ -4,10 +4,7 @@ import App from './App.vue';
 import { router } from './router';
 import { useWebdavStore } from './stores/webdav';
 import { useThemeStore } from './stores/theme';
-import { useUiStore } from './stores/ui';
 import { installTauriBridge } from './storage/tauri';
-import { isTauriRuntime } from './storage/transport';
-import { startAutoUpdate } from './updater';
 import { installExternalLinks } from './utils/open-external';
 
 import './styles/tokens.css';
@@ -34,15 +31,5 @@ const webdav = useWebdavStore();
 webdav.restore().finally(() => {
   app.use(router);
   app.mount('#app');
-  // 启动后自动检查并后台把新版本下好；下好了才提示一句，装不装由用户点一下决定
-  if (isTauriRuntime()) {
-    startAutoUpdate((state) => {
-      if (state.kind !== 'ready') return;
-      useUiStore().toast(
-        state.portable
-          ? `有新版本 ${state.version}，绿色版到下载页取新包`
-          : `新版本 ${state.version} 已下载好，到设置里点「重启以更新」`,
-      );
-    });
-  }
+  // 启动自检更新提示由 App.vue 里的 UpdatePrompt 负责（发现新版本即弹对话框）
 });

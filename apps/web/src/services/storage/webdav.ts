@@ -162,13 +162,24 @@ export class WebdavAdapter implements StorageAdapter {
     return `Basic ${btoa(String.fromCharCode(...new TextEncoder().encode(`${c.account}:${c.password}`)))}`;
   }
 
-  /** 统一把「请求根本没发出去」翻译成一个可读错误，不让底层异常直接漏到界面 */
+  /**
+   * 统一把「请求根本没发出去」翻译成一个可读错误，不让底层异常直接漏到界面。
+   *
+   * 同时在这里把**服务端限流**（503 / 429）认出来：文案要说清是「被限流」而不是「代码错了」，
+   * 用户看到「HTTP 503」只会以为软件坏了。退避状态的记账在出网层（storage/transport.ts），
+   * 那里能直接读到 `Retry-After`，不用在这一层层层传。
+   */
   private async send(url: string, init: RequestInit): Promise<Response> {
+    let res: Response;
     try {
-      return await davFetch(url, init);
+      res = await davFetch(url, init);
     } catch {
       throw new StorageError('unreachable', '连不上服务器，请检查地址与网络', 0);
     }
+    if (res.status === 503 || res.status === 429) {
+      throw new StorageError('other', '服务器限流了（请求太频繁），先停一会儿再试', res.status);
+    }
+    return res;
   }
 
   /* ------------------------------ 生命周期 ------------------------------ */

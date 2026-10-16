@@ -18,6 +18,7 @@
  */
 const { chromium } = require('playwright-core');
 const H = require('../harness/davmode.cjs');
+const { openPage, reloadPage } = require('../harness/nav.cjs');
 const fs = require('fs');
 const path = require('path');
 
@@ -234,7 +235,7 @@ function check(name, ok, detail = '') {
   try {
     /* ============================== 准备 ============================== */
 
-    await page.goto(BASE + '/', { waitUntil: 'networkidle' });
+    await openPage(page, BASE + '/');
     if (page.url().includes('/login')) {
       await page.getByPlaceholder('https://dav.example.com/dav').fill(SERVER);
       await page.getByPlaceholder('你的账号').fill(ACCOUNT);
@@ -330,7 +331,7 @@ function check(name, ok, detail = '') {
     check('嵌套 6 拖 .md 到详情页 → 生成 父目录/新名/index.md', await waitForDav(`${PARENT}/${DROP_D}/index.md`));
 
     // ---------- 嵌套 7：拖 .md 到列表页 → 同级笔记 ----------
-    await page.goto(BASE + '/', { waitUntil: 'networkidle' });
+    await openPage(page, BASE + '/');
     await page.waitForTimeout(1000);
     await dropMarkdown(`${DROP_L}.md`, `# ${DROP_L}\n\n拖到列表页`);
     check('嵌套 7 拖 .md 到列表页 → 生成同级 .md', await waitForDav(`${DROP_L}.md`));
@@ -347,7 +348,7 @@ function check(name, ok, detail = '') {
     check('嵌套 10 仍然是一篇能编辑的笔记', await surface.isVisible());
 
     // ---------- 导航：先备一篇被链接的目标笔记 ----------
-    await page.goto(BASE + '/', { waitUntil: 'networkidle' });
+    await openPage(page, BASE + '/');
     await page.waitForTimeout(900);
     await page.locator('.rail button.new').click();
     await page.waitForURL(/\/notes\//, { timeout: 20000 });
@@ -500,7 +501,7 @@ function check(name, ok, detail = '') {
     // 🔴 序列化器怕 `[` 被当成链接起头，会把开头的方括号转义成 `\[\[` 写进文件。
     // 链接本身读回来还是 `[[…]]`，但**正文级的扫描器**（反链、改名改写）看的是磁盘原文 ——
     // 这条专门盯住「转义之后两边都还认」，这两处曾经一起栽在这里。
-    await page.reload({ waitUntil: 'networkidle' });
+    await reloadPage(page);
     await surface.waitFor({ state: 'visible', timeout: 15000 });
     const survived = await waitForLink(TARGET2, '!is-missing');
     check(
@@ -531,7 +532,7 @@ function check(name, ok, detail = '') {
     );
 
     // ---------- 导航 7：搜索显示层级路径 ----------
-    await page.goto(BASE + '/', { waitUntil: 'networkidle' });
+    await openPage(page, BASE + '/');
     await page.waitForTimeout(900);
     await page.getByPlaceholder('搜索标题或正文').fill(CHILD);
     await page.waitForTimeout(1600);
@@ -541,7 +542,7 @@ function check(name, ok, detail = '') {
     await page.screenshot({ path: path.join(SHOTS, '06-search-path.png') });
 
     // ---------- 导航 8：删除被引用的笔记 → 链接变红 ----------
-    await page.goto(BASE + '/', { waitUntil: 'networkidle' });
+    await openPage(page, BASE + '/');
     await page.waitForTimeout(900);
     await openNoteByTitle(TARGET2);
     await page.locator('.more').click();
@@ -569,7 +570,7 @@ function check(name, ok, detail = '') {
     check('嵌套 8 父页面整棵进了 .trash', !!newEntry, newEntry || after.slice(0, 4).join(' | '));
 
     // ---------- 嵌套 9：恢复父页面 → 整棵回来 ----------
-    await page.goto(BASE + '/trash', { waitUntil: 'networkidle' });
+    await openPage(page, BASE + '/trash');
     await page.waitForTimeout(1500);
     const node = page.locator('.node').filter({ hasText: PARENT }).first();
     await node.getByRole('button', { name: '恢复' }).first().click();

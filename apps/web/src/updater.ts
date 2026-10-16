@@ -171,16 +171,24 @@ export async function applyUpdate(): Promise<void> {
 }
 
 /**
+ * 启动自检发现的新版本。
+ *
+ * 🔴 回调在**一发现新版本时就发**，不等安装包下完（0.4.3 改）。
+ * 旧流程是「后台把整包下完 → 弹一条 2.2 秒的 toast 说『到设置里点重启以更新』」，
+ * 实测等于没有提示：下载要好几分钟、提示转瞬即逝，用户根本不知道有过更新。
+ * 现在由界面立刻弹一句问，**装不装仍由用户点一下决定**。
+ */
+export type FoundUpdate = { version: string; notes: string };
+
+/**
  * 启动后跑一次：延迟一会儿再动，别和首屏抢带宽。
  * 没有新版本、检查失败都静默放过 —— 更新不该在启动时打扰用户。
  */
-export function startAutoUpdate(onReady?: (state: AutoState) => void, delayMs = 8000): void {
+export function startAutoUpdate(onFound?: (found: FoundUpdate) => void, delayMs = 3000): void {
   if (!isTauriRuntime()) return;
   window.setTimeout(() => {
-    void ensureUpdateReady()
-      .then((state) => {
-        if (state.kind === 'ready' && onReady) onReady(state);
-      })
-      .catch(() => undefined);
+    void checkUpdate().then((state) => {
+      if (state.kind === 'available') onFound?.({ version: state.version, notes: state.notes });
+    });
   }, delayMs);
 }

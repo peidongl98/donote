@@ -8,6 +8,7 @@ const { chromium } = require('playwright-core');
 // 回归脚手架：默认走同源假 DAV（零坚果云额度），设 USE_REAL_DAV=1 才连真服务器。
 // 断言逻辑不受影响，见 harness/davmode.cjs 与 docs/regression-harness.md。
 const H = require('../harness/davmode.cjs');
+const { openPage, reloadPage } = require('../harness/nav.cjs');
 const fs = require('fs');
 const path = require('path');
 
@@ -40,7 +41,7 @@ function check(name, ok, detail = '') {
   let folderCreated = false;
 
   async function connect(page) {
-    await page.goto(BASE + '/', { waitUntil: 'networkidle' });
+    await openPage(page, BASE + '/');
     if (!page.url().includes('/login')) return;
     await page.getByPlaceholder('https://dav.example.com/dav').fill(SERVER);
     await page.getByPlaceholder('你的账号').fill(ACCOUNT);
@@ -69,7 +70,7 @@ function check(name, ok, detail = '') {
   const dp = await deskCtx.newPage();
   await H.attach(dp, deskCtx);
   await connect(dp);
-  await dp.goto(BASE + '/', { waitUntil: 'networkidle' });
+  await openPage(dp, BASE + '/');
   await dp.waitForTimeout(3000);
   await shoot(dp, 'd1-home');
 
@@ -172,7 +173,7 @@ function check(name, ok, detail = '') {
   await dp.waitForTimeout(3000);
 
   // 重进一次：侧栏树有自己的取数时机，别拿还没刷新的树当证据
-  await dp.reload({ waitUntil: 'networkidle' });
+  await reloadPage(dp);
   await dp.waitForTimeout(3000);
   await openRail(dp);
   const noteBId = dp.url().split('/notes/')[1] ?? '';
@@ -200,13 +201,13 @@ function check(name, ok, detail = '') {
 
   // 面包屑：先看只有「当前页」一段的页面（不可点是正常的），
   // 再看有父级链接的页面 —— 那才谈得上「跳转」
-  await dp.goto(BASE + '/trash', { waitUntil: 'networkidle' });
+  await openPage(dp, BASE + '/trash');
   await dp.waitForTimeout(1500);
   check('面包屑在位', await dp.locator('header.topbar nav.crumbs').isVisible());
   check('当前页那段标成不可点', (await dp.locator('header.topbar nav.crumbs .crumb.is-current').count()) >= 1);
   await shoot(dp, 'd6-crumbs');
 
-  await dp.goto(BASE + '/folders', { waitUntil: 'networkidle' });
+  await openPage(dp, BASE + '/folders');
   await dp.waitForTimeout(1800);
 
   const FOLDERNAME = FOLDER;
@@ -253,7 +254,7 @@ function check(name, ok, detail = '') {
   );
 
   // 重进本页：不记住上次的展开，默认只看到最顶层
-  await dp.reload({ waitUntil: 'networkidle' });
+  await reloadPage(dp);
   await dp.waitForTimeout(2000);
   check('重进本页只看到最顶层', (await childRows()) === 0);
   check('顶层文件夹本身还在', (await dp.locator('.folder-link', { hasText: FOLDERNAME }).count()) === 1);
@@ -276,7 +277,7 @@ function check(name, ok, detail = '') {
   /* ---------- 换文件夹：/folders/:id 同样是被复用的那条路由记录 ----------
    * 侧栏树是「已经站在某个文件夹里、还能点开另一个」的唯一入口。
    * 判据同样是两条：地址换了、面包屑上的名字也换了。 */
-  await dp.reload({ waitUntil: 'networkidle' });
+  await reloadPage(dp);
   await dp.waitForTimeout(2500);
   await openRail(dp);
   const treeRow = (name) => dp.locator('aside.rail a.tree-link', { hasText: name }).first();
@@ -303,7 +304,7 @@ function check(name, ok, detail = '') {
   }
 
   // 亮色主题
-  await dp.goto(BASE + '/', { waitUntil: 'networkidle' });
+  await openPage(dp, BASE + '/');
   await dp.evaluate(() => {
     localStorage.setItem('donote.theme', 'light');
     document.documentElement.setAttribute('data-theme', 'light');
@@ -362,7 +363,7 @@ function check(name, ok, detail = '') {
   check('拖到 1000 被夹回上限 520', Math.abs((await railBox()) - 520) <= 2, `${await railBox()}px`);
   check('松手才落盘，记的是夹取后的值', (await dp.evaluate(() => localStorage.getItem('donote.sidebar-w'))) === '520');
 
-  await dp.reload({ waitUntil: 'networkidle' });
+  await reloadPage(dp);
   await dp.waitForTimeout(2500);
   check('刷新后宽度还在', Math.abs((await railBox()) - 520) <= 2, `${await railBox()}px`);
 
@@ -402,7 +403,7 @@ function check(name, ok, detail = '') {
   const mp = await mobCtx.newPage();
   await H.attach(mp, mobCtx);
   await connect(mp);
-  await mp.goto(BASE + '/', { waitUntil: 'networkidle' });
+  await openPage(mp, BASE + '/');
   await mp.waitForTimeout(3000);
   await shoot(mp, 'm1-home');
 
@@ -422,7 +423,7 @@ function check(name, ok, detail = '') {
   // 桌面端拖出来的宽度会跟着用户到手机上：520px 在 1024 的笔记本上正好，在 390 的手机上就盖满一屏。
   // 先把宽度写成 520 再重进，看抽屉有没有被 84vw 兜住。
   await mp.evaluate(() => localStorage.setItem('donote.sidebar-w', '520'));
-  await mp.reload({ waitUntil: 'networkidle' });
+  await reloadPage(mp);
   await mp.waitForTimeout(2000);
   await mp.locator('header.topbar button[aria-label="收起或展开侧边栏"]').click();
   await mp.waitForTimeout(700);

@@ -17,6 +17,7 @@
  */
 const { chromium } = require('playwright-core');
 const H = require('../harness/davmode.cjs');
+const { openPage, reloadPage } = require('../harness/nav.cjs');
 const fs = require('fs');
 const path = require('path');
 
@@ -152,7 +153,7 @@ function decodeId(id) {
   try {
     /* ============================== 准备 ============================== */
 
-    await page.goto(BASE + '/', { waitUntil: 'networkidle' });
+    await openPage(page, BASE + '/');
     if (page.url().includes('/login')) {
       await page.getByPlaceholder('https://dav.example.com/dav').fill(SERVER);
       await page.getByPlaceholder('你的账号').fill(ACCOUNT);
@@ -323,7 +324,7 @@ function decodeId(id) {
 
     // ---------- 兼容 1b：重新打开后价格文本显示如常（`\$` 要还原成 `$`） ----------
     // 上一条只证明「落盘是合法的 Markdown 转义」，这一条证明「读回来还是用户写的那句话」
-    await page.goto(BASE + '/', { waitUntil: 'networkidle' });
+    await openPage(page, BASE + '/');
     await page.waitForTimeout(1600);
     await page.locator('.tree-row').filter({ hasText: TYPE }).first().locator('a.tree-link').first().click();
     await page.waitForURL(/\/notes\//, { timeout: 20000 });

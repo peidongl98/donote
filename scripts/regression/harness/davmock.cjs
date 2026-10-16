@@ -166,6 +166,7 @@ const XML_HEADERS = { 'content-type': 'application/xml; charset=utf-8' };
 /**
  * 故障注入（只在验收里用）。规则返回 0 = 不拦，返回状态码 = 直接用这个状态码应答。
  * 例：让 DELETE 某条笔记回 503，验证批量的「限流即停」。
+ * 返回值也可以给 `{ status, headers }` —— 注入 `Retry-After` 只能这样给。
  */
 let failWhen = null;
 function injectFailure(rule) {
@@ -183,7 +184,11 @@ function serve(rel, req = {}) {
 
   if (failWhen) {
     const injected = failWhen(method, rel);
-    if (injected) return { status: injected, headers: {}, body: '' };
+    if (injected) {
+      // 数字 = 只改状态码；对象 = 连响应头一起给（注入 Retry-After 用）
+      const spec = typeof injected === 'object' ? injected : { status: injected };
+      return { status: spec.status, headers: spec.headers ?? {}, body: spec.body ?? '' };
+    }
   }
 
   if (method === 'OPTIONS') {
@@ -289,17 +294,20 @@ async function routeHandler(route) {
   count(method);
   const rel = relFromPathname(new URL(req.url()).pathname);
   if (rel === null) return route.continue();
-  const out = serve(rel, {
-    method,
-    depth: req.headers()['depth'],
-    destination: req.headers()['destination'],
-    overwrite: req.headers()['overwrite'],
-    body: req.postDataBuffer() ?? '',
+  return tracked(async () => {
+    if (delayMs) await sleep(delayMs);
+    const out = serve(rel, {
+      method,
+      depth: req.headers()['depth'],
+      destination: req.headers()['destination'],
+      overwrite: req.headers()['overwrite'],
+      body: req.postDataBuffer() ?? '',
+    });
+    if (process.env.MOCK_LOG === '1') {
+      console.log(`    [mock] ${method} ${rel || '/'} -> ${out.status}`);
+    }
+    return route.fulfill({ status: out.status, headers: out.headers, body: out.body });
   });
-  if (process.env.MOCK_LOG === '1') {
-    console.log(`    [mock] ${method} ${rel || '/'} -> ${out.status}`);
-  }
-  return route.fulfill({ status: out.status, headers: out.headers, body: out.body });
 }
 
 /** 套件侧入口：把 ctx.request.fetch 换成读同一份内存文件系统 */
@@ -360,7 +368,50 @@ function stats() {
   return Object.fromEntries([...counters.entries()].sort());
 }
 
+/* ---------------- 时序观测设施（验收「闸门」「退避」时用） ---------------- */
+
+/**
+ * 人为延迟（毫秒），默认 0。
+ *
+ * 秒回的假 DAV 看不出「并发 1」和「并发 5」的区别 —— 请求还没叠上就结束了。
+ * 给它加一点延迟，在途请求才会真的重叠，闸门有没有把并发压成 1 才测得出。
+ * 只在验收里用，正常套件不要设。
+ */
+let delayMs = 0;
+let inflight = 0;
+let peakInflight = 0;
+
+function setDelay(ms) {
+  delayMs = ms;
+}
+
+/** 把「在途」计数包在一次请求处理外面。并发一叠上来 peakInflight 就会 >1 */
+async function tracked(fn) {
+  inflight++;
+  if (inflight > peakInflight) peakInflight = inflight;
+  try {
+    return await fn();
+  } finally {
+    inflight--;
+  }
+}
+
+/** 观测窗口：峰值在途数、当前在途数 */
+function timing() {
+  return { peakInflight, inflight };
+}
+
+function resetTiming() {
+  peakInflight = 0;
+  inflight = 0;
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 module.exports = {
   seed, putNote, mkdir, mkfile, install, serve, stats, injectFailure,
   relFromPathname, relFromDestination, hrefOf, NODES, PREFIX_PATH,
+  setDelay, timing, resetTiming,
 };

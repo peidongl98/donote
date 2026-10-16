@@ -14,7 +14,13 @@ const KEY = 'donote.doc-font-size';
 
 /** 档位。间距 1px：按一下要看得出来，连续步进太琐碎。 */
 export const DOC_FONT_STEPS = [14, 15, 16, 17, 18] as const;
-export const DOC_FONT_DEFAULT = 15;
+/**
+ * 默认 16px。
+ *
+ * 中文笔记产品的正文默认值：语雀《文档书写规范》定 16、飞书文档 16、Notion 16。
+ * 15 偏小，且屏幕越宽越显得空 —— 列宽填满之后，一行多长就由这个值决定。
+ */
+export const DOC_FONT_DEFAULT = 16;
 
 type Step = (typeof DOC_FONT_STEPS)[number];
 

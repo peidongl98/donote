@@ -94,8 +94,9 @@ async function softDelete(): Promise<void> {
     await notesApi.remove(note.id);
     deleteOpen.value = false;
     finish('已移入回收站');
-  } catch {
-    ui.toast('删除失败');
+  } catch (err) {
+    // 带上原因：撞限流（503）与「代码坏了」对用户是两件事，只说「删除失败」等于没说
+    ui.toast(err instanceof DavError ? err.message : '删除失败');
   } finally {
     busy.value = false;
   }

@@ -11,6 +11,7 @@ import AppHeader from '@/components/AppHeader.vue';
 import AppDialog from '@/components/AppDialog.vue';
 import NoteEditor from '@/components/editor/NoteEditor.vue';
 import { EMPTY_SNAPSHOT, redo, undo } from '@/components/editor/commands';
+import { clampDocWidth } from '@/components/editor/doc-width';
 import { buildExportHtml, saveExportHtml } from '@/services/export-html';
 import { suggestTags } from '@/utils/suggest-tags';
 
@@ -495,8 +496,9 @@ async function softDelete(): Promise<void> {
     await notesApi.remove(noteId.value);
     ui.toast('已移入回收站');
     await router.replace('/');
-  } catch {
-    ui.toast('删除失败');
+  } catch (err) {
+    // 带上原因：撞限流（503）与「代码坏了」对用户是两件事，只说「删除失败」等于没说
+    ui.toast(err instanceof DavError ? err.message : '删除失败');
   } finally {
     busy.value = false;
     deleteOpen.value = false;
@@ -533,6 +535,12 @@ async function restore(): Promise<void> {
 }
 
 onMounted(async () => {
+  window.addEventListener('keydown', syncModifier);
+  window.addEventListener('keyup', syncModifier);
+  // Alt+Tab 切走时收不到 keyup，回来会一直留着「按住」的状态
+  window.addEventListener('blur', onWindowBlur);
+  // 缩放窗口 → 正文框回默认宽度（见 resetDocWidthOnResize）
+  window.addEventListener('resize', resetDocWidthOnResize);
   await load();
   await loadTitleIndex();
   await loadFolders();
@@ -579,7 +587,92 @@ watch(
     await load();
   },
 );
+/* ------------------------------ 正文框宽度 ------------------------------ */
+
+/**
+ * 按住 Ctrl / Cmd 时，正文框两侧的宽度手柄才醒过来。
+ *
+ * 平时手柄不接指针事件（`.width-grip` 是 pointer-events: none）—— 那 6 像素里就是
+ * 正文本身，挡住就点不着光标了。唤醒的代价只是一条细线，同时也是「可以拖了」的提示。
+ */
+const ctrlDown = ref(false);
+
+/** 只在有精细指针（鼠标）的设备上给手柄；手机（触摸）不接这条逻辑 */
+const mouseDevice = typeof window === 'undefined' || window.matchMedia('(pointer: fine)').matches;
+
+function syncModifier(e: KeyboardEvent): void {
+  ctrlDown.value = e.ctrlKey || e.metaKey;
+}
+
+function onWindowBlur(): void {
+  ctrlDown.value = false;
+}
+
+/** 当前框宽，px；null = 默认（内容区满宽） */
+const docWidth = ref<number | null>(null);
+
+/**
+ * 窗口一缩放就回默认宽度。
+ *
+ * 这一条同时替掉了「记住上次拖到多宽」：宽度只活在内存里，不落盘、不跨窗口，
+ * 于是不需要按比例存、不需要在换显示器后重算 —— 一个变量加一个监听就够了。
+ */
+function resetDocWidthOnResize(): void {
+  docWidth.value = null;
+}
+
+/** 内容区可用宽：正文框 100% 时有多宽 = 父级内容盒宽去掉左右内边距 */
+function availableWidth(bodyEl: HTMLElement): number {
+  const parent = bodyEl.parentElement as HTMLElement;
+  const cs = getComputedStyle(parent);
+  return parent.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+}
+
+/**
+ * 拖正文框的左或右任一条边，改的是同一个宽度。
+ *
+ * 框是居中的，所以指针走 dx、两侧各让出 dx —— 宽度变 2dx（左右方向相反，见 dir）。
+ * 始终拿**按下时那一帧**的宽度加总位移来算，不逐帧累加：否则夹到上下限之后，
+ * 虚拟位移和真实宽度就分道扬镳，松手再按会跳一下（jQuery UI resizable 的老毛病）。
+ * 上下限见 doc-width.ts：下限写死 544px，上限是当前的可用宽。
+ */
+function startWidthResize(e: PointerEvent): void {
+  if (e.button !== 0 || !ctrlDown.value) return;
+  // 不吃掉默认行为的话，指针一拖到正文上就会被当成「拖选文字」，
+  // Chromium 会发一个 dragstart 掐断整个指针序列（侧栏拖拽踩过同一个坑）
+  e.preventDefault();
+  const handle = e.currentTarget as HTMLElement;
+  const dir = handle.classList.contains('is-left') ? -1 : 1;
+  const bodyEl = handle.parentElement as HTMLElement;
+  const available = availableWidth(bodyEl);
+  const startW = Math.min(docWidth.value ?? available, available);
+  const startX = e.clientX;
+
+  // 拖拽期间挂上全局拖拽态（styles/tokens.css 的 html[data-resizing]）：
+  // 光标统一变左右箭头、压住文本选中，跟拖侧边栏是同一套
+  const root = document.documentElement;
+  root.setAttribute('data-resizing', '1');
+  handle.setPointerCapture(e.pointerId);
+
+  const move = (ev: PointerEvent): void => {
+    docWidth.value = clampDocWidth(startW + dir * 2 * (ev.clientX - startX), available);
+  };
+  const finish = (): void => {
+    handle.removeEventListener('pointermove', move);
+    handle.removeEventListener('pointerup', finish);
+    handle.removeEventListener('pointercancel', finish);
+    root.removeAttribute('data-resizing');
+  };
+  handle.addEventListener('pointermove', move);
+  handle.addEventListener('pointerup', finish);
+  handle.addEventListener('pointercancel', finish);
+}
+
 onBeforeUnmount(() => {
+  window.removeEventListener('keydown', syncModifier);
+  window.removeEventListener('keyup', syncModifier);
+  window.removeEventListener('blur', onWindowBlur);
+  window.removeEventListener('resize', resetDocWidthOnResize);
   editing.leave(noteId.value);
   void flush();
 });
@@ -660,7 +753,11 @@ onBeforeUnmount(() => {
       <button type="button" class="btn-ghost small" :disabled="busy" @click="restore">恢复</button>
     </div>
 
-    <div class="body">
+    <div
+      class="body"
+      :class="{ 'is-resizable': ctrlDown }"
+      :style="docWidth === null ? undefined : { width: `${docWidth}px` }"
+    >
       <input
         v-model="title"
         class="title-input"
@@ -766,6 +863,24 @@ onBeforeUnmount(() => {
         />
       </template>
 
+      <!--
+        宽度手柄：骑在正文框的左右边界上（各 3px 在外、3px 在内），平时不可见、不吃指针，
+        按住 Ctrl 才亮出细线（见 .body.is-resizable）。手机端不给 —— 见 doc-width.ts 开头。
+      -->
+      <template v-if="mouseDevice">
+        <div
+          class="width-grip is-left"
+          aria-hidden="true"
+          @pointerdown="startWidthResize"
+          @dblclick="docWidth = null"
+        />
+        <div
+          class="width-grip is-right"
+          aria-hidden="true"
+          @pointerdown="startWidthResize"
+          @dblclick="docWidth = null"
+        />
+      </template>
     </div>
 
     <!-- 更多操作 -->
@@ -893,11 +1008,16 @@ onBeforeUnmount(() => {
   flex-direction: column;
   height: 100%;
   /*
-   * 编辑页单开一档内容列宽。全站共用的 --content-max 在宽屏封顶 1400 ——
-   * 1920 全屏时两侧各留 177（合 21%），看着空。这里只在编辑页作用域内放开，
-   * 列表页 / 设置页不受影响；窗口化 1120 时两版完全一致（都被可用宽度压满）。
+   * 编辑页内容列宽：填满内容区，不设上限。
+   *
+   * 用 100%（相对内容区，已扣 --content-offset）而不是 88vw（相对视口）：
+   * 侧栏宽度是用户拖出来的，视口百分比不会跟着变 —— 拖宽侧栏时列宽该跟着缩。
+   *
+   * 一行多长由字号决定（默认 16px，工具栏可调），不靠收窄列宽来凑：
+   * 收窄是拿两侧留白换的，1500 视口下会把正文挤成中间一条。
+   * 两侧的呼吸距离交给 .body 的左右 padding，不用列宽上限去做。
    */
-  --content-max: clamp(900px, 88vw, 1600px);
+  --content-max: 100%;
   /* 桌面端给侧边栏让位；移动端 --content-offset 恒为 0 */
   padding-left: var(--content-offset);
   padding-bottom: env(safe-area-inset-bottom, 0px);
@@ -1034,8 +1154,68 @@ onBeforeUnmount(() => {
   width: 100%;
   max-width: var(--content-max);
   margin: 0 auto;
-  padding: var(--sp-3) var(--page-gutter);
+  /*
+   * 左右比全局留白（--page-gutter = sp-3 = 24）多一档：正文列填满之后，
+   * 容器边框离侧栏 / 屏幕边就只剩左右 padding 这点距离，24 太贴。
+   * 上下不跟着加 —— 那是把正文推离工具栏，与「不贴边」无关。
+   *
+   * 提成变量是因为宽度手柄要按它骑到正文框的边界上；拖窄之后正文框（.donote-surface）
+   * 与标题、工具栏一起跟着这个容器走，四层边界始终对齐。
+   */
+  --body-pad-x: var(--sp-4);
+  padding: var(--sp-3) var(--body-pad-x);
   gap: var(--sp-2);
+  /* 手柄的定位基准。宽度由 JS 写在元素上（拖过才有，见 docWidth） */
+  position: relative;
+  /* 默认宽度（不设 inline style 时）。flex 项默认 min-width: auto 撑在内容宽上，
+     不归零的话长代码行会把拖窄的框重新顶开 */
+  min-width: 0;
+}
+
+/*
+ * 正文框宽度手柄。平时是一条 6px 的透明带，既不显示也不吃指针 ——
+ * 那几像素里就是正文，挡住就点不着光标了；按住 Ctrl 才醒来（.is-resizable）。
+ * touch-action 关掉是防触屏把手势判成滚动，pointermove 会直接断掉（与侧边栏手柄同一处坑）。
+ */
+.width-grip {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 6px;
+  pointer-events: none;
+  touch-action: none;
+  z-index: 2;
+}
+
+.width-grip::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 2px;
+  width: 2px;
+  background: var(--accent);
+  opacity: 0;
+  transition: opacity var(--dur-fast) var(--ease-smooth);
+}
+
+/* 骑在正文框的左右边界上：带子跨边界内外各 3px，细线正好压在边框上 */
+.width-grip.is-left {
+  left: calc(var(--body-pad-x) - 3px);
+}
+
+.width-grip.is-right {
+  right: calc(var(--body-pad-x) - 3px);
+}
+
+.body.is-resizable .width-grip {
+  pointer-events: auto;
+  cursor: col-resize;
+}
+
+.body.is-resizable .width-grip::after,
+html[data-resizing] .width-grip::after {
+  opacity: 1;
 }
 
 .title-input {

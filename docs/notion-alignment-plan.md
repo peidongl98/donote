@@ -7,9 +7,11 @@
 > **新增 E 建议标签**（自动提取关键词，虚线显示、点一下才采纳、不落盘）。
 >
 > 实施进度（2026-10-16 收）：**A / B / C / E 四项已全部落地并各自实测通过**，D 不做。
-> 未发版 —— 用户要求先停在发版前，等他告知本版本要一并修的问题。
+> **已随 0.4.2 发版**（2026-10-16 16:40，七步全绿；同版本还带上「安装器图标修复」）。
 > 实测脚本：`.workbuddy/tmp/c-verify.cjs`（22 项）、`.workbuddy/tmp/e-verify.cjs`（15 项）、
 > B 的量化数据见 §B 各小节。
+> 回归：mock 11 套 **360/360**（stage2 30 / stage4 55 / nested 36，`checks` 已同步）；
+> 真机 `--real` 只跑完 attach 39/39，其余套件被坚果云 **503 限流**打断（详见下注）。
 
 ---
 
@@ -234,3 +236,22 @@ E 的建议标签**默认不写文件**；只有用户点一下采纳，才走�
   **滚动容器也没变**（B1 作废，滚动仍留在 `.donote-surface` 内）→ 这两套**不需要改**
 - 新增：建议标签 —— 提取结果非空；点一下后 `tags` 多一项且 frontmatter 被写；
   **不点则 md 逐字节不变**（这条必须有，否则「不落盘」的承诺没有断言）
+
+### 实测结果（2026-10-16）
+
+- **mock 11 套 360/360**：notes 47｜attach 39｜life 25｜stage2 30｜stage4 55｜stage5 11｜
+  stage6 24｜stage7 55｜actions 23｜nested 36｜math 15。
+  `regression-map.json` 的 `checks` 同步改成 30 / 55 / 36。
+- **真机 `--real` 只完整跑完 `attach` 39/39**。`notes` / `stage2` / `nested` / `stage4` /
+  `stage6` / `math` 全部中途 `exit=2`，**断言 0 失败**；`stage5` 唯一那条 FAIL 的内容就是
+  503 本身（`Failed to load resource: 503 << /nutdav/dav/DoNote/.trash/...`）。
+  判定为**坚果云免费版 600 请求 / 30 分钟额度被打满**，另有 `waitUntil:'networkidle'` 的结构性紧张
+  （见下），**不是代码回归** —— 本次改动没有触碰 `storage/`、`services/cache/`、`stores/webdav.ts`
+  任何一个网络层文件。
+- ⚠️ **真机下 `networkidle` 本质上很紧**：应用空闲 30 秒后会开始后台预拉取整个笔记库
+  （`services/cache/background.ts`：6 篇/轮、篇间隔 2.5 秒）。实测真机 40 秒内 98 条请求、
+  **最长静默窗口只有 42ms**，而 `networkidle` 要求连续 500ms 无连接 —— 笔记库一大就到不了，
+  卡在 Playwright 默认 30 秒超时上。同一时刻单测 `page.reload({waitUntil:'networkidle'})` 能成功
+  （19995ms），所以是**卡在超时边缘**而非应用有问题（那 98 条请求全部 HTTP 200）。
+  后续若要让 `--real` 稳定可跑，应把这些等待从 `networkidle` 改成
+  `domcontentloaded` ＋ 显式等元素，而不是加大超时。

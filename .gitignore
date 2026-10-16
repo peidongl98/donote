@@ -38,8 +38,8 @@ scripts/regression/local.json
 scripts/regression/.artifacts/
 scripts/regression/.logs/
 
-# scratch
-.workbuddy/tmp/
+# scratch + 本地工作数据（临时脚本、记忆、产物一律不入库）
+.workbuddy/
 
 # 更新签名私钥：只在本机保存，绝不入库
 .updater-key/

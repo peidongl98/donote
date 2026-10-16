@@ -219,9 +219,9 @@ node scripts/release.mjs 0.2.5 --dry-run      # 只打印计划，什么都不�
 
 ## 六、边界，以及这一批次没做的
 
-- **套件本身没有更快**。9 套里有 137 处硬编码 `waitForTimeout`（合计约 177 秒）与大量
-  `waitUntil: 'networkidle'` 门控 —— 要真正压到秒级得把这些改成「条件成立就往下走」，
-  那是在改套件时序，属于另一个决定，**本批次没做**。
+- **套件本身没有更快**。套件里有 137 处硬编码 `waitForTimeout`（合计约 177 秒）。
+  其中 `waitUntil: 'networkidle'` 那 49 处已于 2026-10-16 换成显式等元素（`harness/nav.cjs`），
+  剩下的固定 sleep 要压到秒级得改成「条件成立就往下走」，属于另一个决定。
 - **套件没有去重重组**（9 套合并成 4–5 套）是独立任务，本批次不碰。约束是「不删任何现有套件、不改任何断言」。
 - **套件本体已入库**（2026-10-13）：`scripts/regression/suites/`、`scripts/regression/harness/`。
   入库前做过敏感信息清理：硬编码账号改为 `DONOTE_ACCOUNT`，密钥文件路径改为 `DONOTE_SECRETS`

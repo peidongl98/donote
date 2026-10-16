@@ -80,6 +80,13 @@
       "covers": "块级与行内公式的 KaTeX 排版、点击弹编辑面板并实时预览、关闭写回正文、工具栏「公式」按钮、输入规则（`$$` 与成对的 `$…$`，价格文本不误转）、落盘保真（`$$…$$` / `$…$` / `\\,` 间距指令）、暗亮两套主题下的颜色、思维导图块不受影响",
       "estSeconds": 75,
       "checks": 15
+    },
+    "backoff": {
+      "file": "backoff-e2e.cjs",
+      "title": "同步请求闸门与限流退避",
+      "covers": "闸门把并发压成 1（峰值在途）且请求确实排队、撞 503 进退避 30 分钟起（±25% 抖动）、退避期间零出站、二次撞限流档位翻倍、Retry-After 覆盖本地档位、一次成功即复位、令牌桶先给 30 次突发再落回 3.2 秒一个",
+      "estSeconds": 35,
+      "checks": 11
     }
   },
   "modules": {
@@ -91,7 +98,22 @@
       "suites": [
         "notes",
         "life",
-        "attach"
+        "attach",
+        "backoff"
+      ]
+    },
+    "sync-gate": {
+      "title": "同步请求闸门与退避",
+      "paths": [
+        "apps/web/src/storage/gate.ts",
+        "apps/web/src/storage/backoff.ts",
+        "apps/web/src/storage/transport.ts"
+      ],
+      "suites": [
+        "backoff",
+        "notes",
+        "stage7",
+        "nested"
       ]
     },
     "storage": {
@@ -346,15 +368,11 @@
       "pnpm-lock.yaml",
       "pnpm-workspace.yaml",
       "package.json",
-      "apps/web/tsconfig*.json",
-      "apps/desktop/src/**",
-      "apps/desktop/src-tauri/src/**",
-      "apps/desktop/src-tauri/tauri.conf.json",
-      "apps/desktop/src-tauri/Cargo.toml"
+      "apps/web/tsconfig*.json"
     ]
   },
   "ignorePaths": {
-    "$comment": "改动这些文件不触发任何套件（文档 / 站点 / 记忆 / 脚本本身；锁文件只随版本号变）。",
+    "$comment": "改动这些文件不触发任何套件：文档 / 站点 / 记忆 / 脚本本身；以及 apps/desktop/**（Tauri 桌面壳 —— Rust / NSIS / tauri.conf / 图标）。桌面壳不触发，是因为全部 11 套都跑在浏览器里（localhost:5173），apps/web 不依赖 apps/desktop，物理上测不到它；桌面壳由发版前的真机四场景验收覆盖，不靠这套回归。",
     "paths": [
       "docs/**",
       "site/**",
@@ -362,7 +380,7 @@
       ".workbuddy/**",
       "**/*.md",
       ".gitignore",
-      "apps/desktop/src-tauri/Cargo.lock"
+      "apps/desktop/**"
     ]
   }
 }

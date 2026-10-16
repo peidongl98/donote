@@ -16,6 +16,7 @@ const { chromium } = require('playwright-core');
 // 回归脚手架：默认走同源假 DAV（零坚果云额度），设 USE_REAL_DAV=1 才连真服务器。
 // 断言逻辑不受影响，见 harness/davmode.cjs 与 docs/regression-harness.md。
 const H = require('../harness/davmode.cjs');
+const { openPage, reloadPage } = require('../harness/nav.cjs');
 const fs = require('fs');
 const path = require('path');
 
@@ -109,7 +110,7 @@ function check(name, ok, detail = '') {
   }
 
   async function connect() {
-    await page.goto(BASE + '/', { waitUntil: 'networkidle' });
+    await openPage(page, BASE + '/');
     if (!page.url().includes('/login')) return;
     await page.getByPlaceholder('https://dav.example.com/dav').fill(SERVER);
     await page.getByPlaceholder('你的账号').fill(ACCOUNT);
@@ -120,7 +121,7 @@ function check(name, ok, detail = '') {
   }
 
   // ---------- 0. 连接页：服务器地址字段 ----------
-  await page.goto(BASE + '/', { waitUntil: 'networkidle' });
+  await openPage(page, BASE + '/');
   check('0 未连接时落到连接页', page.url().includes('/login'), page.url());
 
   const serverInput = page.getByPlaceholder('https://dav.example.com/dav');
@@ -170,7 +171,7 @@ function check(name, ok, detail = '') {
   // 复位：这次假连接会把凭据写进本机存储，清掉再回到连接页
   await page.unroute(/fakedav\.example/);
   await page.evaluate(() => localStorage.clear());
-  await page.goto(BASE + '/login', { waitUntil: 'networkidle' });
+  await openPage(page, BASE + '/login');
   await page.waitForTimeout(500);
   check('0 复位后回到连接页', page.url().includes('/login'), page.url());
 
@@ -179,7 +180,7 @@ function check(name, ok, detail = '') {
   check('1 用真实凭据连上服务器', !page.url().includes('/login'), page.url());
 
   // ---------- 2. 新建笔记 ----------
-  await page.goto(BASE + '/', { waitUntil: 'networkidle' });
+  await openPage(page, BASE + '/');
   await page.waitForTimeout(1200);
   const unnamedBefore = (await davChildren('')).filter((h) => decodeURIComponent(h).includes('未命名')).length;
   await page.locator('button.fab').click();
@@ -226,7 +227,7 @@ function check(name, ok, detail = '') {
   check('4 改名后没有留下「未命名」占位文件', unnamedAfter === unnamedBefore, `${unnamedBefore} → ${unnamedAfter}`);
 
   // ---------- 6. 刷新持久化 ----------
-  await page.reload({ waitUntil: 'networkidle' });
+  await reloadPage(page);
   await page.waitForTimeout(2000);
   const reloadedTitle = await page.locator('input.title-input').inputValue();
   await page.locator('.donote-surface .ProseMirror').waitFor({ state: 'visible', timeout: 15000 });
@@ -236,7 +237,7 @@ function check(name, ok, detail = '') {
   check('6 刷新后正文不丢', reloadedBody.includes(TOKEN));
 
   // ---------- 7 + 8. 列表摘要与搜索 ----------
-  await page.goto(BASE + '/', { waitUntil: 'networkidle' });
+  await openPage(page, BASE + '/');
   await page.waitForFunction(() => !document.querySelector('.skeleton'), undefined, { timeout: 15000 }).catch(() => {});
   await page.waitForTimeout(4000);
   // ⚠️ 判据必须限定在列表区：侧栏的文件夹树也会把笔记标题显示出来，
@@ -259,7 +260,7 @@ function check(name, ok, detail = '') {
   await page.waitForTimeout(2000);
 
   // ---------- 9. 新建文件夹 ----------
-  await page.goto(BASE + '/folders', { waitUntil: 'networkidle' });
+  await openPage(page, BASE + '/folders');
   await page.waitForTimeout(2000);
   await page.locator('button.btn-major.full').click();
   await page.locator('[role="dialog"] input.dialog-input').fill(FOLDER);
@@ -270,7 +271,7 @@ function check(name, ok, detail = '') {
   await page.screenshot({ path: path.join(SHOTS, '03-folders.png') });
 
   // ---------- 10. 移动笔记进文件夹 ----------
-  await page.goto(`${BASE}/notes/${savedId}`, { waitUntil: 'networkidle' });
+  await openPage(page, `${BASE}/notes/${savedId}`);
   await page.waitForTimeout(2500);
   await page.locator('button.more').click();
   await page.locator('.sheet-item', { hasText: '移动到文件夹' }).click();
@@ -302,7 +303,7 @@ function check(name, ok, detail = '') {
   check('11 frontmatter 记下了删除时间', !!trashRaw && /deleted_at: \d+/.test(trashRaw));
 
   // ---------- 12 + 13. 回收站展示与恢复 ----------
-  await page.goto(BASE + '/trash', { waitUntil: 'networkidle' });
+  await openPage(page, BASE + '/trash');
   await page.waitForTimeout(4000);
   check('12 回收站里列出来了', (await page.locator('body').innerText()).includes(TITLE));
   await page.screenshot({ path: path.join(SHOTS, '04-trash.png') });
@@ -313,7 +314,7 @@ function check(name, ok, detail = '') {
   const trashAfter = (await davChildren('.trash')).filter((h) => decodeURIComponent(h).includes(TITLE));
   check('13 回收站里已清掉', trashAfter.length === 0);
   // ---------- 14. 彻底删除 ----------
-  await page.goto(BASE + '/folders', { waitUntil: 'networkidle' });
+  await openPage(page, BASE + '/folders');
   await page.waitForTimeout(2500);
   await page.locator('.folder-link', { hasText: FOLDER }).click();
   await page.waitForURL(/\/folders\//, { timeout: 20000 });
@@ -330,7 +331,7 @@ function check(name, ok, detail = '') {
   await page.waitForTimeout(2500);
 
   // 从回收站彻底删除
-  await page.goto(BASE + '/trash', { waitUntil: 'networkidle' });
+  await openPage(page, BASE + '/trash');
   await page.waitForTimeout(4000);
   await page.locator('.row-card', { hasText: TITLE }).locator('button', { hasText: '彻底删除' }).click();
   await page.waitForTimeout(600);
@@ -342,7 +343,7 @@ function check(name, ok, detail = '') {
   );
 
   // ---------- 15. 删除文件夹 ----------
-  await page.goto(BASE + '/folders', { waitUntil: 'networkidle' });
+  await openPage(page, BASE + '/folders');
   await page.waitForTimeout(3000);
   await page.locator('.folder-row', { hasText: FOLDER }).locator('.folder-more').click();
   await page.waitForTimeout(600);
@@ -353,7 +354,7 @@ function check(name, ok, detail = '') {
   check('15 文件夹已从服务器删掉', (await davStatus(FOLDER)) === 404, `/${FOLDER}`);
 
   // ---------- 16. 断开连接 ----------
-  await page.goto(BASE + '/settings', { waitUntil: 'networkidle' });
+  await openPage(page, BASE + '/settings');
   await page.waitForTimeout(2500);
   const settingsText = await page.locator('body').innerText();
   check('16 设置页展示账号与同步目录', settingsText.includes(ACCOUNT) && settingsText.includes('/DoNote'));
