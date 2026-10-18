@@ -3,7 +3,8 @@
  * DoNote 一键发版。
  *
  *   pnpm release 0.2.5
- *   pnpm release 0.2.5 --notes "这次改了…"
+ *   pnpm release 0.2.5 --notes-file=.workbuddy/tmp/notes.txt   # 多行说明走文件（推荐）
+ *   pnpm release 0.2.5 --notes "这次改了…"                      # 单行才用这个
  *   node scripts/release.mjs 0.2.5 --dry-run      # 只打印计划，什么都不做
  *
  * 七步，任一步失败就停下并报告「已完成的步骤 + 怎么收尾」：
@@ -62,7 +63,7 @@ const TAURI_JS = join(REPO, 'apps/desktop/node_modules/@tauri-apps/cli/tauri.js'
 const DEFAULT_WRANGLER = `${(process.env.USERPROFILE || `C:/Users/${process.env.USERNAME || ''}`).replace(/\\/g, '/')}/.workbuddy/binaries/node/workspace/node_modules/.bin/wrangler`;
 
 /** 取值型开关：`--notes x` 与 `--notes=x` 都认 */
-const VALUE_FLAGS = new Set(['version', 'notes']);
+const VALUE_FLAGS = new Set(['version', 'notes', 'notes-file']);
 
 const RAW_ARGS = process.argv.slice(2);
 const flags = new Set();
@@ -88,7 +89,18 @@ for (let i = 0; i < RAW_ARGS.length; i++) {
 }
 
 const TARGET = positionals[0] || opts.version || '';
-const NOTES = opts.notes || '';
+/*
+ * 更新说明建议走 `--notes-file=<路径>`。
+ *
+ * `--notes "…"` 多行文本会**过一层 shell**：`pnpm release … --notes "$(cat 文件)"` 里
+ * pnpm 转发脚本参数时会把换行转义成字面 `\n`，于是线上 latest.json 的 notes 里躺着
+ * 一串 "\n\n"（0.4.3 / 0.4.4 两版都中招，更新弹窗里连成一片）。
+ * 直接 `node scripts/release.mjs …` 没这个问题，`pnpm exec` 也没有 —— 只有 pnpm 跑
+ * package.json 里的脚本时才有。与其记住这条，不如让脚本自己读文件。
+ */
+const NOTES = opts['notes-file']
+  ? readFileSync(resolve(opts['notes-file']), 'utf8').replace(/\r\n?/g, '\n').trim()
+  : opts.notes || '';
 const DRY = flags.has('dry-run');
 const SKIP = {
   build: flags.has('skip-build'),
@@ -343,7 +355,7 @@ async function verifyLive(newV, oldV) {
 
 (async () => {
   if (!TARGET) {
-    console.error('用法：pnpm release <新版本号> [--notes "更新说明"] [--dry-run]');
+    console.error('用法：pnpm release <新版本号> [--notes-file=说明.txt | --notes "更新说明"] [--dry-run]');
     process.exit(2);
   }
   if (!/^\d+\.\d+\.\d+$/.test(TARGET)) die(`版本号格式不对：${TARGET}（期望 x.y.z）`);

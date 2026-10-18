@@ -32,4 +32,23 @@ async function reloadPage(page, waitFor) {
   if (waitFor) await page.waitForSelector(waitFor, { timeout: 20000 });
 }
 
-module.exports = { READY, waitReady, openPage, reloadPage };
+/**
+ * 连上假 DAV（或真坚果云，看 davmode 的 MODE）。
+ *
+ * 🔴 为什么必须显式连一次：没连接时应用会停在 `/login`，而**连接页上也有 `.card`**
+ * （WebdavGuide 的说明卡）。直接 `openPage(page, BASE, '.card')` 会立刻满足，
+ * 拿到的是连接页 —— 后续所有数据层调用都报「还没连接存储」，看起来像模块实例重份，
+ * 其实是根本没登录。判据要以 `.rail`（已连接外壳）为准。
+ */
+async function connect(page, { base, server, account, password }) {
+  await openPage(page, `${base}/`);
+  if (!page.url().includes('/login')) return;
+  await page.getByPlaceholder('https://dav.example.com/dav').fill(server);
+  await page.getByPlaceholder('你的账号').fill(account);
+  await page.getByPlaceholder('应用密码').fill(password);
+  await page.getByRole('button', { name: '连接' }).first().click();
+  await page.waitForURL((u) => !u.pathname.includes('/login'), { timeout: 30000 });
+  await page.waitForTimeout(500);
+}
+
+module.exports = { READY, waitReady, openPage, reloadPage, connect };

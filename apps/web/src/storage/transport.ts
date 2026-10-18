@@ -10,7 +10,8 @@
  *    不经浏览器，天然不受 CORS 约束（见 storage/tauri.ts）。
  *  - 鸿蒙：换成壳里 javaScriptProxy 注入的原生桥（@ohos.net.http）。
  */
-import { clearBackoff, hitRateLimit } from './backoff';
+import { StorageError } from '@/services/storage/types';
+import { backoffUntil, clearBackoff, hitRateLimit, inBackoff } from './backoff';
 import { REMOTE_MIN_GAP_MS, throughGate } from './gate';
 
 export type DavFetch = (url: string, init: RequestInit) => Promise<Response>;
@@ -58,6 +59,22 @@ function retryAfterOf(res: Response): number {
  * 五个源还是会各自为政（见 docs/sync-concurrency-plan.md §4）。
  */
 export async function davFetch(url: string, init: RequestInit): Promise<Response> {
+  /*
+   * 正在退避就别发了 —— 这是「怎么点都没反应」的主因。
+   *
+   * 撞一次 503 就开始退避 30 分钟起步、每再撞一次翻倍。而用户主动的读 / 删
+   * 原来照样发请求：必然又撞 503，于是档位一路翻到 6 小时，看起来就是「永久坏了」。
+   * 直接抛出带剩余时间的错误，界面就能说清「是限流，几分钟后自己好」，
+   * 而不是含糊的「删除失败」。
+   */
+  if (inBackoff()) {
+    const minutes = Math.max(1, Math.ceil((backoffUntil() - Date.now()) / 60_000));
+    throw new StorageError(
+      'rate_limited',
+      `网盘限流了（同一时段的请求配额用尽），约 ${minutes} 分钟后自动恢复`,
+      503,
+    );
+  }
   const res = await throughGate(MIN_GAP_MS, () => impl(url, init));
   if (res.status === 503 || res.status === 429) hitRateLimit(retryAfterOf(res));
   else clearBackoff();

@@ -7,6 +7,7 @@
  * 真正动手的是数据层的 `purgeExpiredTrash(days)`：按**顶层条目**的 deletedAt 算，
  * 到期整条一起清；被网盘限流（503）就停下，下次触发接着清，不当成错误报给用户。
  */
+import type { TrashEntry } from '@/storage/notes';
 import { purgeExpiredTrash } from '@/storage/notes';
 
 const KEY = 'donote.trash.auto.v1';
@@ -66,8 +67,10 @@ let lastDone = 0;
 /**
  * 跑一次检查。返回清掉了几条。
  * 任何失败都吞掉 —— 自动清理是后台行为，不该给用户弹错误。
+ *
+ * `known` = 调用方刚列好的回收站列表（回收站页）。给了就直接用，不再多列一遍。
  */
-export async function runTrashAutoClean(): Promise<number> {
+export async function runTrashAutoClean(known?: TrashEntry[]): Promise<number> {
   if (pending) return pending;
   if (Date.now() - lastDone < THROTTLE) return 0;
   const setting = readTrashAuto();
@@ -75,7 +78,7 @@ export async function runTrashAutoClean(): Promise<number> {
 
   pending = (async () => {
     try {
-      const removed = await purgeExpiredTrash(setting.days);
+      const removed = await purgeExpiredTrash(setting.days, known);
       writeTrashAuto({ checkedAt: Date.now() });
       return removed;
     } catch {

@@ -142,11 +142,18 @@ async function listDir(rel: string, fresh = false): Promise<DirEntry[]> {
 
 /**
  * 读文本。把「不存在」翻译成 null，其余错误照旧抛出。
+ *
  * preferCache 只给「打开来看」用 —— 读改写一律走云端，免得用旧内容覆盖别人的改动。
+ * `verify` 默认关：这一路的副本是拿来**补显示**的（列表摘要、回收站标题、原路径），
+ * 不需要最新。打开正文那一路（`get`）要传 true，否则可能读到旧内容。
  */
-async function readOrNull(rel: string, preferCache = false): Promise<string | null> {
+async function readOrNull(
+  rel: string,
+  preferCache = false,
+  verify = false,
+): Promise<string | null> {
   try {
-    return await getStorage().read(rel, preferCache ? { preferCache: true } : undefined);
+    return await getStorage().read(rel, preferCache ? { preferCache: true, verify } : undefined);
   } catch (error) {
     if (error instanceof StorageError && error.code === 'not_found') return null;
     throw error;
@@ -319,7 +326,12 @@ export async function hydrateExcerpts(limit = HYDRATE_BATCH): Promise<number> {
   let done = 0;
   await mapLimited(pending, 2, async (entry) => {
     try {
-      const raw = await readOrNull(entry.path);
+      /*
+       * 本地有副本就直接拿副本来算摘要 —— 这一步只是**给列表补显示**，不该为了它
+       * 把整库的正文重新 GET 一遍（97 篇就是 97 次请求、几十次排队）。副本过期由
+       * 缓存层自己的后台校验负责换新，换完会通知列表重取。
+       */
+      const raw = await readOrNull(entry.path, true);
       if (raw === null) return;
       const parsed = parseNote(raw, entry.name, entry.mtime ?? 0);
       filled[entry.path] = {
@@ -546,10 +558,21 @@ function trashAssetsPath(trashRel: string): string {
  */
 async function moveAssets(fromDir: string, toDir: string): Promise<void> {
   if (!(await pathExists(fromDir))) return;
-  if (!(await pathExists(toDir))) {
+  /*
+   * 先直接 MOVE 整棵。绝大多数场景目标都不存在（软删时 toDir 的前缀就是这一次的
+   * 时间戳 + 随机后缀；恢复时目标位置刚被清空），而原来为了判断这件事要先 stat 一次
+   * —— 软删每一篇笔记都白花一个排队位。
+   *
+   * 只有真撞上（目标已有同名附件目录，MOVE 回 412）才走下面逐项合并那条路：
+   * 让服务端去判，比先问一遍更准，也只在例外时付代价。
+   */
+  try {
     await getStorage().move(fromDir, toDir);
     return;
+  } catch (error) {
+    if (!(error instanceof StorageError) || error.code !== 'conflict') throw error;
   }
+
   // 目标与来源都取新鲜的列表：这里要拿名字去避让，用旧列表会把同名附件覆盖掉
   const taken = new Set((await listDir(toDir, true)).map((entry) => entry.name));
   for (const entry of await listDir(fromDir, true)) {
@@ -802,8 +825,8 @@ export const notesApi = {
 
   async get(id: string) {
     const rel = decodeId(id);
-    // 打开笔记：有本地副本就先给副本，秒开；后台再对一次指纹
-    const raw = await readOrNull(rel, true);
+    // 打开笔记：有本地副本就先给副本，秒开；后台再对一次指纹（verify 这个必须开）
+    const raw = await readOrNull(rel, true, true);
     if (raw === null) throw new StorageError('not_found', '笔记不存在', 404);
     // 页面（…/index.md）的标题是它所在的目录名
     const parsed = parseNote(raw, titleOf(rel), Date.now());
@@ -1225,6 +1248,15 @@ function parseStamp(name: string): number | null {
 
 /** 同一秒删两个同名文件夹时不覆盖：补 ` 2`、` 3`… */
 async function uniqueTrashEntry(base: string): Promise<string> {
+  /*
+   * 🔴 这里**必须** fresh，别为了省一次 PROPFIND 改成走本地索引。
+   *
+   * 这份列表是用来「决定叫什么名字」的，而本地索引更新有 60 秒 TTL：同一秒内第二次
+   * 删除看不到上一次刚建出来的条目。后果按类型分两种，都不能接受 ——
+   *   文件夹：`move` 带 Overwrite:F，撞上就是 412，用户看到「删除失败」；
+   *   笔记：回收站那份是 PUT 写进去的，撞上**静默覆盖**掉早先删的那一篇（不可逆）。
+   * 名字里的时间戳只到秒，挡不住这件事。删一次的代价是 3.2 秒排队，丢一条笔记不是。
+   */
   const taken = new Set((await listDir(TRASH_DIR, true)).map((entry) => entry.name));
   let candidate = base;
   let n = 2;
@@ -1285,7 +1317,8 @@ export async function listTrashEntries(): Promise<TrashEntry[]> {
     if (entry.isDirectory) {
       // 笔记的附件目录也躺在 .trash 里（`<前缀>.assets`），它不是独立条目
       if (isAssetsDir(entry.name)) return null;
-      const origin = (await readOrNull(`${entry.path}/${ORIGIN_FILE}`))?.trim();
+      // preferCache：软删那一刻就写过一份副本，这里不必再 GET 一次（回收站条目多时省下的很明显）
+      const origin = (await readOrNull(`${entry.path}/${ORIGIN_FILE}`, true))?.trim();
       const title = entry.name.replace(/^\d{8}-\d{6}_/, '') || entry.name;
       return {
         entry: entry.name,
@@ -1411,11 +1444,14 @@ export async function purgeTrashChild(child: TrashChild): Promise<void> {
  *
  * 静默：能删几条删几条，被限流（503）就停下 —— 下一次触发时接着清，不当成错误报给用户。
  * 一次清多项之间留间隔，别把免费版的 600 请求 / 30 分钟撞满。
+ *
+ * `known` = 调用方**手上已经有一份**回收站列表（回收站页刚列完）。
+ * 传进来就别再列一遍：列一次每条约 1 个请求，接口是 3.2 秒一个，白花半分钟。
  */
-export async function purgeExpiredTrash(days: number): Promise<number> {
+export async function purgeExpiredTrash(days: number, known?: TrashEntry[]): Promise<number> {
   if (!(days > 0)) return 0;
   const deadline = Date.now() - days * 24 * 60 * 60 * 1000;
-  const expired = (await listTrashEntries()).filter((entry) => entry.deletedAt <= deadline);
+  const expired = (known ?? (await listTrashEntries())).filter((entry) => entry.deletedAt <= deadline);
 
   let done = 0;
   for (const entry of expired) {

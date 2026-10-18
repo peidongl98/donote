@@ -53,6 +53,19 @@ export function clearBackoff(): void {
   until = 0;
 }
 
+/**
+ * 让退避**立刻结束**（不动翻倍档位）。
+ *
+ * 「时间到了」这一天本来会自然发生，但代码里没有别的地方能把它提前 —— 于是：
+ *   · 回归没法测「退避走完 + 一次成功 → 复位」这条链路（只能干等 30 分钟）；
+ *   · 界面上也没法给「现在就重试一次」留后路。
+ * 只改截止时刻，不改 streak：再撞一次仍然是原来的档位，不会因为按过一次就放宽。
+ */
+export function expireBackoff(): void {
+  if (until === 0) return;
+  until = Date.now();
+}
+
 /** 当前档位（日志 / 诊断用） */
 export function backoffStreak(): number {
   return streak;

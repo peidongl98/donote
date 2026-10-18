@@ -173,7 +173,14 @@ export class WebdavAdapter implements StorageAdapter {
     let res: Response;
     try {
       res = await davFetch(url, init);
-    } catch {
+    } catch (error) {
+      /*
+       * 🔴 不要把抛出来的 StorageError 一起吞掉。
+       * 出网层会抛「限流退避中」（rate_limited，带剩余分钟数）—— 那是能直接讲给用户听的
+       * 原因，被换成「连不上服务器，请检查地址与网络」之后，用户就会去查网络、查地址，
+       * 而真正该做的是等一会儿。
+       */
+      if (error instanceof StorageError) throw error;
       throw new StorageError('unreachable', '连不上服务器，请检查地址与网络', 0);
     }
     if (res.status === 503 || res.status === 429) {

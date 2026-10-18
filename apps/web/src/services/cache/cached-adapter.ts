@@ -373,8 +373,12 @@ export class CachedStorage implements StorageAdapter {
     if (options?.preferCache) {
       const cached = await this.readCache(path);
       if (cached !== null) {
-        // 先给副本，再在后台对一次内容指纹；不一致就换掉副本，下次打开就是新的
-        void this.revalidate(path);
+        /*
+         * 只有调用方明确要"最新"时才在后台对指纹（见 ReadOptions.verify）。
+         * 列表补齐这类批量读别校验：每条一次 stat，几十条就把限流额度排满，
+         * 而它们要的只是标题 / 时间，旧一点无所谓。
+         */
+        if (options.verify) void this.revalidate(path);
         return cached;
       }
     }
@@ -735,8 +739,15 @@ export class CachedStorage implements StorageAdapter {
   }
 
   async ensureDir(path: string): Promise<void> {
-    await this.inner.ensureDir(path);
     const clean = path.replace(/^\/+|\/+$/g, '');
+    /*
+     * 本地索引已经知道这层目录在（列过根目录就会带上 .trash），就别再 MKCOL 一遍。
+     * 软删每一篇笔记、删每一个文件夹都会 ensureDir('.trash') —— 白花的那一次
+     * 是要排队的（闸门一节 3.2 秒），删除因此稳定慢一拍。
+     * 不知道在不在就照旧发请求：MKCOL 对已存在的目录返回 405，当成功处理。
+     */
+    if (clean && this.folders.has(clean)) return;
+    await this.inner.ensureDir(path);
     if (clean) {
       let acc = '';
       for (const seg of clean.split('/').filter(Boolean)) {

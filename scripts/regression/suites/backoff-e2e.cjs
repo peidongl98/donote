@@ -7,9 +7,10 @@
  *   1  闸门把并发压成 1（5 个并发请求，峰值在途 = 1）
  *   2  撞 503 → 退避 30 分钟起（±25% 抖动之内）
  *   3  退避期间不再出站（后台校验队列被拦住）
- *   4  二次撞限流 → 档位翻倍（约 60 分钟）
+ *   3b 退避期内**用户主动**的请求也不再出站（直接抛 rate_limited，不再把档位撞翻倍）
+ *   4  档位翻倍：首次 30 分钟，再撞一次约 60 分钟（直接测记账模块，见下）
  *   5  响应带 Retry-After 时以它为准（而不是本地算的 30 分钟）
- *   6  一次成功 → 档位复位
+ *   6  退避走完 + 一次成功 → 档位复位
  *   7  令牌桶：前 30 个请求走库存（突发额度），几乎瞬时放行
  *   8  额度用光后落回「一个 3.2 秒」的补票速率
  *
@@ -124,33 +125,62 @@ async function backoffState(page) {
     const after = H.mock.stats().PROPFIND ?? 0;
     check('3 退避期间零出站', after === before, `PROPFIND ${before} → ${after}`);
 
-    /* ============ 4. 二次撞限流 → 档位翻倍 ============ */
-    const hit2 = await hitDav(page);
-    const b2 = await backoffState(page);
+    /* ============ 3b. 退避期内「用户在等」的请求也不再出站 ============
+     * 这一条是 2026-10-17 补的：原先出网层只管住了后台队列，用户主动的读 / 删照样发 ——
+     * 必然又撞 503，档位从 30 分钟一路翻到 6 小时（越重试越久），用户那边就是
+     * 「怎么点都没反应」。现在直接抛 rate_limited，界面能说清「限流，约 N 分钟后恢复」。 */
+    const beforeUser = H.mock.stats().PROPFIND ?? 0;
+    const blocked = await hitDav(page);
+    const afterUser = H.mock.stats().PROPFIND ?? 0;
     check(
-      '4 二次撞限流翻倍',
-      hit2.startsWith('StorageError:503') && b2.remainingMs > b1.remainingMs * 1.4,
-      `剩 ${Math.round(b2.remainingMs / MIN)} 分钟（上一次 ${Math.round(b1.remainingMs / MIN)}）· 档位 ${b2.streak}`,
+      '3b 退避期内前台请求被拦下且零出站',
+      blocked.startsWith('StorageError:503') &&
+        blocked.includes('自动恢复') &&
+        afterUser === beforeUser,
+      `${blocked} ｜ PROPFIND ${beforeUser} → ${afterUser}`,
     );
 
-    /* ============ 5. Retry-After 优先 ============ */
-    H.mock.injectFailure((method) =>
-      method === 'PROPFIND' ? { status: 503, headers: { 'retry-after': '3600' } } : 0,
+    /* ============ 4/5. 档位翻倍与 Retry-After：直接测记账模块 ============
+     *
+     * 🔴 不能再用「再发一次请求」来触发：退避期内出网层已经把请求拦下了（判据 3b），
+     * 那正是修「越撞越久」的那一手。翻倍本身是纯记账逻辑，直接调模块测得准，也不依赖网络。 */
+    const scale = await page.evaluate(async () => {
+      const m = await import('/src/storage/backoff.ts');
+      m.clearBackoff();
+      const first = m.hitRateLimit() - Date.now();
+      const second = m.hitRateLimit() - Date.now();
+      const retryAfter = m.hitRateLimit(3600) - Date.now();
+      return { first, second, retryAfter, streak: m.backoffStreak() };
+    });
+    const [lo60, hi60] = band(60 * MIN);
+    check(
+      '4a 首次撞限流：退避 30 分钟起',
+      scale.first >= lo1 && scale.first <= hi1,
+      `${Math.round(scale.first / MIN)} 分钟`,
     );
-    const hit3 = await hitDav(page);
-    const b3 = await backoffState(page);
+    check(
+      '4b 再撞一次：档位翻倍到 60 分钟',
+      scale.second >= lo60 && scale.second <= hi60,
+      `${Math.round(scale.second / MIN)} 分钟 · 档位 ${scale.streak}`,
+    );
     const [lo3, hi3] = band(3600_000);
     check(
       '5 Retry-After 覆盖本地档位',
-      hit3.startsWith('StorageError:503') && b3.remainingMs >= lo3 && b3.remainingMs <= hi3,
-      `剩 ${Math.round(b3.remainingMs / MIN)} 分钟（Retry-After 说 60 分钟）`,
+      scale.retryAfter >= lo3 && scale.retryAfter <= hi3,
+      `${Math.round(scale.retryAfter / MIN)} 分钟（Retry-After 说 60 分钟）`,
     );
 
-    /* ============ 6. 一次成功就复位 ============ */
+    /* ============ 6. 退避走完 + 一次成功 → 复位 ============ */
     H.mock.injectFailure(null);
+    // 回归里不能真等 30 分钟，所以把退避截止时刻提前到现在（等同「时间到了」）
+    await page.evaluate(async () => (await import('/src/storage/backoff.ts')).expireBackoff());
     const ok = await hitDav(page);
     const b4 = await backoffState(page);
-    check('6 成功即复位', ok === 'ok' && !b4.inBackoff && b4.streak === 0, `${ok} · 档位 ${b4.streak}`);
+    check(
+      '6 退避走完 + 一次成功即复位',
+      ok === 'ok' && !b4.inBackoff && b4.streak === 0,
+      `${ok} · 档位 ${b4.streak}`,
+    );
 
     /* ============ 7/8. 令牌桶：先给突发额度，用光后回到补票速率 ============ */
     const burst = await page.evaluate(async () => {

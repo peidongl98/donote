@@ -84,6 +84,15 @@ export interface ReadOptions {
    * 否则会拿旧内容覆盖掉别人刚改的东西。
    */
   preferCache?: boolean;
+  /**
+   * `preferCache` 命中副本后，要不要再发一次 `stat` 校验它是否过期。
+   *
+   * **默认 false**：批量补齐显示（列表摘要、回收站条目标题）只用副本，
+   * 一次校验都别发 —— 每条一个请求、接口 3.2 秒一个，几十条就是几十秒白等，
+   * 而这些东西本来就不需要"最新"。
+   * 只有**用户真的打开正文**时才传 true（`notes.ts` 的 `get`）：那里读旧内容是要出事的。
+   */
+  verify?: boolean;
 }
 
 export interface ListOptions {
@@ -123,6 +132,11 @@ export type StorageErrorCode =
   | 'conflict'
   /** 请求根本没发出去，或发出去了没人应答 */
   | 'unreachable'
+  /**
+   * 撞上限流，且还在退避期 —— 请求**没有发出去**。
+   * 由 transport 直接抛出（见 storage/backoff.ts）：退避期内再发只会把档位翻倍。
+   */
+  | 'rate_limited'
   | 'other';
 
 export class StorageError extends Error {

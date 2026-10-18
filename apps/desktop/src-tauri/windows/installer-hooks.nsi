@@ -105,10 +105,11 @@
 
     ${If} $DNTFound != ""
     ${AndIf} $DNTFound != $INSTDIR
-      ; 模板在调用本宏之前已经 SetOutPath 过一遍默认目录 —— SetOutPath 会把目录建出来。
-      ; 于是每次把安装重定向回原位置，系统盘上都会留下一个空壳：0.4.4 那次之后，
-      ; %LOCALAPPDATA%\DoNote 与 C:\DoNote 各留了一个（都是 0 个文件）。
-      ; RMDir 不带 /r 只删空目录，里面有东西就不动，删不掉也不会让安装失败。
+      ; 模板在调用本宏之前已经 SetOutPath 过一遍默认目录 —— SetOutPath 会把目录建出来，
+      ; 而且会把**进程的当前目录**也切过去。Windows 不允许删当前目录，所以直接 RMDir
+      ; 会静默失败（实测：重定向生效了，系统盘仍留下一个 0 个文件的空壳）。
+      ; 先把当前目录挪到 $TEMP 再删。RMDir 不带 /r 只删空目录，里面有东西就不动。
+      SetOutPath "$TEMP"
       RMDir "$INSTDIR"
       DetailPrint "DoNote: 更新回到已安装的位置 $DNTFound"
       StrCpy $INSTDIR $DNTFound

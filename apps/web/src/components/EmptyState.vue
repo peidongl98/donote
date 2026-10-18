@@ -3,16 +3,23 @@ withDefaults(
   defineProps<{
     title: string;
     hint?: string;
+    /**
+     * 加载中显示在骨架下面的一句说明。
+     * 只在等得久的页面用（回收站：网盘限速，条目多时要排队）：没有它，
+     * 三条白杠看起来就是卡死了。空态那一栏仍用 `hint`，两者互斥。
+     */
+    loadingHint?: string;
     /** 列表加载中：显示骨架而不是空态文案 */
     loading?: boolean;
   }>(),
-  { hint: '', loading: false },
+  { hint: '', loadingHint: '', loading: false },
 );
 </script>
 
 <template>
   <div v-if="loading" class="skeleton">
     <div v-for="i in 3" :key="i" class="row glass" />
+    <p v-if="loadingHint" class="loading-hint">{{ loadingHint }}</p>
   </div>
 
   <div v-else class="empty">
@@ -37,6 +44,13 @@ withDefaults(
   border-radius: var(--r-lg);
   position: relative;
   overflow: hidden;
+}
+
+.loading-hint {
+  margin-top: calc(var(--sp-1) / 2);
+  font-size: var(--fs-xs);
+  color: var(--text-2);
+  text-align: center;
 }
 
 /* 骨架用推移的柔光代替转圈 */

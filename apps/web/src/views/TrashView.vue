@@ -47,27 +47,41 @@ const purgeTarget = ref<{ node: TrashEntry | TrashChild; entry: TrashEntry; top:
 /** 单独恢复带附件的笔记：先问一句 */
 const assetsTarget = ref<{ node: TrashEntry | TrashChild; entry: TrashEntry } | null>(null);
 
-async function load(): Promise<void> {
-  loading.value = true;
+/**
+ * 列回收站。
+ *
+ * `quiet` = 列表已经在屏上了，这次只是重取（操作后 / 后台对账报差异）。
+ * 那种情况**不能**再把 `loading` 打回 true —— 整页退回三条白杠，用户会以为点坏了；
+ * 更糟的是后台对账会反复通知，白杠就一直不散。`loading` 只表示「首屏还没出来」。
+ */
+async function load(options: { quiet?: boolean } = {}): Promise<void> {
+  if (!options.quiet) loading.value = true;
   try {
     entries.value = await listTrashEntries();
-  } catch {
-    ui.toast('回收站加载失败');
+  } catch (err) {
+    // 同上：撞限流时得让用户知道是「服务器让等一会」，不是「回收站坏了」
+    ui.toast(err instanceof DavError ? err.message : '回收站加载失败', 3600);
   } finally {
     loading.value = false;
   }
 }
 
 /**
- * 打开回收站时的自动清理 —— 先清再列，免得列表里混着刚清掉的条目。
+ * 自动清理。
+ *
+ * **排在列表之后**（`void`，不 await）：这一页的骨架屏只该等列表。
+ * 清理内部要逐条 DELETE，等它等于让用户对着白杠多站一倍时间；
+ * 而且清理用的就是刚列好的那份 entries，不再自己多列一遍。
  * 静默：只有真的清掉了才提示一句（用户需要知道东西去哪了）；限流等失败不报错。
  */
 async function cleanExpired(): Promise<void> {
   const setting = readTrashAuto();
   keepDays.value = setting.days;
   if (!setting.enabled) return;
-  const removed = await runTrashAutoClean();
-  if (removed) ui.toast(`已按保留 ${setting.days} 天自动清理 ${removed} 条`, 3200);
+  const removed = await runTrashAutoClean(entries.value);
+  if (!removed) return;
+  ui.toast(`已按保留 ${setting.days} 天自动清理 ${removed} 条`, 3200);
+  await load({ quiet: true });
 }
 
 /**
@@ -93,7 +107,7 @@ async function runRestore(node: TrashEntry | TrashChild, entry: TrashEntry, top:
     else await restoreTrashChild(entry, node as TrashChild);
     assetsTarget.value = null;
     ui.toast('已恢复');
-    await load();
+    await load({ quiet: true });
   } catch (err) {
     ui.toast(err instanceof DavError ? err.message : '恢复失败');
   } finally {
@@ -115,9 +129,10 @@ async function runPurge(): Promise<void> {
     else await purgeTrashChild(target.node as TrashChild);
     purgeTarget.value = null;
     ui.toast('已彻底删除');
-    await load();
-  } catch {
-    ui.toast('删除失败');
+    await load({ quiet: true });
+  } catch (err) {
+    // 带上原因：限流（503）和「代码坏了」对用户是两件事，只说「删除失败」等于没说
+    ui.toast(err instanceof DavError ? err.message : '删除失败', 3600);
   } finally {
     busy.value = false;
   }
@@ -136,12 +151,13 @@ function confirmAssets(): void {
 }
 
 onMounted(async () => {
-  await cleanExpired();
+  // 先给列表：清理是后台动作，不该挡住第一屏
   await load();
+  void cleanExpired();
 });
 
-/** 缓存层在后台校验出云端有更新，列表跟着刷一次 */
-watch(() => sync.dataVersion, load);
+/** 缓存层在后台校验出云端有更新，列表跟着刷一次（安静地刷，不退回骨架屏） */
+watch(() => sync.dataVersion, () => load({ quiet: true }));
 
 const purgeLabel = (): string => {
   const target = purgeTarget.value;
@@ -158,7 +174,12 @@ const purgeLabel = (): string => {
     <AppHeader :crumbs="[{ label: '回收站' }]" back back-to="/settings" />
 
     <div class="page-body">
-      <EmptyState v-if="loading" loading title="加载中" />
+      <EmptyState
+        v-if="loading"
+        loading
+        title="加载中"
+        loading-hint="正在读取删除记录 —— 网盘限速，每条约要排 3 秒，条数多时会慢"
+      />
 
       <EmptyState v-else-if="!entries.length" title="回收站是空的" hint="删除笔记后会先进入这里，随时可以恢复">
         <template #icon>

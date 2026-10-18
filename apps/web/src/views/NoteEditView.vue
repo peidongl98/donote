@@ -6,6 +6,7 @@ import { DavError, containerDirOf, decodeId, encodeId, foldersApi, notesApi, pag
 import { uploadAttachment } from '@/services/attachments';
 import { pickImage } from '@/services/pick-image';
 import { useEditingStore } from '@/stores/editing';
+import { useSyncStore } from '@/stores/sync';
 import { useUiStore } from '@/stores/ui';
 import AppHeader from '@/components/AppHeader.vue';
 import AppDialog from '@/components/AppDialog.vue';
@@ -21,6 +22,7 @@ const route = useRoute();
 const router = useRouter();
 const ui = useUiStore();
 const editing = useEditingStore();
+const sync = useSyncStore();
 
 /** 标题即文件名，改名会换 id，所以这里必须是响应式的 */
 const noteId = ref(String(route.params.id));
@@ -29,6 +31,15 @@ const title = ref('');
 const content = ref('');
 const status = ref<SaveStatus>('idle');
 const loading = ref(true);
+
+/**
+ * 这篇的正文在不在本机。
+ *
+ * 有副本 → 打开和断网阅读都是立刻的；没有 → 每次打开都要等一次出网请求，网盘限流时
+ * 还会直接失败。顶栏那个小标记与加载期的文案都看它：不然「打开一篇要等十几秒」
+ * 在用户眼里就是坏了。没有缓存层（浏览器里跑）时不显示，免得给出假的结论。
+ */
+const cachedHere = computed(() => sync.hasCopy(noteId.value));
 
 /** 所见即所得 / 源码。默认所见即所得，开关在顶栏右侧 */
 const mode = ref<'wysiwyg' | 'source'>('wysiwyg');
@@ -689,6 +700,24 @@ onBeforeUnmount(() => {
     <AppHeader :title="isTrashed ? '回收站中的笔记' : ''" :crumbs="crumbs" back>
       <template #actions>
         <span class="sr-only status" role="status" aria-live="polite">{{ statusText }}</span>
+        <!--
+          这篇的正文在不在本机。用户看得见才明白「为什么这一篇要等」——
+          没有它，打开一篇没缓存的笔记（要排队等出网）看起来就是卡死了。
+          🔴 加载期间也显示：那时候正是「本机还没有」的窗口，读回来落进副本后自己翻成「已缓存」。
+          等到加载完再显示的话，这一枚就永远是「已缓存」—— 等于没说。
+        -->
+        <span
+          v-if="sync.usable"
+          class="cache-chip"
+          :class="cachedHere ? 'is-cached' : 'is-uncached'"
+          :title="
+            cachedHere
+              ? '这篇的正文已存在本机，打开是秒开'
+              : '本机还没有这篇的正文 —— 这次要从网盘读（刚导入或大库时会慢）。读完就存到本机了'
+          "
+        >
+          {{ cachedHere ? '已缓存' : '未缓存' }}
+        </span>
         <button
           class="icon-btn"
           type="button"
@@ -803,7 +832,10 @@ onBeforeUnmount(() => {
         </template>
       </div>
 
-      <div v-if="loading" class="skeleton" />
+      <!-- 加载期说清在等什么：没缓存的那一篇要等一次出网请求，不给字就是「没反应」 -->
+      <div v-if="loading" class="skeleton">
+        <p class="load-hint">{{ cachedHere ? '正在从本机读取…' : '本机未缓存，正在从网盘读取…' }}</p>
+      </div>
 
       <template v-else>
         <!--
@@ -1261,6 +1293,39 @@ onBeforeUnmount(() => {
   border-radius: var(--r-lg);
   background: var(--surface);
   border: 1px solid var(--surface-border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.load-hint {
+  margin: 0;
+  font-size: var(--fs-xs);
+  color: var(--text-2);
+}
+
+/*
+ * 顶栏那枚「已缓存 / 未缓存」小标记。
+ * 已缓存是常态，所以弱化处理（灰底灰字）；未缓存要看得见（打开这篇会等网络）。
+ */
+.cache-chip {
+  display: inline-flex;
+  align-items: center;
+  height: 22px;
+  padding: 0 9px;
+  border-radius: var(--r-pill);
+  border: 1px solid var(--surface-border);
+  background: var(--surface);
+  color: var(--text-2);
+  font-size: 11px;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.cache-chip.is-uncached {
+  border-color: transparent;
+  background: var(--accent-soft);
+  color: var(--accent);
 }
 
 .form {
