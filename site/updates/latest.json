@@ -1,11 +1,11 @@
 {
-  "version": "0.4.6",
-  "notes": "这一版修的是「怎么点都没反应」，以及几处该快不快的地方。\n\n先说最要紧的：一次大波导入之后，点笔记打不开、回收站里两条东西删不掉。原因是导入的每一篇都要发三个请求，几十篇就把坚果云「同一时段 600 次请求」的额度用光了，服务器开始让等。而让等期内只有后台任务真的停下了，你自己的点击、删除、移动还在继续往外发 —— 每发一次就被拒绝一次，等待时间从半小时一路翻到六小时，所以越点越没反应、越点越久。现在让等期内一律不再发请求，界面直接告诉你「网盘限流了，约 N 分钟后自动恢复」。同时那两处把真实原因盖掉的提示也改了 —— 以前不管什么错都显示「连不上服务器」或「删除失败」，限流了你也看不出来。\n\n顺带把出网请求数压下去：删除一篇笔记从 5 个请求降到 4 个，删一个空文件夹从 4 个降到 3 个（每次删除都会白发一次「建回收站目录」，其实目录早就在）。首页给列表补摘要时，本机已有正文副本就直接用副本算，不再为 97 篇笔记各发一次网络请求。带附件的笔记少一次往返。\n\n打开一篇笔记要等的时候，顶栏会显示「已缓存」或「未缓存」，加载中的骨架屏也写明此刻是在读本机还是读网盘。之前什么提示都没有，慢起来跟卡死没法区分。\n\n回收站那一页以前会长时间停在三条白杠上，大波导入之后尤其明显。现在打开就先给列表，到期清理挪到列表出来之后，而且清理直接复用刚列好的那份，不再整个重列一遍；列表补齐读的是已删条目的本地副本，不再逐条回服务器核对。后台发现云端有更新时也只是悄悄换掉内容，不会把整页打回骨架屏。\n\n需要如实说明一点：请求数的下限由坚果云的配额决定，每 3.2 秒才放行一个请求，大波导入会把前面积攒的额度一次用光。所以导入刚结束的那一两分钟里，打开或删除仍然要排队 —— 这是配额本身，不是客户端还能再挤的地方，但现在至少你能看到在等什么、等多久。",
-  "pub_date": "2026-10-18T06:06:35Z",
+  "version": "0.4.7",
+  "notes": "这一版修「用助手或脚本直接改了笔记，应用里还是旧内容」。\n\n以前的毛病是：笔记被别处改写之后，重新打开、甚至退出应用再进，看到的还是改写前的版本，只有清掉本地缓存才会正常。原因在判断「有没有变化」的方式上——应用一边记着「云端这一版是什么样子」，一边留着一份正文副本，而这两件事被当成同一回事。云端被改写时，程序只更新了前者、没动后者，于是之后每次比对都得出「没变化」的结论，永远不去重新下载。现在两边一对不上，就直接把旧副本作废，下次打开从云端重新读。\n\n顺带补上了正在阅读时的那一段：改写发生在打开后不久、后台还没来得及对账的情况下，读到的副本会在后台被换掉，但屏幕上的字不会自己变；本版让它在内容确实不同、且你没有未保存的改动时，就地换成新版本。如果你正在写，不会打断——保存优先。\n\n另外，正文完全相同的时候不会重复刷新，避免光标和滚动位置被无谓地重置。",
+  "pub_date": "2026-10-19T17:31:35Z",
   "platforms": {
     "windows-x86_64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSWTRLN1pZbGY4NGpXQnZGTTNQTnFOWHRhVitZZHpVNmtiS1h3T0twRzVlREJSUUFJTnllUGp5NCtOdWFmWG1yZlR3dnlZVW1pZGNHR1pCVCtrbmJXR2p1QlVWR2p0Q0FBPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkyMzAzNTk1CWZpbGU6RG9Ob3RlXzAuNC42X3g2NC1zZXR1cC5leGUJdmVyc2lvbjowLjQuNgp5VU9CSXhtL09nTVNtYzIyM2VSUUpOYXdiQTd1M2w1eDVoNE5ZaW1hVjl6TUZTdFl3ZVdBb0ZPN0NpOERIaWtBL2grclVUK2t2QlIvTGx3WW1GNXBCQT09Cg==",
-      "url": "https://donote.pages.dev/downloads/DoNote-0.4.6-win-x64.exe"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSWTRLN1pZbGY4NGlpWTNjV1RjSlVuNGpEcWc0cy9MZjc2dnVhK3gwZHhBek11RDNvbnNrRE5ybUYzUVBMSllLUWxiVXJjVlFHYVBOdHhmUXd3UnNqMEFmNHZ6ODFaRXdjPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkyNDMxMDk0CWZpbGU6RG9Ob3RlXzAuNC43X3g2NC1zZXR1cC5leGUJdmVyc2lvbjowLjQuNwpVSTk1bGlWL1c2bXZCelhBN05ZcXZnT3VLRkhDc3ZUZjZIZkd0QWNhM1ZYT2czbENQOTE3VkdKQXVDQW93bU1kNG1iNVJkQlRPcW5KL1FVREQxQVBEUT09Cg==",
+      "url": "https://donote.pages.dev/downloads/DoNote-0.4.7-win-x64.exe"
     }
   }
 }

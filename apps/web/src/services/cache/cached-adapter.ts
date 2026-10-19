@@ -552,7 +552,22 @@ export class CachedStorage implements StorageAdapter {
       const mtime = entry.mtime ?? 0;
       const etag = entry.etag ?? '';
       if (row.mtime !== mtime || row.etag !== etag) {
-        // 只更新指纹，不删本地副本 —— 断网时旧副本比没有强
+        /*
+         * 云端换过版本（两边都有 etag 且不相等）时，本地副本已经是旧内容，必须一起作废。
+         *
+         * 只更新指纹的话，下一次 revalidate() 会拿这枚「新的」指纹去比对云端 —— 得出
+         * 「没变化」的结论，于是永远不重拉，这篇就停在旧内容上，只有删缓存（走网络 GET）
+         * 才看得到新版。外部用脚本或别的客户端直接写 WebDAV 时必现。
+         *
+         * 两个例外，都不能动副本：
+         *   · row.etag 为空 = 本地刚写过、还没领到新指纹（见 write()），副本就是最新的；
+         *   · row.dirty = 本地改动还没推上云，副本是唯一一份，删了就是丢数据。
+         */
+        const remoteChanged = Boolean(row.etag && etag) && row.etag !== etag;
+        if (remoteChanged && row.cached && !row.dirty) {
+          row.cached = false;
+          void this.store.remove(noteFile(entry.path));
+        }
         row.mtime = mtime;
         row.etag = etag;
         changed = true;

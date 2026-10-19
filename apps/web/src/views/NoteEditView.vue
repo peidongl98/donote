@@ -576,6 +576,40 @@ watch(
   () => void loadBacklinks(),
 );
 
+/**
+ * 云端换过版本时，把正文重新读进来。
+ *
+ * 外部脚本（或别的客户端）直接改写 WebDAV 之后，缓存层会发现指纹变了，两条路都会
+ * 让 `dataVersion` 变：过了对账冷却 → 副本被作废；没冷却 → 打开时那次 revalidate 换掉副本。
+ * 但界面不会自己重画 —— `NoteEditor` 有意不监听 `modelValue`，正文只在 `load()` 时重建
+ * （key 挂 `loadSeq`）。不跟这一步，用户就得退出重进才看得到新版。
+ *
+ * 只在本地没有未保存改动时替换：有改动时替换等于把用户正在写的东西抹掉。
+ * 防抖是因为一次对账会连着改好几条，没必要每条都去问这一篇。
+ */
+let remoteCheck: ReturnType<typeof setTimeout> | null = null;
+
+watch(
+  () => sync.dataVersion,
+  () => {
+    if (remoteCheck) clearTimeout(remoteCheck);
+    remoteCheck = setTimeout(async () => {
+      remoteCheck = null;
+      if (loading.value || saving || status.value === 'dirty') return;
+      if (!noteId.value || !sync.usable) return;
+      const res = await notesApi.get(noteId.value).catch(() => null);
+      if (!res) return;
+      // 内容真变了才重建编辑器 —— 一样的话重建等于白丢一次光标
+      if (res.note.content === content.value && res.note.title === title.value) return;
+      note.value = res.note;
+      title.value = res.note.title;
+      content.value = res.note.content;
+      tags.value = res.note.tags;
+      loadSeq.value += 1;
+    }, 800);
+  },
+);
+
 // 标记「这篇笔记正开着」，列表 / 文件夹 / 回收站的动作菜单据此禁用重命名 / 移动 / 删除。
 // 标题改了会换 id，所以跟着 noteId 走而不是只在挂载时标一次。
 watch(noteId, (id) => editing.enter(id), { immediate: true });
@@ -685,6 +719,7 @@ onBeforeUnmount(() => {
   window.removeEventListener('keyup', syncModifier);
   window.removeEventListener('blur', onWindowBlur);
   window.removeEventListener('resize', resetDocWidthOnResize);
+  if (remoteCheck) clearTimeout(remoteCheck);
   editing.leave(noteId.value);
   void flush();
 });
