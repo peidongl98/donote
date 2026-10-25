@@ -103,7 +103,18 @@ export const EMPTY_SNAPSHOT: ToolbarSnapshot = {
  */
 export function snapshotOf(view: EditorView, current?: Selection): ToolbarSnapshot {
   const { state } = view;
-  const { $from, from, to } = current ?? state.selection;
+  const selection = current ?? state.selection;
+  /*
+   * 🔴 位置要夹在当前文档的范围内。listener 的 selectionUpdated 是**在事务 apply 阶段**回调的，
+   * 那一刻 view.state 还是上一份，而 `current` 的位置是按新文档算的。碰上会改变文档长度的命令
+   * （例如加完列表再把相邻两张合成一张），新位置会超出旧文档末尾，
+   * `doc.rangeHasMark(from, to)` 直接抛 "Cannot read properties of undefined (reading 'nodeSize')"，
+   * 崩在事件处理里 —— 事务已经生效、DOM 却没重画，表现成「点了没反应」。
+   */
+  const size = state.doc.content.size;
+  const from = Math.min(selection.from, size);
+  const to = Math.min(selection.to, size);
+  const { $from } = selection;
 
   let heading = 0;
   let bulletList = false;
@@ -304,10 +315,15 @@ export const toggleBlockquote = (e: Editor | null): void => {
 /**
  * 列表开关（无序 / 有序共用一个）。
  *
- * 预设的 `wrapInBulletList` / `wrapInOrderedList` 同样是 `wrapIn`：已经在列表里时
- * `findWrappingOutside` 返回 null、命令直接失败，**第 2 次点击毫无反应**，用户以为
- * 按钮坏了也没有取消路径（实测见 docs/editor-audit.md P1-4）。
- * 这里补上另一半：已经在列表里就 `liftListItem` 把这一条提出来（只剩一条时列表一并消失）。
+ * 三个坑，都是实测出来的：
+ *
+ * 1. 预设的 `wrapInBulletList` / `wrapInOrderedList` 用的是 `wrapIn` —— 它只处理
+ *    **一个**文本块。选中三段一起点，`findWrapping` 直接失败，**什么都不发生**。
+ *    这里改用 `wrapInList`：整段选区包成一张列表，三条就是 1. 2. 3.。
+ * 2. 已经在列表里时 `wrapIn` 也失败（`findWrappingOutside` 返回 null），第 2 次点击
+ *    毫无反应，用户以为按钮坏了。补上另一半：`liftListItem` 把选中的条目提出来。
+ * 3. 分几次给相邻段落加列表，会得到**好几张** `ol` —— 每张各自从 1 开始编号，
+ *    看起来就是「加了列表却不接着排」。包装完把顶层相邻的同类型列表合成一张。
  *
  * 判据是「在任意列表里」而不是「在这一种列表里」，这样任何一次点击都不会再往里套一层。
  */
@@ -315,14 +331,39 @@ function toggleList(e: Editor | null, name: 'bullet_list' | 'ordered_list'): voi
   if (!e) return;
   void e.action((ctx) => {
     const view = ctx.get(editorViewCtx);
-    const list = view.state.schema.nodes[name];
-    const item = view.state.schema.nodes.list_item;
+    const { state } = view;
+    const list = state.schema.nodes[name];
+    const item = state.schema.nodes.list_item;
     if (!list || !item) return;
+
     const inList = insideOf(view, 'bullet_list') || insideOf(view, 'ordered_list');
-    const command = inList ? liftListItem(item) : wrapIn(list);
-    command(view.state, view.dispatch, view);
-    view.focus();
+    const command = inList ? liftListItem(item) : wrapInList(list);
+    const applied = command(state, (tr) => {
+      // 取消列表时不需要合并；加上列表才可能造出「两张挨着的 ol」
+      if (!inList) joinSiblingLists(tr);
+      view.dispatch(tr);
+    }, view);
+    if (applied) view.focus();
   });
+}
+
+/**
+ * 把顶层相邻的同类型列表合成一张。
+ *
+ * 为什么必须做：Markdown 里 `1. / 2. / 3.` 连着写就是**一张**列表；而分两次操作
+ * 得到的两张 `ol` 在 HTML 里各自从 1 编号，视觉上就成了 1. 1. 1.。
+ * 合并之后编号才连续，也才和落盘的 Markdown 一致（否则存回去是两张表，下次打开还是断的）。
+ */
+function joinSiblingLists(tr: Transaction): void {
+  const isList = (node: Node): boolean => node.type.name === 'bullet_list' || node.type.name === 'ordered_list';
+  const spots: number[] = [];
+  let prev: Node | null = null;
+  tr.doc.forEach((child, offset) => {
+    if (prev && isList(prev) && child.type.name === prev.type.name) spots.push(offset);
+    prev = child;
+  });
+  // 从后往前 join：先并后面的，前面的位置就不会被前一次的合并挪掉
+  for (let i = spots.length - 1; i >= 0; i -= 1) tr.join(spots[i]);
 }
 
 export const toggleBulletList = (e: Editor | null): void => toggleList(e, 'bullet_list');
@@ -355,7 +396,13 @@ export function sinkListCmd(state: EditorState, dispatch?: (tr: Transaction) => 
   if (depth === 0) return false;
   // 到顶了：吃掉这次按键但什么都不做，免得 Tab 跑出去切焦点
   if (depth >= MAX_LIST_DEPTH) return true;
-  return sinkListItem(item)(state, dispatch);
+  if (sinkListItem(item)(state, dispatch)) return true;
+  /*
+   * 条目前面没有兄弟时 `sinkListItem` 会失败（它得挂到前一条底下，没有前一条就无处可挂）。
+   * 这时**不能把 Tab 漏出去** —— 漏出去焦点就跑到工具栏 / 块手柄上，看着像「按 Tab 跳走了」。
+   * 吃掉按键、什么都不做，和 Word 里在首条按 Tab 的表现一致。
+   */
+  return dispatch !== undefined;
 }
 
 /** Shift+Tab：升一级（第 1 级时整条退出列表，这是 ProseMirror 的既有行为） */

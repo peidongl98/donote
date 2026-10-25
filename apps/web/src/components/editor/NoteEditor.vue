@@ -92,12 +92,21 @@ function refresh(ctx: Ctx, current?: Selection): void {
   const selection = current ?? view.state.selection;
   toolbarState.value = snapshotOf(view, selection);
 
-  if (props.readonly || selection.empty) {
+  /*
+   * 浮条的位置要问 DOM，而 `coordsAtPos` 是拿 **view.state** 解析位置的 ——
+   * 回调进来的选区却是按新文档算的。碰上「新文档比旧文档长、且选到末尾」的事务
+   * （加列表、多段转列表都会这样），位置会越界抛 "Position N out of range"，
+   * 崩在事件处理里就是「点了没反应」。夹到旧文档范围内即可。
+   */
+  const size = view.state.doc.content.size;
+  const from = Math.min(selection.from, size);
+  const to = Math.min(selection.to, size);
+  if (props.readonly || from === to) {
     float.value = null;
     return;
   }
-  const start = view.coordsAtPos(selection.from);
-  const end = view.coordsAtPos(selection.to);
+  const start = view.coordsAtPos(from);
+  const end = view.coordsAtPos(to);
   // 位置按选区中点算，但必须夹在正文栏内：选中**行首**几个字时中点会很靠左，
   // 浮条左端就钻进侧栏底下；侧栏 z-index 20 比浮条 16 高，左端会被切掉看不见。
   const column = view.dom.getBoundingClientRect();

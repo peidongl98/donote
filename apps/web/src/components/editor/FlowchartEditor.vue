@@ -12,12 +12,14 @@
  * - 选中连线后按 Delete 或点工具条上的「删除」把线去掉
  * - 滚轮平移、Ctrl+滚轮以光标为中心缩放、按住空白处拖画布
  */
-import { computed, nextTick, ref, watch } from 'vue';
+import { computed, nextTick, onMounted, ref, watch } from 'vue';
 import {
   addEdge,
   addNode,
   bounds,
   edgeKey,
+  FLOW_NODE_H,
+  FLOW_NODE_W,
   moveNode,
   removeEdge,
   removeNode,
@@ -33,8 +35,9 @@ import {
 const props = defineProps<{ doc: FlowDoc }>();
 const emit = defineEmits<{ 'update:doc': [FlowDoc] }>();
 
-const NODE_W = 150;
-const NODE_H = 46;
+// 尺寸从 flowchart.ts 取：自动排版算出来的坐标是按这个尺寸排的，两边各写一份迟早对不上
+const NODE_W = FLOW_NODE_W;
+const NODE_H = FLOW_NODE_H;
 
 const SHAPES: Array<{ value: FlowShape; label: string }> = [
   { value: 'rect', label: '方框' },
@@ -201,7 +204,7 @@ function zoomBy(delta: number): void {
 
 function fitToWindow(): void {
   const box = canvas.value?.getBoundingClientRect();
-  if (!box) return;
+  if (!box || box.width < 40 || box.height < 40) return;
   const pad = 36;
   const next = clampZoom(Math.min(1, (box.width - pad) / size.value.width, (box.height - pad) / size.value.height));
   zoom.value = next;
@@ -210,6 +213,37 @@ function fitToWindow(): void {
     y: Math.max(pad / 2, (box.height - size.value.height * next) / 2),
   };
 }
+
+/*
+ * 打开时先摆一个合理的视角。
+ *
+ * 一张 12 步的流程竖着排下来有一千多像素高，画布只有四百来高：
+ * - 能整张放进画布（缩到 70% 以上还看得清字）→ 直接适应窗口，先给全貌；
+ * - 放不进去 → **不缩**，缩到 40% 字就糊了，改为横向居中、从第一步开始看，往下滚着读。
+ */
+function initialView(): void {
+  const box = canvas.value?.getBoundingClientRect();
+  if (!box || box.width < 40 || box.height < 40) return;
+  const pad = 36;
+  const fit = Math.min((box.width - pad) / size.value.width, (box.height - pad) / size.value.height, 1);
+  if (fit >= 0.7) {
+    fitToWindow();
+    return;
+  }
+  zoom.value = 1;
+  pan.value = {
+    x: Math.max(pad / 2, (box.width - size.value.width) / 2),
+    y: pad / 2,
+  };
+}
+
+onMounted(() => {
+  void nextTick(() => {
+    requestAnimationFrame(() => {
+      if (zoom.value === 1 && pan.value.x === 20) initialView();
+    });
+  });
+});
 
 function onWheel(event: WheelEvent): void {
   const box = canvas.value?.getBoundingClientRect();

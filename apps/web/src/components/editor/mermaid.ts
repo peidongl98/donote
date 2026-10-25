@@ -15,8 +15,9 @@ import type { EditorView, NodeView } from '@milkdown/kit/prose/view';
 import { $view } from '@milkdown/kit/utils';
 import { codeBlockSchema } from '@milkdown/kit/preset/commonmark';
 import { shallowRef } from 'vue';
-import { parseMindmap } from './mindmap';
+import { parseMindmap, type MindNode } from './mindmap';
 import { mermaidToBulletList } from './outline';
+import { mindTone } from './palette';
 
 const MERMAID_LANG = 'mermaid';
 
@@ -51,6 +52,67 @@ const cache = new Map<string, string>();
 
 let seq = 0;
 
+/**
+ * 给导图的 SVG 上色。
+ *
+ * mermaid 对 mindmap 只会**深浅交替**涂（浅灰 / 深灰 / 浅灰），根和一级分支还同色 ——
+ * 结果就是「看不出中心」，浅灰上的字也发虚。这里按「分支定色相、深度定明度」重涂一遍，
+ * 配色规则只在 palette.ts 里写一份。
+ *
+ * 深度从哪来：mermaid 只给一级分支挂 `section-N`，深层节点没有钩子。但 DOM 里的节点顺序
+ * 就是树的先序遍历，所以拿自己解析出来的树按序对一遍即可（对不上就退回只用分支色）。
+ */
+function tintMindmap(svg: string, code: string): string {
+  const tree = parseMindmap(code);
+  if (!tree) return svg;
+
+  const dark = document.documentElement.getAttribute('data-theme') === 'dark';
+  const box = document.createElement('div');
+  box.innerHTML = svg;
+
+  const flat: Array<{ depth: number; branch: number }> = [];
+  const walk = (node: MindNode, depth: number, branch: number): void => {
+    flat.push({ depth, branch });
+    node.children.forEach((child, index) => walk(child, depth + 1, depth === 0 ? index : branch));
+  };
+  walk(tree, 0, -1);
+
+  const indexOf = (el: Element): number => Number(/-node_(\d+)/.exec(el.id)?.[1] ?? -1);
+  const nodes = [...box.querySelectorAll<SVGGElement>('.mindmap-node')].sort((a, b) => indexOf(a) - indexOf(b));
+
+  nodes.forEach((el, index) => {
+    const at = flat[index] ?? { depth: 1, branch: Math.max(0, index - 1) };
+    const tone = mindTone(at.depth, at.branch, dark);
+    // 只涂形状本身：`.label` 里的那块底（labelBkg）留着，涂了会把文字框成一个色块
+    el.querySelectorAll<SVGElement>('path, rect, circle, polygon').forEach((shape) => {
+      if (shape.closest('.label')) return;
+      shape.style.fill = tone.fill;
+      shape.style.stroke = tone.border;
+      shape.style.strokeWidth = '1.5px';
+    });
+    el.querySelectorAll<SVGElement | HTMLElement>('text, span, p').forEach((label) => {
+      label.style.color = tone.text;
+      if (label instanceof SVGElement) label.style.fill = tone.text;
+    });
+    if (at.depth === 0) {
+      el.querySelectorAll<HTMLElement>('span, p, div').forEach((label) => {
+        label.style.fontWeight = '700';
+      });
+    }
+  });
+
+  // 连线的颜色跟着它通向的那个分支走 —— 一眼能看出这一串属于谁
+  box.querySelectorAll<SVGPathElement>('.edgePaths path').forEach((edge) => {
+    const hit = /section-edge-(-?\d+)/.exec(edge.getAttribute('class') ?? '');
+    const branch = Math.max(0, Number(hit?.[1] ?? 0));
+    edge.style.stroke = mindTone(1, branch, dark).line;
+    edge.style.strokeWidth = '2px';
+    edge.style.opacity = '0.85';
+  });
+
+  return box.innerHTML;
+}
+
 export interface MermaidRender {
   svg?: string;
   /** 人话的失败原因；成功时为 undefined */
@@ -71,8 +133,9 @@ export async function renderMermaid(code: string): Promise<MermaidRender> {
   try {
     seq += 1;
     const { svg } = await api.render(`donote-mermaid-${seq}`, text);
-    cache.set(cacheKey, svg);
-    return { svg };
+    const painted = tintMindmap(svg, text);
+    cache.set(cacheKey, painted);
+    return { svg: painted };
   } catch {
     return { error: '语法有误，点开面板改一下' };
   }

@@ -201,34 +201,160 @@ function parseStatement(line: string, doc: FlowDoc): boolean {
   }
 }
 
+/** 节点盒子的尺寸：布局和画布两边各写一份容易对不上，统一从这里取 */
+export const FLOW_NODE_W = 150;
+export const FLOW_NODE_H = 46;
+
+/** 从 header 读方向：`flowchart TD` 竖着排，`LR` 横着排。读不出来按竖排 */
+export function flowDirection(header: string): 'TB' | 'LR' {
+  const hit = /\b(TB|TD|BT|LR|RL)\b/i.exec(header ?? '');
+  const dir = (hit?.[1] ?? 'TD').toUpperCase();
+  return dir === 'LR' || dir === 'RL' ? 'LR' : 'TB';
+}
+
 /**
- * 没有 `@pos` 的老文本：按「入口节点在第 0 层」往下排。
- * 只求看得清，不求好看 —— 用户随手摆一下就成了 `@pos`。
+ * 分层。**回边不参与分层** —— 这是这一版最关键的一处。
+ *
+ * 原来的写法是「能走多深就记多深」，遇上有回路的图（试测流程图里「题目不够 → 回到第 4 步」
+ * 就是一条）会一路往下算到第 60 层才停：于是 12 个节点被推到 x≈12600 的位置，
+ * 画布一万多像素宽，屏幕上只剩一条横穿整个画布的连线。
+ *
+ * 现在先找会成环的边（回到当前 DFS 路径上的祖先），按 DAG 算最长路径，
+ * 层数最多等于节点数。回路本身还在，只是不再参与排版。
  */
-function autoLayout(doc: FlowDoc): void {
-  const layer = new Map<string, number>();
-  const targets = new Set(doc.edges.map((edge) => edge.to));
-  const roots = doc.nodes.filter((node) => !targets.has(node.id));
-
-  const walk = (id: string, depth: number): void => {
-    if (depth > 60) return;
-    const seen = layer.get(id);
-    if (seen !== undefined && seen >= depth) return;
-    layer.set(id, depth);
-    for (const edge of doc.edges) {
-      if (edge.from === id) walk(edge.to, depth + 1);
-    }
-  };
-  for (const node of roots.length ? roots : doc.nodes.slice(0, 1)) walk(node.id, 0);
-
-  const rows = new Map<number, number>();
+function layering(doc: FlowDoc): string[][] {
+  const out = new Map<string, string[]>();
+  const into = new Map<string, string[]>();
   for (const node of doc.nodes) {
-    const depth = layer.get(node.id) ?? 2;
-    const row = rows.get(depth) ?? 0;
-    rows.set(depth, row + 1);
-    node.x = 40 + depth * 210;
-    node.y = 40 + row * 92;
+    out.set(node.id, []);
+    into.set(node.id, []);
   }
+  for (const edge of doc.edges) {
+    out.get(edge.from)?.push(edge.to);
+    into.get(edge.to)?.push(edge.from);
+  }
+
+  const post: string[] = [];
+  const seen = new Set<string>();
+  const path = new Set<string>();
+  const back = new Set<string>();
+  const visit = (id: string): void => {
+    seen.add(id);
+    path.add(id);
+    for (const to of out.get(id) ?? []) {
+      if (path.has(to)) {
+        back.add(`${id}>${to}`);
+        continue;
+      }
+      if (!seen.has(to)) visit(to);
+    }
+    path.delete(id);
+    post.push(id);
+  };
+  const hasIn = new Set(doc.edges.map((edge) => edge.to));
+  for (const node of doc.nodes) if (!hasIn.has(node.id) && !seen.has(node.id)) visit(node.id);
+  // 整张图都是环（没有入口节点）时也得挑一个起点，否则谁都不会被访问
+  for (const node of doc.nodes) if (!seen.has(node.id)) visit(node.id);
+
+  const depth = new Map<string, number>();
+  for (const id of post.reverse()) {
+    let at = 0;
+    for (const from of into.get(id) ?? []) {
+      if (back.has(`${from}>${id}`)) continue;
+      at = Math.max(at, (depth.get(from) ?? 0) + 1);
+    }
+    depth.set(id, at);
+  }
+
+  const layers: string[][] = [];
+  for (const node of doc.nodes) {
+    const at = depth.get(node.id) ?? 0;
+    while (layers.length <= at) layers.push([]);
+    layers[at].push(node.id);
+  }
+
+  // 相邻两层各扫两轮：把节点往它的前驱旁边挪，减少连线交叉。
+  // 只求「看着顺」，不做通用的最小交叉算法 —— 那是图库的活。
+  for (let pass = 0; pass < 2; pass += 1) {
+    for (let i = 1; i < layers.length; i += 1) {
+      const prev = new Map(layers[i - 1].map((id, index) => [id, index]));
+      const weight = new Map<string, number>();
+      for (const id of layers[i]) {
+        let sum = 0;
+        let count = 0;
+        for (const from of into.get(id) ?? []) {
+          const at = prev.get(from);
+          if (at === undefined) continue;
+          sum += at;
+          count += 1;
+        }
+        weight.set(id, count ? sum / count : Number.MAX_SAFE_INTEGER);
+      }
+      layers[i].sort((a, b) => (weight.get(a) ?? 0) - (weight.get(b) ?? 0));
+    }
+  }
+
+  return layers.filter((layer) => layer.length > 0);
+}
+
+/**
+ * 自动排版：没存坐标（或者存的坐标不可信）时用。
+ *
+ * 方向跟着 `flowchart TD/LR` 走 —— 正文里是竖着画的图，打开面板却横过来，
+ * 等于让人重新认一遍结构。
+ */
+export function autoLayout(doc: FlowDoc, nodeW = FLOW_NODE_W, nodeH = FLOW_NODE_H): void {
+  const direction = flowDirection(doc.header);
+  const layers = layering(doc);
+  if (!layers.length) return;
+
+  const pad = 40;
+  const gapMain = direction === 'TB' ? 46 : 88;
+  const gapCross = direction === 'TB' ? 40 : 24;
+  const crossSize = direction === 'TB' ? nodeW : nodeH;
+  const widest = Math.max(...layers.map((layer) => layer.length), 1);
+  const span = widest * (crossSize + gapCross) - gapCross;
+
+  layers.forEach((ids, index) => {
+    // 每一层都居中，不左对齐 —— 单节点的层不会全都挤在左上角
+    const used = ids.length * (crossSize + gapCross) - gapCross;
+    const start = pad + (span - used) / 2;
+    ids.forEach((id, row) => {
+      const node = doc.nodes.find((item) => item.id === id);
+      if (!node) return;
+      const cross = Math.round(start + row * (crossSize + gapCross));
+      if (direction === 'TB') {
+        node.x = cross;
+        node.y = pad + index * (nodeH + gapMain);
+      } else {
+        node.x = pad + index * (nodeW + gapMain);
+        node.y = cross;
+      }
+    });
+  });
+}
+
+/**
+ * 存回来的坐标还能不能信。
+ *
+ * 0.4.9 之前打开过那张「有回路」的流程图并点过「完成」的笔记，`@pos` 里已经把
+ * 一万多像素的坐标写死了 —— 只修排版不修这里，那些笔记打开还是老样子。
+ * 判据用「整张图的外接尺寸 vs 节点数」：人拖不出这么远。
+ */
+function placementsSane(nodes: FlowNode[], nodeW: number, nodeH: number): boolean {
+  let minX = Infinity;
+  let maxX = -Infinity;
+  let minY = Infinity;
+  let maxY = -Infinity;
+  for (const node of nodes) {
+    if (!Number.isFinite(node.x) || !Number.isFinite(node.y)) return false;
+    minX = Math.min(minX, node.x);
+    maxX = Math.max(maxX, node.x + nodeW);
+    minY = Math.min(minY, node.y);
+    maxY = Math.max(maxY, node.y + nodeH);
+  }
+  const budget = Math.max(4000, nodes.length * 700);
+  return maxX - minX <= budget && maxY - minY <= budget && minX >= -budget && minY >= -budget;
 }
 
 /** 解析成图。不是 flowchart（或有认不出的行）时返回 null，调用方据此退回代码模式 */
@@ -254,12 +380,16 @@ export function parseFlowchart(code: string): FlowDoc | null {
   if (!doc.nodes.length) return null;
 
   autoLayout(doc);
-  for (const [id, point] of placed) {
-    const node = doc.nodes.find((item) => item.id === id);
-    if (node) {
-      node.x = point.x;
-      node.y = point.y;
+  if (placed.size) {
+    for (const [id, point] of placed) {
+      const node = doc.nodes.find((item) => item.id === id);
+      if (node) {
+        node.x = point.x;
+        node.y = point.y;
+      }
     }
+    // 坐标离谱（老版本在有回路的图上算出来的那一万多像素）就当没存过，重新排
+    if (!placementsSane(doc.nodes, FLOW_NODE_W, FLOW_NODE_H)) autoLayout(doc);
   }
   return doc;
 }

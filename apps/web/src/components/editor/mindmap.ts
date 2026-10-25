@@ -222,6 +222,8 @@ export interface PlacedNode {
   node: MindNode;
   depth: number;
   row: number;
+  /** 属于哪个一级分支（0 起）；中心节点是 -1。配色按它取色相 */
+  branch: number;
 }
 
 export function layout(root: MindNode): { placed: PlacedNode[]; rows: number; depth: number } {
@@ -229,20 +231,22 @@ export function layout(root: MindNode): { placed: PlacedNode[]; rows: number; de
   let row = 0;
   let maxDepth = 0;
 
-  const walk = (node: MindNode, depth: number): number => {
+  const walk = (node: MindNode, depth: number, branch: number): number => {
     maxDepth = Math.max(maxDepth, depth);
     if (!node.children.length) {
       const at = row;
       row += 1;
-      placed.push({ node, depth, row: at });
+      placed.push({ node, depth, row: at, branch });
       return at;
     }
-    const childRows = node.children.map((child) => walk(child, depth + 1));
+    const childRows = node.children.map((child, index) =>
+      walk(child, depth + 1, depth === 0 ? index : branch),
+    );
     const at = (childRows[0] + childRows[childRows.length - 1]) / 2;
-    placed.push({ node, depth, row: at });
+    placed.push({ node, depth, row: at, branch });
     return at;
   };
 
-  walk(root, 0);
+  walk(root, 0, -1);
   return { placed, rows: Math.max(row, 1), depth: maxDepth };
 }

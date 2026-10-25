@@ -245,29 +245,16 @@ async function onDisconnect(): Promise<void> {
         </div>
       </section>
 
-      <p class="section-title">内容</p>
-      <button type="button" class="tile" @click="router.push('/trash')">
-        <span class="tile-icon">
-          <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
-            <path
-              d="M6 7.5h12M9.5 7.5V6a1.5 1.5 0 0 1 1.5-1.5h2A1.5 1.5 0 0 1 14.5 6v1.5M8 7.5l.6 10A1.5 1.5 0 0 0 10.1 19h3.8a1.5 1.5 0 0 0 1.5-1.5l.6-10"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="1.5"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-            />
-          </svg>
-        </span>
-        <span class="tile-main">
-          <span class="tile-name">回收站</span>
-          <span class="tile-sub">恢复或彻底删除已删笔记</span>
-        </span>
-        <span class="tile-tail mono">{{ trashCount ?? '—' }}</span>
-      </button>
-
+      <!--
+        这里原来还有一个「回收站」磁贴，点进 /trash。侧栏已经有同一个入口了，
+        设置页再放一个等于让同一个页面有两个门 —— 去掉，只留下面这个自动清理。
+      -->
       <p class="section-title">回收站自动清理</p>
       <div class="card-plain">
+        <div class="line">
+          <span class="line-key">回收站里</span>
+          <span class="line-val mono">{{ trashCount ?? '—' }} 条</span>
+        </div>
         <div class="line">
           <span class="line-key">自动清理</span>
           <button

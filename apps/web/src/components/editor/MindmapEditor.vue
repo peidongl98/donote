@@ -8,7 +8,7 @@
  * 为什么不用现成的图库：这一层 UI 只有「节点 + 连线 + 拖拽」，自己画一百多行就够，
  * 换来的好处是节点样式跟着应用主题走、序列化逻辑只有一份、不额外吃一个依赖的体积。
  */
-import { computed, nextTick, ref, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import {
   addChild,
   addSibling,
@@ -18,6 +18,7 @@ import {
   setText,
   type MindNode,
 } from './mindmap';
+import { mindTone } from './palette';
 
 const props = defineProps<{ tree: MindNode }>();
 const emit = defineEmits<{ 'update:tree': [MindNode] }>();
@@ -49,14 +50,33 @@ const dropId = ref<string | null>(null);
  * 拿到的不是 HTMLInputElement（`focus is not a function`，探针抓到过）。
  */
 let editingInput: HTMLInputElement | null = null;
+let observer: MutationObserver | null = null;
 
 const map = computed(() => layout(props.tree));
+
+/** 当前主题。配色要跟着明暗换一套（浅底深字 / 深底浅字），换主题时重算 */
+const dark = ref(false);
+
+onMounted(() => {
+  dark.value = document.documentElement.getAttribute('data-theme') === 'dark';
+  observer = new MutationObserver(() => {
+    dark.value = document.documentElement.getAttribute('data-theme') === 'dark';
+  });
+  observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+
+  // 打开就先看到全貌：树比画布大的时候，不缩放只能看到最左一列
+  void nextTick(() => requestAnimationFrame(() => fitToWindow()));
+});
+
+onBeforeUnmount(() => observer?.disconnect());
 
 const boxes = computed(() =>
   map.value.placed.map((item) => ({
     node: item.node,
     x: item.depth * COL,
     y: item.row * ROW,
+    depth: item.depth,
+    tone: mindTone(item.depth, item.branch, dark.value),
     selected: item.node.id === selectedId.value,
     dropTarget: item.node.id === dropId.value,
   })),
@@ -64,7 +84,7 @@ const boxes = computed(() =>
 
 const links = computed(() => {
   const at = new Map(boxes.value.map((box) => [box.node.id, box]));
-  const out: Array<{ id: string; d: string }> = [];
+  const out: Array<{ id: string; d: string; stroke: string }> = [];
   const walk = (node: MindNode): void => {
     const from = at.get(node.id);
     for (const child of node.children) {
@@ -75,7 +95,12 @@ const links = computed(() => {
         const x2 = to.x;
         const y2 = to.y + NODE_H / 2;
         const mid = (x1 + x2) / 2;
-        out.push({ id: `${node.id}-${child.id}`, d: `M${x1} ${y1} C${mid} ${y1}, ${mid} ${y2}, ${x2} ${y2}` });
+        out.push({
+          id: `${node.id}-${child.id}`,
+          d: `M${x1} ${y1} C${mid} ${y1}, ${mid} ${y2}, ${x2} ${y2}`,
+          // 连线用子节点那一支的颜色：一眼能看出这一串属于谁
+          stroke: to.tone.line,
+        });
       }
       walk(child);
     }
@@ -335,15 +360,29 @@ function onDragEnd(): void {
     >
       <div class="stage" :style="stageStyle">
         <svg class="links" :width="size.width" :height="size.height" aria-hidden="true">
-          <path v-for="link in links" :key="link.id" :d="link.d" fill="none" />
+          <path
+            v-for="link in links"
+            :key="link.id"
+            :d="link.d"
+            :style="{ stroke: link.stroke }"
+            fill="none"
+          />
         </svg>
 
         <div
           v-for="box in boxes"
           :key="box.node.id"
           class="node"
-          :class="{ 'is-selected': box.selected, 'is-drop': box.dropTarget }"
-          :style="{ left: `${box.x}px`, top: `${box.y}px`, width: `${NODE_W}px`, height: `${NODE_H}px` }"
+          :class="[`d${Math.min(box.depth, 3)}`, { 'is-selected': box.selected, 'is-drop': box.dropTarget }]"
+          :style="{
+            left: `${box.x}px`,
+            top: `${box.y}px`,
+            width: `${NODE_W}px`,
+            height: `${NODE_H}px`,
+            background: box.tone.fill,
+            color: box.tone.text,
+            borderColor: box.selected || box.dropTarget ? undefined : box.tone.border,
+          }"
           :title="box.node.text"
           draggable="true"
           role="treeitem"
@@ -464,21 +503,29 @@ function onDragEnd(): void {
 
 .links path {
   stroke: var(--surface-border);
-  stroke-width: 1.6;
+  stroke-width: 1.8;
+  stroke-linecap: round;
 }
 
+/* 节点底色与文字由 palette.ts 按「分支定色相、深度定明度」逐节点算好，
+   写在行内样式上；这里只留不该跟着颜色走的部分（圆角、阴影、光标） */
 .node {
   position: absolute;
   display: flex;
   align-items: center;
   padding: 0 10px;
   border-radius: var(--r-sm);
-  background: var(--surface);
-  border: 1px solid var(--surface-border);
+  border: 1px solid transparent;
   box-shadow: var(--shadow-1);
   font-size: var(--fs-sm);
   cursor: grab;
   user-select: none;
+}
+
+/* 中心节点比别的粗一档 —— 缩到 40% 也还认得出来 */
+.node.d0 {
+  font-weight: 600;
+  box-shadow: var(--shadow-2);
 }
 
 .node.is-selected {
@@ -486,10 +533,10 @@ function onDragEnd(): void {
   box-shadow: 0 0 0 2px var(--accent-soft);
 }
 
-/* 拖到哪个节点上就把哪个节点标出来 —— 不然松手前不知道会挂到谁下面 */
+/* 拖到哪个节点上就把哪个节点框出来 —— 不改底色，改成描边环，免得和分支色打架 */
 .node.is-drop {
   border-color: var(--accent);
-  background: var(--accent-soft);
+  box-shadow: 0 0 0 3px var(--accent-soft);
 }
 
 .text {
