@@ -58,15 +58,11 @@ const html = computed(() => (props.source.trim() ? md.render(props.source) : '')
   border-bottom: 1px solid var(--accent-ring);
 }
 
-.md :deep(ul),
-.md :deep(ol) {
-  margin: var(--sp-2) 0;
-  padding-left: 1.4em;
-}
-
-.md :deep(li) {
-  margin: 4px 0;
-}
+/*
+ * 列表的缩进与每级标记不在这里：编辑器和这里必须是同一套，
+ * 统一由 `styles/list-style.css` 提供（`.md` 已在它的选择器里）。
+ * 这里再写一份 padding-left 就会把层级缩进盖掉。
+ */
 
 .md :deep(code) {
   padding: 2px 6px;

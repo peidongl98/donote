@@ -11,6 +11,9 @@
  */
 import MarkdownIt from 'markdown-it';
 import { getStorage } from '@/services/storage';
+// 列表外观与应用内**同一份源码**：`?raw` 把 CSS 原文取进来，不做任何改写。
+// 这样「编辑时 / 源码预览 / 导出」三处不会各写一遍、各漂一处。
+import listCss from '@/styles/list-style.css?raw';
 
 const md = new MarkdownIt({ html: false, linkify: true, breaks: false });
 
@@ -142,9 +145,9 @@ export async function buildExportHtml(note: ExportNote): Promise<ExportResult> {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${escapeHtml(note.title)}</title>
-<style>${STYLE}</style>
+<style>${STYLE}${listCss}</style>
 </head>
-<body>
+<body class="donote-export">
 ${html}
 <footer>由 DoNote 导出</footer>
 </body>

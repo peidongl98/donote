@@ -123,15 +123,30 @@ function check(name, ok, detail = '') {
   await dp.waitForTimeout(800);
   const byKeyboard = await bars();
 
-  // 另一种选法：双击选一个词，走鼠标事件
-  await dp.locator('.donote-surface .ProseMirror p').first().dblclick();
+  // 另一种选法：双击选一个词，走鼠标事件。
+  // 🔴 必须按**文字**的包围盒点，不能用 `.dblclick()` —— Playwright 点的是元素盒子中心，
+  // 而 `p` 是整行宽的块（实测 325→1375px），一行短文字的中心落在空白处：那里没有字，
+  // ProseMirror 只能把光标放到段尾，双击得到的是**空选区**，浮条本来就该收起。
+  // 别改回 `.dblclick()`：空选区下浮条不出现是正确行为，这条断言会冤枉它。
+  const textPoint = await dp
+    .locator('.donote-surface .ProseMirror p')
+    .first()
+    .evaluate((el) => {
+      const range = document.createRange();
+      range.selectNodeContents(el);
+      const box = range.getBoundingClientRect();
+      return { x: box.left + Math.min(box.width / 2, 30), y: box.top + box.height / 2 };
+    });
+  await dp.mouse.dblclick(textPoint.x, textPoint.y);
   await dp.waitForTimeout(800);
   const byMouse = await bars();
+  // 双击是不是真选上了字也一并记下来，免得以后又退化成「点空白 → 0」还看不出原因
+  const mouseSelLen = await dp.evaluate(() => window.getSelection()?.toString().length ?? 0);
 
   check(
     '选中文字浮出小工具条（鼠标选中）',
     byMouse >= 1,
-    `鼠标 ${byMouse} / 键盘 ${byKeyboard}`,
+    `鼠标 ${byMouse} / 键盘 ${byKeyboard} / 双击选中 ${mouseSelLen} 字`,
   );
   if (byKeyboard === 0) {
     // 老实记下来：这一处只有单个短段落，Shift+Home 没触发；stage4 的脚本在

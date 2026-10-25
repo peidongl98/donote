@@ -12,17 +12,20 @@
 
 import type { Ctx } from '@milkdown/kit/ctx';
 import type { Selection } from '@milkdown/kit/prose/state';
-import { Editor, defaultValueCtx, editorViewOptionsCtx, rootCtx } from '@milkdown/kit/core';
+import { Editor, defaultValueCtx, editorViewOptionsCtx, prosePluginsCtx, rootCtx } from '@milkdown/kit/core';
 import { history } from '@milkdown/kit/plugin/history';
 import { listener, listenerCtx } from '@milkdown/kit/plugin/listener';
 import { commonmark } from '@milkdown/kit/preset/commonmark';
 import { gfm } from '@milkdown/kit/preset/gfm';
+import { keymap } from '@milkdown/kit/prose/keymap';
 // ProseMirror 的基础样式必须自己引：少了 white-space: pre-wrap / word-wrap，
 // 空白段落与断行的盒模型和 ProseMirror 的预期不一致，「点到哪 = 光标落到哪」会算错，
 // 表现就是点完空段落之后选区没跟上、下一次回车把上一段选中的文字删掉。
 import '@milkdown/kit/prose/view/style/prosemirror.css';
 // 表格同理：少了它，单元格选中态和列宽约束都不对
 import '@milkdown/kit/prose/tables/style/tables.css';
+import { liftListCmd, moveListCmd, sinkListCmd } from './commands';
+import { foldPlugin } from './fold';
 import { math } from './math';
 import { mermaid } from './mermaid';
 import { wikilinks, type WikilinkHandlers } from './wikilink';
@@ -86,5 +89,23 @@ export function createNoteEditor(root: HTMLElement, hooks: EditorHooks = {}): Ed
     .use(mermaid);
 
   if (hooks.wikilink) editor.use(wikilinks(hooks.wikilink));
+
+  /*
+   * 列表相关的两个插件**最后挂、而且插在队首**：
+   * - 键位要在预设的 `Tab = sinkListItem` **前面**，否则第 9 级的封顶不会生效
+   *   （键位按插件顺序匹配，前面的先吃掉按键）；
+   * - 折叠是纯装饰，位置无所谓，跟着一起进就行。
+   * 插在队首不会影响别的东西：不在列表里时这些绑定一律返回 false，按键照常往下走。
+   */
+  editor.use((ctx: Ctx) => () => {
+    const keys = keymap({
+      Tab: sinkListCmd,
+      'Shift-Tab': liftListCmd,
+      'Alt-Shift-ArrowUp': moveListCmd(-1),
+      'Alt-Shift-ArrowDown': moveListCmd(1),
+    });
+    ctx.update(prosePluginsCtx, (prev) => [keys, foldPlugin(), ...prev]);
+  });
+
   return editor;
 }

@@ -15,7 +15,7 @@ import { commandsCtx, editorViewCtx } from '@milkdown/kit/core';
 import { callCommand } from '@milkdown/kit/utils';
 import type { Node } from '@milkdown/kit/prose/model';
 import type { EditorView } from '@milkdown/kit/prose/view';
-import type { EditorState } from '@milkdown/kit/prose/state';
+import type { EditorState, Transaction } from '@milkdown/kit/prose/state';
 import { Selection } from '@milkdown/kit/prose/state';
 import { redoDepth, undoDepth } from '@milkdown/kit/prose/history';
 import { redoCommand, undoCommand } from '@milkdown/kit/plugin/history';
@@ -45,7 +45,7 @@ import {
   selectedRect,
 } from '@milkdown/kit/prose/tables';
 import { lift, wrapIn } from '@milkdown/kit/prose/commands';
-import { liftListItem, wrapInList } from '@milkdown/kit/prose/schema-list';
+import { liftListItem, sinkListItem, wrapInList } from '@milkdown/kit/prose/schema-list';
 import { mathEdit, writeMathBlock } from './math';
 
 /** 当前光标处的样式快照，工具栏据此高亮 */
@@ -64,6 +64,10 @@ export interface ToolbarSnapshot {
   mermaid: boolean;
   link: string | null;
   inTable: boolean;
+  /** 光标在列表里的层级：0 = 不在列表；1 = 最外层。用来显示「第 N 级」与开关升降级按钮 */
+  listDepth: number;
+  /** 光标所在列表的种类；不在列表里为 null */
+  listKind: 'bullet' | 'ordered' | 'task' | null;
   /** 还有没有可撤销 / 可重做的历史（顶栏那对按钮据此禁用） */
   canUndo: boolean;
   canRedo: boolean;
@@ -83,13 +87,21 @@ export const EMPTY_SNAPSHOT: ToolbarSnapshot = {
   mermaid: false,
   link: null,
   inTable: false,
+  listDepth: 0,
+  listKind: null,
   canUndo: false,
   canRedo: false,
 };
 
-export function snapshotOf(view: EditorView): ToolbarSnapshot {
+/**
+ * 取一份工具栏快照。
+ *
+ * `current` 是刚刚发生的那次选区：Milkdown 的 selectionUpdated 在事务 apply 阶段回调，
+ * 那时 `view.state` 还是上一份，位置相关的字段（列表层级、行内标记）必须用它。
+ */
+export function snapshotOf(view: EditorView, current?: Selection): ToolbarSnapshot {
   const { state } = view;
-  const { $from, from, to } = state.selection;
+  const { $from, from, to } = current ?? state.selection;
 
   let heading = 0;
   let bulletList = false;
@@ -98,6 +110,9 @@ export function snapshotOf(view: EditorView): ToolbarSnapshot {
   let blockquote = false;
   let codeBlock = false;
   let mermaid = false;
+  /** 祖先链上一共套了几层列表 —— 就是「第几级」 */
+  let listDepth = 0;
+  let listKind: ToolbarSnapshot['listKind'] = null;
 
   for (let depth = $from.depth; depth > 0; depth -= 1) {
     const node = $from.node(depth);
@@ -107,12 +122,19 @@ export function snapshotOf(view: EditorView): ToolbarSnapshot {
         break;
       case 'bullet_list':
         bulletList = true;
+        listDepth += 1;
+        if (listKind === null) listKind = 'bullet';
         break;
       case 'ordered_list':
         orderedList = true;
+        listDepth += 1;
+        if (listKind === null) listKind = 'ordered';
         break;
       case 'list_item':
-        if (node.attrs.checked != null) taskList = true;
+        if (node.attrs.checked != null) {
+          taskList = true;
+          if (listKind === 'bullet') listKind = 'task';
+        }
         break;
       case 'blockquote':
         blockquote = true;
@@ -160,6 +182,8 @@ export function snapshotOf(view: EditorView): ToolbarSnapshot {
     mermaid,
     link,
     inTable: isInTable(state),
+    listDepth,
+    listKind,
     canUndo: undoDepth(state) > 0,
     canRedo: redoDepth(state) > 0,
   };
@@ -301,6 +325,136 @@ function toggleList(e: Editor | null, name: 'bullet_list' | 'ordered_list'): voi
 
 export const toggleBulletList = (e: Editor | null): void => toggleList(e, 'bullet_list');
 export const toggleOrderedList = (e: Editor | null): void => toggleList(e, 'ordered_list');
+
+/* ---------------------------- 列表层级 ---------------------------- */
+
+/**
+ * 列表最多 9 级（与 Word 一致）。第 10 级 Tab 不再生效 —— 再缩下去行宽就没了，
+ * 也不会有任何新的视觉区分（样式最多只画到第 9 层，见 styles/list-style.css）。
+ */
+export const MAX_LIST_DEPTH = 9;
+
+/** 光标在列表里的层数：0 = 不在列表里，1 = 最外层 */
+export function listDepthOf(state: EditorState): number {
+  const { $from } = state.selection;
+  let depth = 0;
+  for (let d = $from.depth; d > 0; d -= 1) {
+    const name = $from.node(d).type.name;
+    if (name === 'bullet_list' || name === 'ordered_list') depth += 1;
+  }
+  return depth;
+}
+
+/** Tab：降一级。不在列表里返回 false（把 Tab 让回去做它本来该做的事） */
+export function sinkListCmd(state: EditorState, dispatch?: (tr: Transaction) => void): boolean {
+  const item = state.schema.nodes.list_item;
+  if (!item) return false;
+  const depth = listDepthOf(state);
+  if (depth === 0) return false;
+  // 到顶了：吃掉这次按键但什么都不做，免得 Tab 跑出去切焦点
+  if (depth >= MAX_LIST_DEPTH) return true;
+  return sinkListItem(item)(state, dispatch);
+}
+
+/** Shift+Tab：升一级（第 1 级时整条退出列表，这是 ProseMirror 的既有行为） */
+export function liftListCmd(state: EditorState, dispatch?: (tr: Transaction) => void): boolean {
+  const item = state.schema.nodes.list_item;
+  if (!item) return false;
+  if (listDepthOf(state) === 0) return false;
+  return liftListItem(item)(state, dispatch);
+}
+
+/**
+ * 整条上下移动（含它的子级）。
+ *
+ * 「整条」= 光标所在的那个 `list_item` 连同它下面的子列表一起，在**同一个父列表**里
+ * 与前 / 后一个兄弟交换。到顶或到底时吃掉按键不动 —— 不在这一层里跨父级搬运，
+ * 那是另一种操作（改变层级），交给 Tab / Shift+Tab。
+ */
+export function moveListCmd(dir: -1 | 1) {
+  return (state: EditorState, dispatch?: (tr: Transaction) => void): boolean => {
+    const { $from } = state.selection;
+    let depth = -1;
+    for (let d = $from.depth; d > 0; d -= 1) {
+      if ($from.node(d).type.name === 'list_item') {
+        depth = d;
+        break;
+      }
+    }
+    if (depth < 1) return false;
+
+    const parentIndex = depth - 1;
+    const parent = $from.node(parentIndex);
+    const index = $from.index(parentIndex);
+    const pos = $from.before(depth);
+    const node = state.doc.nodeAt(pos);
+    if (!node) return false;
+
+    const target = index + dir;
+    if (target < 0 || target >= parent.childCount) return true; // 已经在头 / 尾
+    if (!dispatch) return true;
+
+    // 光标在条目内的相对位置，移动后落回同一处，不用重新点
+    const offset = $from.pos - pos;
+    const tr = state.tr;
+    let landed: number;
+    if (dir < 0) {
+      const prev = parent.child(index - 1);
+      const start = pos - prev.nodeSize;
+      tr.replaceWith(start, pos + node.nodeSize, [node, prev]);
+      landed = start + offset;
+    } else {
+      const next = parent.child(index + 1);
+      tr.replaceWith(pos, pos + node.nodeSize + next.nodeSize, [next, node]);
+      landed = pos + next.nodeSize + offset;
+    }
+    tr.setSelection(Selection.near(tr.doc.resolve(landed), 1));
+    dispatch(tr.scrollIntoView());
+    return true;
+  };
+}
+
+/** 工具栏 / 斜杠菜单调用的版本（只是把 cmd 包一层，动作仍然只有一份） */
+function runOnView(e: Editor | null, cmd: (state: EditorState, dispatch: (tr: Transaction) => void) => boolean): void {
+  if (!e) return;
+  void e.action((ctx) => {
+    const view = ctx.get(editorViewCtx);
+    if (cmd(view.state, view.dispatch)) view.focus();
+  });
+}
+
+export const sinkList = (e: Editor | null): void => runOnView(e, sinkListCmd);
+export const liftList = (e: Editor | null): void => runOnView(e, liftListCmd);
+export const moveListUp = (e: Editor | null): void => runOnView(e, moveListCmd(-1));
+export const moveListDown = (e: Editor | null): void => runOnView(e, moveListCmd(1));
+
+/**
+ * 起一个三级骨架（斜杠菜单的「多级列表」）。
+ *
+ * 只造结构、不写字：空条目的 Markdown 是合法的（`1.` 后面没有内容），
+ * 用户在光标处接着输入就是在第 1 级。
+ */
+export function insertMultiList(e: Editor | null): void {
+  if (!e) return;
+  void e.action((ctx) => {
+    const view = ctx.get(editorViewCtx);
+    const { state } = view;
+    const { ordered_list: list, list_item: item, paragraph: para } = state.schema.nodes;
+    if (!list || !item || !para) return;
+
+    const empty = () => para.create();
+    const third = list.create(null, [item.create(null, [empty()])]);
+    const second = list.create(null, [item.create(null, [empty(), third])]);
+    const first = list.create(null, [item.create(null, [empty(), second])]);
+
+    const tr = state.tr.replaceSelectionWith(first).scrollIntoView();
+    // 光标落到第一条的文字上（`replaceSelectionWith` 之后位置就是插入点 +1）
+    const at = tr.selection.from;
+    tr.setSelection(Selection.near(tr.doc.resolve(Math.min(at, tr.doc.content.size)), 1));
+    view.dispatch(tr);
+    view.focus();
+  });
+}
 
 /** 代码块开关。预设里只有「转成代码块」，转回来要自己判断当前在不在里面 */
 export const toggleCodeBlock = (e: Editor | null, inCodeBlock: boolean): void => {

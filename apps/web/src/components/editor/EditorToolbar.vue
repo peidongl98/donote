@@ -23,12 +23,15 @@ import {
   insertMath,
   insertTable,
   insertWikilink,
+  liftList,
+  MAX_LIST_DEPTH,
   removeCol,
   removeLink,
   removeRow,
   selectColAt,
   selectRowAt,
   setHeading,
+  sinkList,
   toggleBlockquote,
   toggleBulletList,
   toggleCodeBlock,
@@ -448,6 +451,68 @@ function dropLink(): void {
           />
         </svg>
       </button>
+
+      <!--
+        光标在列表里才出现：当前第几级 + 两个按钮。
+        层级本身 Tab / Shift+Tab 就能改，这里给的是「看得见」，以及不知道快捷键时的入口。
+      -->
+      <template v-if="state.listDepth > 0 && !disabled">
+        <span class="divider" aria-hidden="true" />
+        <button
+          type="button"
+          class="tool"
+          aria-label="减少缩进"
+          title="减少缩进 (Shift+Tab)"
+          @mousedown.prevent
+          @click="liftList(editor)"
+        >
+          <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+            <path
+              d="M11 7h9M11 12h9M11 17h9"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.6"
+              stroke-linecap="round"
+            />
+            <path
+              d="M7.6 9.4 4.4 12l3.2 2.6"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.6"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            />
+          </svg>
+        </button>
+        <span class="level-badge" :title="`当前在第 ${state.listDepth} 级`">第 {{ state.listDepth }} 级</span>
+        <button
+          type="button"
+          class="tool"
+          aria-label="增加缩进"
+          :title="state.listDepth >= MAX_LIST_DEPTH ? `最多 ${MAX_LIST_DEPTH} 级` : '增加缩进 (Tab)'"
+          :disabled="state.listDepth >= MAX_LIST_DEPTH"
+          @mousedown.prevent
+          @click="sinkList(editor)"
+        >
+          <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+            <path
+              d="M11 7h9M11 12h9M11 17h9"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.6"
+              stroke-linecap="round"
+            />
+            <path
+              d="M4.4 9.4 7.6 12l-3.2 2.6"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.6"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            />
+          </svg>
+        </button>
+      </template>
     </div>
 
     <!-- 光标在表格里时多出一行表格操作 -->
@@ -565,6 +630,16 @@ function dropLink(): void {
   font-size: var(--fs-xs);
   color: var(--text-2);
   margin-right: 2px;
+}
+
+/* 列表层级：「第 N 级」。只是一块读数，不给它加边框或背景 —— 工具栏已经够满 */
+.level-badge {
+  flex: none;
+  padding: 0 4px;
+  font-size: var(--fs-xs);
+  color: var(--text-2);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
 .divider {

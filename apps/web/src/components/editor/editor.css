@@ -89,15 +89,11 @@
 
 /* ---------------------------- 列表 ---------------------------- */
 
-.donote-surface .ProseMirror ul,
-.donote-surface .ProseMirror ol {
-  padding-left: 1.5em;
-  margin: 0.6em 0;
-}
-
-.donote-surface .ProseMirror li {
-  margin: 0.2em 0;
-}
+/*
+ * 缩进与每级标记**不在这里**：那些规则要同时喂给编辑器、源码预览和导出三处，
+ * 所以统一在 `src/styles/list-style.css`（main.ts 里全局引入）。这里只留
+ * 「只对编辑器成立」的两条结构规则。
+ */
 
 .donote-surface .ProseMirror li > p {
   margin: 0;

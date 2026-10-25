@@ -17,6 +17,7 @@ import { editorViewCtx } from '@milkdown/kit/core';
 import {
   insertHr,
   insertMermaid,
+  insertMultiList,
   insertTable,
   setHeading,
   toggleBlockquote,
@@ -56,6 +57,12 @@ const ITEMS = computed<SlashItem[]>(() => {
     { id: 'h3', label: '标题 3', keys: 'h3 title heading biaoti', run: () => setHeading(e, 3) },
     { id: 'bullet', label: '无序列表', keys: 'ul bullet list wuxu liebiao 项目符号 圆点', run: () => toggleBulletList(e) },
     { id: 'ordered', label: '有序列表', keys: 'ol ordered list youxu bianhao 编号 数字', run: () => toggleOrderedList(e) },
+    {
+      id: 'multi',
+      label: '多级列表',
+      keys: 'multi level outline duojiliebiao duojiliebiao 大纲 层级 缩进 子项 嵌套',
+      run: () => insertMultiList(e),
+    },
     { id: 'task', label: '待办', keys: 'task todo checkbox daiban renwu 任务 清单 勾选', run: () => toggleTaskList(e) },
     { id: 'quote', label: '引用', keys: 'quote blockquote yinyong', run: () => toggleBlockquote(e) },
     { id: 'code', label: '代码块', keys: 'code block daimakuai daima 代码', run: () => toggleCodeBlock(e, false) },

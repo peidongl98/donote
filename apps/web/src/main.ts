@@ -11,6 +11,8 @@ import './styles/tokens.css';
 import './styles/base.css';
 import './styles/glass.css';
 import './styles/app.css';
+// 列表外观三处共用这一份（编辑器 / 源码预览 / 导出 HTML），见文件头注释
+import './styles/list-style.css';
 
 const app = createApp(App);
 const pinia = createPinia();

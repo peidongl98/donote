@@ -15,6 +15,7 @@
  */
 import { nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue';
 import type { Ctx } from '@milkdown/kit/ctx';
+import type { Selection } from '@milkdown/kit/prose/state';
 import type { Editor } from '@milkdown/kit/core';
 import { editorViewCtx, serializerCtx } from '@milkdown/kit/core';
 import { createNoteEditor } from './create-editor';
@@ -73,14 +74,24 @@ let lastCtx: Ctx | null = null;
 /** 浮条渲染宽度约 167px（5 个 28px 按钮 + 分隔线 + 内边距），取一半用来夹位置 */
 const FLOAT_HALF_W = 84;
 
-function refresh(ctx: Ctx): void {
+/**
+ * 刷新工具栏快照与浮条。
+ *
+ * `current` 是**刚刚发生的那次选区**。Milkdown 的 selectionUpdated 是在事务 apply 阶段
+ * 回调的，那一刻 `view.state` 还是上一份，所以「第 N 级」、加粗 / 斜体高亮、浮条位置
+ * 都要用回调给的这个选区算，否则全是上一条的状态。没传时才回落到 view.state。
+ *
+ * 🔴 不要改成 `queueMicrotask` 延后读 view.state：旧编辑器的回调会在它被销毁之后才跑，
+ * 那时 `ctx` 已经失效，浮条会整段不出现（stage7 抓到过）。
+ */
+function refresh(ctx: Ctx, current?: Selection): void {
   lastCtx = ctx;
   const view = ctx.get(editorViewCtx);
   // 监听器会在编辑器建好之前就被注册，这一小段窗口里取不到视图，直接跳过
   if (!view || !view.state) return;
-  toolbarState.value = snapshotOf(view);
+  const selection = current ?? view.state.selection;
+  toolbarState.value = snapshotOf(view, selection);
 
-  const { selection } = view.state;
   if (props.readonly || selection.empty) {
     float.value = null;
     return;
@@ -121,7 +132,7 @@ async function boot(): Promise<void> {
     editable: () => !props.readonly,
     wikilink,
     onMarkdownUpdated: report,
-    onSelectionUpdated: (ctx) => refresh(ctx),
+    onSelectionUpdated: (ctx, selection) => refresh(ctx, selection),
     onUpdated: (ctx) => refresh(ctx),
     onFocus: () => {
       if (lastCtx) refresh(lastCtx);

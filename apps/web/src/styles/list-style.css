@@ -1,0 +1,395 @@
+/**
+ * 列表的外观（唯一一份）。
+ *
+ * 为什么单独一个文件：列表在**三处**渲染 —— 编辑器（`.donote-surface .ProseMirror`）、
+ * 源码预览（`MarkdownView` 的 `.md`）、导出 HTML（`body.donote-export`）。三处共用这一份，
+ * 只改这里，三处一起变；导出那一路用 `?raw` 把同一份文本拼进 `<style>`（见 services/export-html.ts）。
+ *
+ * 为什么样式不进 `.md`：Markdown 里没有「用 a. 还是 1.」这种写法，全部存成 `1.`。
+ * 所以外观只能由显示层决定。写死在这里的好处是多端天然一致 —— 样式不是数据，是程序的一部分。
+ *
+ * 层级怎么写：`d1`／`d2`／… 是「祖先列表的层数」。
+ *   `P ol > li::marker`              → 命中所有层 —— 但会被下面的高层规则按优先级盖掉
+ *   `P d1 ol > li::marker`           → 第 2 层
+ *   `P d1 d2 ol > li::marker`        → 第 3 层
+ * 每一层多一个 `:is(ul,ol)`，特异度就多 1，所以**实际层数 = 命中的最高那条规则**。
+ * 混排（`ul > li > ol`）也成立，因为 `:is(ul,ol)` 两种都算。
+ * 第 9 层以后不再加深：所有规则都命中，取第 9 条，视觉上不变。
+ */
+
+/* 三个渲染容器 */
+/* prettier-ignore */
+
+/* ---------------------------- 缩进 ---------------------------- */
+
+:where(.donote-surface .ProseMirror, .md, .donote-export) :is(ul, ol) {
+  padding-left: 1.5em;
+  margin: 0.5em 0;
+}
+
+:where(.donote-surface .ProseMirror, .md, .donote-export) li {
+  margin: 0.2em 0;
+}
+
+:where(.donote-surface .ProseMirror, .md, .donote-export) :is(ul, ol) :is(ul, ol) {
+  padding-left: 1.4em;
+}
+
+:where(.donote-surface .ProseMirror, .md, .donote-export) :is(ul, ol) :is(ul, ol) :is(ul, ol) {
+  padding-left: 1.3em;
+}
+
+:where(.donote-surface .ProseMirror, .md, .donote-export)
+  :is(ul, ol)
+  :is(ul, ol)
+  :is(ul, ol)
+  :is(ul, ol) {
+  padding-left: 1.2em;
+}
+
+:where(.donote-surface .ProseMirror, .md, .donote-export)
+  :is(ul, ol)
+  :is(ul, ol)
+  :is(ul, ol)
+  :is(ul, ol)
+  :is(ul, ol) {
+  padding-left: 1.1em;
+}
+
+:where(.donote-surface .ProseMirror, .md, .donote-export)
+  :is(ul, ol)
+  :is(ul, ol)
+  :is(ul, ol)
+  :is(ul, ol)
+  :is(ul, ol)
+  :is(ul, ol) {
+  padding-left: 1.05em;
+}
+
+:where(.donote-surface .ProseMirror, .md, .donote-export)
+  :is(ul, ol)
+  :is(ul, ol)
+  :is(ul, ol)
+  :is(ul, ol)
+  :is(ul, ol)
+  :is(ul, ol)
+  :is(ul, ol) {
+  padding-left: 1em;
+}
+
+:where(.donote-surface .ProseMirror, .md, .donote-export)
+  :is(ul, ol)
+  :is(ul, ol)
+  :is(ul, ol)
+  :is(ul, ol)
+  :is(ul, ol)
+  :is(ul, ol)
+  :is(ul, ol)
+  :is(ul, ol) {
+  padding-left: 0.95em;
+}
+
+:where(.donote-surface .ProseMirror, .md, .donote-export)
+  :is(ul, ol)
+  :is(ul, ol)
+  :is(ul, ol)
+  :is(ul, ol)
+  :is(ul, ol)
+  :is(ul, ol)
+  :is(ul, ol)
+  :is(ul, ol)
+  :is(ul, ol) {
+  padding-left: 0.9em;
+}
+
+/* ---------------------------- 无序：• ◦ ▪ 循环 ---------------------------- */
+
+:where(.donote-surface .ProseMirror, .md, .donote-export) ul > li {
+  list-style-type: disc;
+}
+
+:where(.donote-surface .ProseMirror, .md, .donote-export) :is(ul, ol) ul > li {
+  list-style-type: circle;
+}
+
+:where(.donote-surface .ProseMirror, .md, .donote-export) :is(ul, ol) :is(ul, ol) ul > li {
+  list-style-type: square;
+}
+
+:where(.donote-surface .ProseMirror, .md, .donote-export)
+  :is(ul, ol)
+  :is(ul, ol)
+  :is(ul, ol)
+  ul
+  > li {
+  list-style-type: disc;
+}
+
+:where(.donote-surface .ProseMirror, .md, .donote-export)
+  :is(ul, ol)
+  :is(ul, ol)
+  :is(ul, ol)
+  :is(ul, ol)
+  ul
+  > li {
+  list-style-type: circle;
+}
+
+:where(.donote-surface .ProseMirror, .md, .donote-export)
+  :is(ul, ol)
+  :is(ul, ol)
+  :is(ul, ol)
+  :is(ul, ol)
+  :is(ul, ol)
+  ul
+  > li {
+  list-style-type: square;
+}
+
+:where(.donote-surface .ProseMirror, .md, .donote-export)
+  :is(ul, ol)
+  :is(ul, ol)
+  :is(ul, ol)
+  :is(ul, ol)
+  :is(ul, ol)
+  :is(ul, ol)
+  ul
+  > li {
+  list-style-type: disc;
+}
+
+:where(.donote-surface .ProseMirror, .md, .donote-export)
+  :is(ul, ol)
+  :is(ul, ol)
+  :is(ul, ol)
+  :is(ul, ol)
+  :is(ul, ol)
+  :is(ul, ol)
+  :is(ul, ol)
+  ul
+  > li {
+  list-style-type: circle;
+}
+
+:where(.donote-surface .ProseMirror, .md, .donote-export)
+  :is(ul, ol)
+  :is(ul, ol)
+  :is(ul, ol)
+  :is(ul, ol)
+  :is(ul, ol)
+  :is(ul, ol)
+  :is(ul, ol)
+  :is(ul, ol)
+  ul
+  > li {
+  list-style-type: square;
+}
+
+/* ---------------------------- 有序：1. a. i. 1) a) i) (1) (a) (i) ---------------------------- */
+
+:where(.donote-surface .ProseMirror, .md, .donote-export) ol > li {
+  list-style-type: decimal;
+}
+
+:where(.donote-surface .ProseMirror, .md, .donote-export) :is(ul, ol) ol > li {
+  list-style-type: lower-alpha;
+}
+
+:where(.donote-surface .ProseMirror, .md, .donote-export) :is(ul, ol) :is(ul, ol) ol > li {
+  list-style-type: lower-roman;
+}
+
+/* 第 4–9 层要用 `1)` `(1)` 这种括号形式，CSS 现成的 list-style-type 里没有，只能画 marker。
+   `list-style-type` 保留着当退路：不支持 `::marker { content }` 的引擎会落到 `1.`，不会错位。 */
+
+:where(.donote-surface .ProseMirror, .md, .donote-export)
+  :is(ul, ol)
+  :is(ul, ol)
+  :is(ul, ol)
+  ol
+  > li {
+  list-style-type: decimal;
+}
+
+:where(.donote-surface .ProseMirror, .md, .donote-export)
+  :is(ul, ol)
+  :is(ul, ol)
+  :is(ul, ol)
+  ol
+  > li::marker {
+  content: counter(list-item) ')\00a0';
+}
+
+:where(.donote-surface .ProseMirror, .md, .donote-export)
+  :is(ul, ol)
+  :is(ul, ol)
+  :is(ul, ol)
+  :is(ul, ol)
+  ol
+  > li {
+  list-style-type: lower-alpha;
+}
+
+:where(.donote-surface .ProseMirror, .md, .donote-export)
+  :is(ul, ol)
+  :is(ul, ol)
+  :is(ul, ol)
+  :is(ul, ol)
+  ol
+  > li::marker {
+  content: counter(list-item, lower-alpha) ')\00a0';
+}
+
+:where(.donote-surface .ProseMirror, .md, .donote-export)
+  :is(ul, ol)
+  :is(ul, ol)
+  :is(ul, ol)
+  :is(ul, ol)
+  :is(ul, ol)
+  ol
+  > li {
+  list-style-type: lower-roman;
+}
+
+:where(.donote-surface .ProseMirror, .md, .donote-export)
+  :is(ul, ol)
+  :is(ul, ol)
+  :is(ul, ol)
+  :is(ul, ol)
+  :is(ul, ol)
+  ol
+  > li::marker {
+  content: counter(list-item, lower-roman) ')\00a0';
+}
+
+:where(.donote-surface .ProseMirror, .md, .donote-export)
+  :is(ul, ol)
+  :is(ul, ol)
+  :is(ul, ol)
+  :is(ul, ol)
+  :is(ul, ol)
+  :is(ul, ol)
+  ol
+  > li {
+  list-style-type: decimal;
+}
+
+:where(.donote-surface .ProseMirror, .md, .donote-export)
+  :is(ul, ol)
+  :is(ul, ol)
+  :is(ul, ol)
+  :is(ul, ol)
+  :is(ul, ol)
+  :is(ul, ol)
+  ol
+  > li::marker {
+  content: '(' counter(list-item) ')\00a0';
+}
+
+:where(.donote-surface .ProseMirror, .md, .donote-export)
+  :is(ul, ol)
+  :is(ul, ol)
+  :is(ul, ol)
+  :is(ul, ol)
+  :is(ul, ol)
+  :is(ul, ol)
+  :is(ul, ol)
+  ol
+  > li {
+  list-style-type: lower-alpha;
+}
+
+:where(.donote-surface .ProseMirror, .md, .donote-export)
+  :is(ul, ol)
+  :is(ul, ol)
+  :is(ul, ol)
+  :is(ul, ol)
+  :is(ul, ol)
+  :is(ul, ol)
+  :is(ul, ol)
+  ol
+  > li::marker {
+  content: '(' counter(list-item, lower-alpha) ')\00a0';
+}
+
+:where(.donote-surface .ProseMirror, .md, .donote-export)
+  :is(ul, ol)
+  :is(ul, ol)
+  :is(ul, ol)
+  :is(ul, ol)
+  :is(ul, ol)
+  :is(ul, ol)
+  :is(ul, ol)
+  :is(ul, ol)
+  ol
+  > li {
+  list-style-type: lower-roman;
+}
+
+:where(.donote-surface .ProseMirror, .md, .donote-export)
+  :is(ul, ol)
+  :is(ul, ol)
+  :is(ul, ol)
+  :is(ul, ol)
+  :is(ul, ol)
+  :is(ul, ol)
+  :is(ul, ol)
+  :is(ul, ol)
+  ol
+  > li::marker {
+  content: '(' counter(list-item, lower-roman) ')\00a0';
+}
+
+/* ---------------------------- 折叠 ---------------------------- */
+
+/*
+ * 折叠三角放在**行尾**：它是段落末尾的一个行内按钮（见 components/editor/fold.ts），
+ * 不占列表标记那块空白，也就不必为了它去改 `::marker` 的位置。
+ * 只有含子级的条目才会有这个按钮；其余条目连元素都没有。
+ */
+:where(.donote-surface .ProseMirror, .md, .donote-export) li {
+  position: relative;
+}
+
+:where(.donote-surface .ProseMirror, .md, .donote-export) li.is-folded > :is(ul, ol) {
+  display: none;
+}
+
+.donote-fold {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  margin-left: 4px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: currentColor;
+  opacity: 0;
+  cursor: pointer;
+  vertical-align: -2px;
+  user-select: none;
+  transition: opacity 0.12s ease;
+}
+
+.donote-fold svg {
+  display: block;
+  transition: transform 0.12s ease;
+}
+
+/* 悬停显形；折叠状态下常驻，并转成朝右 */
+li:hover > p > .donote-fold,
+li.is-folded > p > .donote-fold {
+  opacity: 0.55;
+}
+
+li.is-folded > p > .donote-fold svg {
+  transform: rotate(-90deg);
+}
+
+.donote-fold:hover {
+  opacity: 0.95 !important;
+  background: rgba(127, 127, 127, 0.14);
+}
