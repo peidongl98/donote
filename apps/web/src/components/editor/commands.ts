@@ -47,6 +47,8 @@ import {
 import { lift, wrapIn } from '@milkdown/kit/prose/commands';
 import { liftListItem, sinkListItem, wrapInList } from '@milkdown/kit/prose/schema-list';
 import { mathEdit, writeMathBlock } from './math';
+import { blockRange, collectOutline, mermaidBlockNode, outlineToMermaid } from './outline';
+import { FLOW_TEMPLATE, serializeFlowchart } from './flowchart';
 
 /** 当前光标处的样式快照，工具栏据此高亮 */
 export interface ToolbarSnapshot {
@@ -565,15 +567,56 @@ export const MERMAID_TEMPLATE = `mindmap
 
 /** 在当前光标处插入一个 language=mermaid 的围栏代码块 */
 export function insertMermaid(e: Editor | null): void {
+  writeMermaidBlock(e, MERMAID_TEMPLATE);
+}
+
+/**
+ * 插入一张流程图（`flowchart`）。
+ *
+ * 和思维导图是两种图：导图只表达从属，流程图能任意两个节点连线。模板直接给三个节点两条边，
+ * 打开面板就能看到「摆好的样子」，不用先读语法。
+ */
+export function insertFlowchart(e: Editor | null): void {
+  writeMermaidBlock(e, serializeFlowchart(FLOW_TEMPLATE));
+}
+
+function writeMermaidBlock(e: Editor | null, text: string): void {
   if (!e) return;
   void e.action((ctx) => {
     const view = ctx.get(editorViewCtx);
     const { state } = view;
     const codeBlock = state.schema.nodes.code_block;
     if (!codeBlock) return;
-    const node = codeBlock.create({ language: 'mermaid' }, state.schema.text(MERMAID_TEMPLATE));
+    const node = codeBlock.create({ language: 'mermaid' }, state.schema.text(text));
     view.dispatch(state.tr.replaceSelectionWith(node).scrollIntoView());
     view.focus();
+  });
+}
+
+/** 一次「转成另一种形态」的结果。`empty` 与 `none` 要分开，好给用户不同的说明 */
+export type ConvertResult = 'ok' | 'empty' | 'none';
+
+/**
+ * 把光标 / 选区覆盖的**列表或标题**整块换成一张思维导图。
+ *
+ * 这是「内容 → 导图」的唯一入口：用户的笔记本来是一份大纲，不想手抄一遍到导图里。
+ * 换过去之后仍然是一个 ```mermaid 代码块，跟手点「思维导图」插入的东西没有任何区别 ——
+ * 点开就是可视化编辑器，改完再转回列表也行得通（见 convertToList）。
+ */
+export function convertToMindmap(e: Editor | null): ConvertResult {
+  if (!e) return 'none';
+  return e.action((ctx) => {
+    const view = ctx.get(editorViewCtx);
+    const { state } = view;
+    const { from, to } = blockRange(state);
+    const items = collectOutline(state, from, to);
+    if (!items) return 'empty';
+
+    const node = mermaidBlockNode(state.schema, outlineToMermaid(items));
+    if (!node) return 'none';
+    view.dispatch(state.tr.replaceWith(from, to, node).scrollIntoView());
+    view.focus();
+    return 'ok';
   });
 }
 

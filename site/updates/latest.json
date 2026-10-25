@@ -1,11 +1,11 @@
 {
-  "version": "0.4.8",
-  "notes": "这一版给列表加了层级和折叠。\n\n原来只有一层的圆点和序号，嵌套得在源码里手打空格，缩进还会越缩越窄。现在列表最多九级，和 Word 一样：有序标记依次是 1. / a. / i. / 1) / a) / i) / (1) / (a) / (i)，无序标记是圆点、空心圆、方块三循环。Tab 降一级，Shift+Tab 升一级，第九级再按 Tab 不再往下钻。Alt+Shift+↑↓ 把整条连同子级一起上移下移，不会跑到别的父级里去。\n\n有子级的条目，行尾会出现一个小三角，点一下把下面整棵子树收起来，再点一下展开。折叠只作用在显示上，正文、源码和导出的 Markdown 都不变，重开笔记一律是展开的，也不会因此产生任何同步请求。\n\n光标进到列表里时，工具栏会显示当前在第几级，旁边是升降级两个按钮。斜杠菜单里也加了「多级列表」，一次插出三级骨架。\n\n列表的标记和缩进现在由同一份样式决定，编辑器、源码预览、导出的 HTML 三处一致。\n\n顺带修好一个选区跟进的小问题：选中文字后浮出的那条小工具条，有时按上一版的位置算，慢一步。",
-  "pub_date": "2026-10-25T08:27:54Z",
+  "version": "0.4.9",
+  "notes": "这一版加了两样东西：不必联网也能用，以及图可以直接在图上改。\n\n先说本地模式。登录页多了一条「只用本地，不同步」——不填服务器、不填密码，点一下就能进去写。进去之后功能一样不少：编辑、搜索、双向链接、附件、导出、回收站都在，只是数据不往任何服务器发。文件是真的 .md 文件，落在哪一目了然：绿色版放在软件目录下的 data/notes，安装版放在「文档/DoNote」，设置页里能看到确切路径，也有「打开这个文件夹」。本地模式下不套缓存层，文件就是原件，改一个字就是改那个文件。想改落点，设置页里可以换；注意软件卸载时安装目录里的东西会跟着删掉，所以重要内容建议留在文档目录或定期导出。\n\n再说图。原来点开一张思维导图只有一个源码框，不会写 mermaid 语法的人等于改不了。现在点开就是图本身：双击节点改字，Tab 加下级，回车加同级，把节点拖到另一个节点上就换了父级，Delete 删掉。画布能拖、能缩放，Ctrl 加滚轮以光标为中心放大缩小，工具条上也有加减号和「适应窗口」。右上角仍然留着「代码」，会写的人照样改源码，两边改的是同一段内容，怎么切都不会丢。\n\n想连任意两个节点，用新加的流程图。工具条上有「流程图」，斜杠菜单里也有。节点自己摆位置，按住节点右边缘的小圆点拖到另一个节点上就拉出一条线，线上可以写字，双击线改文字，点一下线按 Delete 就删掉。节点形状有方框、圆角、胶囊、菱形、圆形、六边形。摆好的位置会跟着笔记一起存下来，换台电脑打开还是你摆的样子。\n\n列表和大纲也能直接变导图：光标在列表或标题里时，工具栏第二行会出现「转成导图」；反过来，导图面板底部有「转成列表」，改完再写回正文。\n\n顺带修了一个真正碍事的问题：以前导图块左边不出现块手柄，所以除了进源码删掉那几行，没有别的办法去掉一张图。现在鼠标移到图上，左边就有 ⋮⋮，点开是「删除本块 / 复制本块 / 转为」，和段落、表格完全一样。\n\n这一版还调整了工具栏的排布：只在某种上下文里才有的按钮（列表升降级、表格增删）改到顶栏下面单独一行，顶栏不再挤。\n\n另外随安装包带了一份《配置说明》PDF，设置页最下面能直接打开。本地模式、坚果云、群晖、威联通、Windows 当盘、软路由、不在家用怎么连、连不上怎么查，每一种都写了步骤。同步功能本身没有改动。",
+  "pub_date": "2026-10-25T09:38:14Z",
   "platforms": {
     "windows-x86_64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSWTRLN1pZbGY4NGpoOGR0OGpMS0JlUlU1TWhNNnh5cWtXU2RIeTRxb3FPQnNzMUpMVnlMT2tUdzdiSk1BYnNNdmNIYUJxeWdDKzM1K0ZUdDVkRTk3SlJaTVhoT3B0VndZPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkyOTE2ODc0CWZpbGU6RG9Ob3RlXzAuNC44X3g2NC1zZXR1cC5leGUJdmVyc2lvbjowLjQuOAo5NWtYdTI1Nk5XSnVRaVBHbWJzdi9OaUFRRllHVC94M0FWWUJ4OHhDKytKZUxNNDNJb1QyZHMvZzZ4T3g4cVNFVmplMkxGa1IrWTJqTStCY2RtdThEZz09Cg==",
-      "url": "https://donote.pages.dev/downloads/DoNote-0.4.8-win-x64.exe"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSWTRLN1pZbGY4NGpXczhPcG9rK3c3cnF5ZmhWZ3dUZUcwVUxzYUVoUjh3ZVhIWVRzbW5sUVVBVnBxY1Rvd00yYzRvcVlWZU5IQnN6V1lsYlg4MTB1RVk3Y05zSU4walFvPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkyOTIxMDk0CWZpbGU6RG9Ob3RlXzAuNC45X3g2NC1zZXR1cC5leGUJdmVyc2lvbjowLjQuOQpmMzZDdGIxMVUraTBubHZYTVNPb1dFbjBiY3JnaUtVaGs1YVdpYloxYjQ0NExhemYwdytkYng2Y3ora01RNU1KaTIvdzFrQWJTcC9UMytJd2tLbWVEQT09Cg==",
+      "url": "https://donote.pages.dev/downloads/DoNote-0.4.9-win-x64.exe"
     }
   }
 }

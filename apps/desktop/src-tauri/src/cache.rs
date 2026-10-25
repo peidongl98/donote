@@ -190,6 +190,26 @@ mod win_open {
         s.encode_wide().chain(once(0)).collect()
     }
 
+    /// 交给系统用默认程序打开一个文件（PDF / 文本之类）
+    pub fn open_file(path: &Path) -> Result<(), String> {
+        let target = wide(path.as_os_str());
+        let code = unsafe {
+            ShellExecuteW(
+                std::ptr::null_mut(),
+                std::ptr::null(),
+                target.as_ptr(),
+                std::ptr::null(),
+                std::ptr::null(),
+                SW_SHOWNORMAL,
+            )
+        } as isize;
+        if code > 32 {
+            Ok(())
+        } else {
+            Err(format!("系统没能打开这个文件（ShellExecuteW 返回 {code}）"))
+        }
+    }
+
     pub fn open_dir(dir: &Path) -> Result<(), String> {
         let target = wide(dir.as_os_str());
         // 返回值 <= 32 是 ShellExecute 的历史约定，表示没起来
@@ -221,7 +241,7 @@ mod win_open {
 }
 
 #[cfg(target_os = "windows")]
-fn expose(path: &Path) -> Result<(), String> {
+pub(crate) fn expose(path: &Path) -> Result<(), String> {
     let dir = if path.is_dir() {
         path
     } else {
@@ -230,8 +250,23 @@ fn expose(path: &Path) -> Result<(), String> {
     win_open::open_dir(dir)
 }
 
+/// 用系统默认程序打开一个文件（《配置说明》这类随包文档用）
+#[cfg(target_os = "windows")]
+pub(crate) fn open_file(path: &Path) -> Result<(), String> {
+    win_open::open_file(path)
+}
+
 #[cfg(not(target_os = "windows"))]
-fn expose(_path: &Path) -> Result<(), String> {
+pub(crate) fn open_file(path: &Path) -> Result<(), String> {
+    std::process::Command::new("xdg-open")
+        .arg(path)
+        .spawn()
+        .map(|_| ())
+        .map_err(|e| e.to_string())
+}
+
+#[cfg(not(target_os = "windows"))]
+pub(crate) fn expose(_path: &Path) -> Result<(), String> {
     Err("这个平台还不支持直接打开目录".into())
 }
 

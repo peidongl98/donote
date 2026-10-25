@@ -133,6 +133,25 @@ function offsetsOf(v: EditorView): number[] {
 }
 
 /**
+ * 从鼠标底下那个元素反查它属于哪个顶层块。
+ *
+ * 🔴 这张网是给**不可编辑的 NodeView** 兜的（导图 / 流程图 / 公式块）。
+ * 这类块的 DOM 里没有可落光标的位置，`posAtCoords` 解出来的只能是个块边界，
+ * `resolve()` 之后 `depth === 0` —— 于是手柄永远不出现，用户也就没有任何入口删掉一张导图。
+ * 走 DOM 就绕开了这件事：从 target 往上走到正文的直接子元素，数它是第几个块，
+ * 再用块的长度表换算回文档位置。
+ */
+function blockFromDom(v: EditorView, target: HTMLElement | null): { start: number; el: HTMLElement } | null {
+  if (!target) return null;
+  let el: HTMLElement | null = target;
+  while (el && el.parentElement !== v.dom) el = el.parentElement;
+  if (!el) return null;
+  const index = Array.prototype.indexOf.call(v.dom.children, el) as number;
+  if (index < 0 || index >= v.state.doc.childCount) return null;
+  return { start: offsetsOf(v)[index], el };
+}
+
+/**
  * 指针落在哪两个块之间。横向不管（块是整行的），只看纵向在目标块的哪半截。
  * 返回的 `pos` 是**当前文档**里的块边界位置，直接交给 `moveBlock`。
  */
@@ -243,25 +262,27 @@ function attach(editor: Editor | null): void {
       if (moved < 2) return;
       if (performance.now() - scrolledAt < 150) return;
       cancelHide();
+
+      // 先按坐标找（普通文本块都走这条），解不出块内位置再退回 DOM（导图这类 NodeView）
+      const target = event.target as HTMLElement | null;
+      let found: { start: number; el: HTMLElement } | null = null;
       const hit = instance.posAtCoords({ left: event.clientX, top: event.clientY });
-      if (!hit) {
+      if (hit) {
+        const $pos = instance.state.doc.resolve(hit.pos);
+        if ($pos.depth >= 1) {
+          const start = $pos.before(1);
+          const el = instance.nodeDOM(start);
+          if (el instanceof HTMLElement) found = { start, el };
+        }
+      }
+      if (!found) found = blockFromDom(instance, target);
+
+      if (!found) {
         if (!menuOpen.value) visible.value = false;
         return;
       }
-      const $pos = instance.state.doc.resolve(hit.pos);
-      // 只有顶层块（depth 1）才有手柄
-      if ($pos.depth < 1) {
-        if (!menuOpen.value) visible.value = false;
-        return;
-      }
-      const start = $pos.before(1);
-      const el = instance.nodeDOM(start);
-      if (!(el instanceof HTMLElement)) {
-        if (!menuOpen.value) visible.value = false;
-        return;
-      }
-      const rect = el.getBoundingClientRect();
-      blockStart.value = start;
+      const rect = found.el.getBoundingClientRect();
+      blockStart.value = found.start;
       top.value = rect.top + 2;
       left.value = Math.max(4, rect.left - HANDLE_W - 2);
       visible.value = true;

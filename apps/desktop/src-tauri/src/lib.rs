@@ -1,8 +1,11 @@
 use std::path::PathBuf;
 
 use serde::Serialize;
+// `AppHandle::path()` 来自 Manager（取随包资源要用）
+use tauri::Manager;
 
 mod cache;
+mod local;
 
 /// 无边框窗口的 Win11 系统圆角。
 ///
@@ -93,6 +96,24 @@ fn secret_clear(key: String) -> Result<(), String> {
         Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
         Err(e) => Err(e.to_string()),
     }
+}
+
+/// 打开随安装包附带的《配置说明》PDF（设置页那个按钮）。
+///
+/// 文件是 `bundle.resources` 里的 `resources/DoNote-Guide.pdf`，安装后在资源目录下。
+#[tauri::command]
+fn open_guide(app: tauri::AppHandle) -> Result<(), String> {
+    let file = app
+        .path()
+        .resolve(
+            "resources/DoNote-Guide.pdf",
+            tauri::path::BaseDirectory::Resource,
+        )
+        .map_err(|e| e.to_string())?;
+    if !file.is_file() {
+        return Err(format!("找不到配置说明：{}", file.display()));
+    }
+    cache::open_file(&file)
 }
 
 /// 把用户选中的本机图片读成原始字节。
@@ -204,7 +225,17 @@ pub fn run() {
             cache::cache_remove,
             cache::cache_list,
             cache::cache_open_dir,
-            cache::cache_reveal
+            cache::cache_reveal,
+            local::local_info,
+            local::local_open_dir,
+            local::local_read,
+            local::local_write,
+            local::local_remove,
+            local::local_move,
+            local::local_stat,
+            local::local_list,
+            local::local_mkdir,
+            open_guide
         ])
         .run(tauri::generate_context!())
         .expect("DoNote 启动失败");

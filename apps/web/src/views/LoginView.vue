@@ -41,6 +41,28 @@ function normalizeServer(raw: string): string | null {
   return value.replace(/\/+$/, '');
 }
 
+/**
+ * 只用本地：不连服务器，笔记落在本机（绿色版跟着 exe 走，安装版在「文档/DoNote」）。
+ * 和网盘模式共用同一套业务层，进入后功能一样，只是没有同步。
+ */
+async function enterLocal(): Promise<void> {
+  if (submitting.value) return;
+  submitting.value = true;
+  banner.value = '';
+  try {
+    const res = await webdav.startLocal();
+    if (!res.ok) {
+      banner.value = res.message;
+      return;
+    }
+    ui.toast('已进入本地模式，笔记存在这台电脑上');
+    const redirect = typeof route.query.redirect === 'string' ? route.query.redirect : '/';
+    await router.replace(redirect);
+  } finally {
+    submitting.value = false;
+  }
+}
+
 async function submit(): Promise<void> {
   if (submitting.value) return;
   serverError.value = '';
@@ -149,6 +171,27 @@ watch(password, () => {
         <GlassButton label="连接" type="submit" :loading="submitting" />
       </form>
 
+      <!--
+        本地模式入口放在连接表单**外面**：它不是一个「连接方式」，而是另一条路 ——
+        不需要服务器地址、账号、密码，进来就能写。
+      -->
+      <div class="alt">
+        <span class="alt-hint">不想连服务器？</span>
+        <button type="button" class="alt-link" :disabled="submitting" @click="enterLocal">
+          只用本地，不同步
+          <svg viewBox="0 0 24 24" width="13" height="13" aria-hidden="true">
+            <path
+              d="M5 12h13M13 6.5 18.5 12 13 17.5"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.7"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            />
+          </svg>
+        </button>
+      </div>
+
       <p class="footnote">
         地址、账号和密码只保存在这台设备上。<br />
         DoNote 不上传，服务器不存任何账号信息。
@@ -244,6 +287,40 @@ watch(password, () => {
 .banner {
   font-size: 13px;
   color: var(--danger);
+}
+
+/* 本地模式入口：一行小字 + 一个链接，不与「连接」按钮争主次 */
+.alt {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  margin-top: var(--sp-2);
+  padding-top: var(--sp-2);
+  border-top: 1px solid var(--divider);
+  font-size: var(--fs-sm);
+}
+
+.alt-hint {
+  color: var(--text-2);
+}
+
+.alt-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--accent);
+  font-size: var(--fs-sm);
+  background: none;
+}
+
+.alt-link:hover:not(:disabled) {
+  text-decoration: underline;
+}
+
+.alt-link:disabled {
+  opacity: 0.5;
+  cursor: default;
 }
 
 .footnote {

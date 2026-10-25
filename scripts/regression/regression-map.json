@@ -35,9 +35,9 @@
     "stage4": {
       "file": "stage4-toolbar.cjs",
       "title": "编辑器工具栏",
-      "covers": "19 项工具栏：每一项既看 DOM 变化，也看最终落盘的 Markdown；含表格增删的边界（表头行 / 最后一行）与思维导图块的 NodeView + 源码面板",
+      "covers": "20 项工具栏：每一项既看 DOM 变化，也看最终落盘的 Markdown；含表格增删的边界（表头行 / 最后一行）与思维导图块的 NodeView + 默认可视化面板",
       "estSeconds": 38,
-      "checks": 55
+      "checks": 56
     },
     "stage5": {
       "file": "stage5-image.cjs",

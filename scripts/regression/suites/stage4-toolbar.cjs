@@ -1,5 +1,5 @@
 /**
- * 阶段 4 验收：Word 式工具栏 19 项（18 个按钮 ＋ 段落样式下拉）。
+ * 阶段 4 验收：Word 式工具栏 20 项（19 个按钮 ＋ 段落样式下拉）。
  *
  * 真实坚果云，无 mock。每一项都既看编辑器 DOM 变了没，也看最终落盘的 Markdown 对不对 ——
  * 只验 DOM 会漏掉「看着对、存下来是错的」这类问题。
@@ -126,7 +126,7 @@ function check(name, ok, detail = '') {
     // ---------- 1. 工具栏在 ----------
     check('1 工具栏出现在编辑器顶部', await page.locator('.toolbar').isVisible());
     const toolCount = await page.locator('.toolbar button[aria-label]').count();
-    check('1 18 个操作按钮齐全（＋段落样式下拉共 19 项）', toolCount === 18, `${toolCount} 个按钮`);
+    check('1 19 个操作按钮齐全（＋段落样式下拉共 20 项）', toolCount === 19, `${toolCount} 个按钮`);
     check('1 段落样式下拉在', await page.locator('.toolbar select').count() === 1);
     await page.screenshot({ path: path.join(SHOTS, '01-toolbar.png') });
 
@@ -293,13 +293,20 @@ function check(name, ok, detail = '') {
     check('8 正文里没有源码文字', !(await surface.innerText()).includes('mindmap'));
     await page.screenshot({ path: path.join(SHOTS, '03-mermaid.png'), fullPage: true });
 
-    // 点图 → 源码面板
+    // 点图 → 编辑面板（默认可视化，源码在「代码」页）
     await surface.locator('.donote-mermaid').first().click();
-    await page.waitForTimeout(500);
+    await page.waitForTimeout(900);
     const panel = page.locator('.panel[aria-label="编辑思维导图"]');
     const panelSource = page.locator('.source[aria-label="Mermaid 源码"]');
-    check('8 点图弹出源码面板', await panel.isVisible());
-    check('8 面板里能看到预填模板', (await panelSource.inputValue()).includes('mindmap'));
+    check('8 点图弹出编辑面板', await panel.isVisible());
+    check(
+      '8 面板默认是可视化（画的是树，不是源码框）',
+      (await panel.locator('.mind .node').count()) >= 4 && (await panelSource.count()) === 0,
+      `${await panel.locator('.mind .node').count()} 个节点`,
+    );
+    await panel.locator('.tab', { hasText: '代码' }).click();
+    await page.waitForTimeout(500);
+    check('8 切到代码能看到预填模板', (await panelSource.inputValue()).includes('mindmap'));
 
     // 面板里改源码 → 实时预览跟着变
     const edited = 'mindmap\n  root((改过的中心))\n    甲\n    乙';

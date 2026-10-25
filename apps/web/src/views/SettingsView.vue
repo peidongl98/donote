@@ -12,6 +12,8 @@ import {
   type TrashAutoSetting,
 } from '@/services/trash-auto';
 import { appVersion, applyUpdate, autoState, checkUpdate, ensureUpdateReady, type UpdateState } from '@/updater';
+import { invoke } from '@tauri-apps/api/core';
+import { openLocalDir } from '@/services/storage/local';
 import { useWebdavStore } from '@/stores/webdav';
 import { useSyncStore } from '@/stores/sync';
 import { useUiStore } from '@/stores/ui';
@@ -89,7 +91,10 @@ async function onResolve(path: string, keep: 'local' | 'remote'): Promise<void> 
   ui.toast(keep === 'local' ? '已用本地版本覆盖云端' : '已用云端版本覆盖本地');
 }
 
-const displayName = computed(() => webdav.account || '未连接');
+const displayName = computed(() => {
+  if (webdav.isLocal) return '本地模式';
+  return webdav.account || '未连接';
+});
 const initial = computed(() => displayName.value.slice(0, 1).toUpperCase() || 'D');
 
 /** 自动流程的状态优先：它才是「正在下载 / 已就绪」的实况 */
@@ -184,10 +189,36 @@ onUnmounted(() => {
   budgetTimer = null;
 });
 
+const localKindText = computed(() => {
+  const kind = webdav.localInfo?.kind;
+  if (kind === 'portable') return '绿色版：跟着软件所在目录';
+  if (kind === 'documents') return '安装版：文档/DoNote';
+  if (kind === 'appdata') return '应用数据目录（回落位置）';
+  if (kind === 'idb') return '浏览器本地库';
+  return '—';
+});
+
+/** 随安装包附带的《配置说明》：交给系统默认阅读器打开 */
+async function onOpenGuide(): Promise<void> {
+  try {
+    await invoke('open_guide');
+  } catch {
+    ui.toast('打不开这份说明，可以到安装目录的 resources 文件夹里手动打开 DoNote-Guide.pdf');
+  }
+}
+
+async function onOpenLocalDir(): Promise<void> {
+  try {
+    await openLocalDir();
+  } catch {
+    ui.toast('打不开这个目录，可以在上面那行路径里手动去找');
+  }
+}
+
 async function onDisconnect(): Promise<void> {
   signingOut.value = true;
   await webdav.disconnect();
-  ui.toast('已断开连接');
+  ui.toast(webdav.isLocal ? '已退出本地模式' : '已断开连接');
   await router.replace({ name: 'login' });
 }
 </script>
@@ -201,8 +232,16 @@ async function onDisconnect(): Promise<void> {
         <span class="avatar" aria-hidden="true">{{ initial }}</span>
         <div class="profile-main">
           <p class="name">{{ displayName }}</p>
-          <p class="meta mono">同步目录 {{ webdav.root }}</p>
-          <p class="meta">笔记只存在你自己的网盘里</p>
+          <template v-if="webdav.isLocal">
+            <p class="meta mono" :title="webdav.localInfo?.dir">
+              本地位置 {{ webdav.localInfo?.dir || '—' }}
+            </p>
+            <p class="meta">笔记只存在这台电脑上，不连任何服务器</p>
+          </template>
+          <template v-else>
+            <p class="meta mono">同步目录 {{ webdav.root }}</p>
+            <p class="meta">笔记只存在你自己的网盘里</p>
+          </template>
         </div>
       </section>
 
@@ -277,28 +316,53 @@ async function onDisconnect(): Promise<void> {
         到期按整条删除（删文件夹时整棵子树算一条），不会留下半截；网盘被限流时这次跳过，下次触发接着清。
       </p>
 
-      <p class="section-title">本地缓存</p>
-      <div class="card-plain">
-        <p class="line">
-          <span class="line-key">状态</span>
-          <span class="line-val">{{ sync.usable ? sync.label : '未连接' }}</span>
+      <!-- 本地模式：自己是原件，没有缓存层可讲，改成「文件在哪、怎么打开」 -->
+      <template v-if="webdav.isLocal">
+        <p class="section-title">本地笔记</p>
+        <div class="card-plain">
+          <p class="line">
+            <span class="line-key">位置</span>
+            <span class="line-val mono" :title="webdav.localInfo?.dir">{{ webdav.localInfo?.dir || '—' }}</span>
+          </p>
+          <p class="line">
+            <span class="line-key">落点</span>
+            <span class="line-val">{{ localKindText }}</span>
+          </p>
+        </div>
+        <p class="hint">
+          笔记就是这一层目录里的 .md 文件，可以直接备份、拷走、用别的编辑器打开。
+          绿色版放在软件所在目录，安装版放在「文档」下；卸载软件不会动这里的文件。
         </p>
-        <p class="line">
-          <span class="line-key">缓存目录</span>
-          <span class="line-val mono" :title="sync.dir">{{ sync.dir || '—' }}</span>
+        <p v-if="webdav.localInfo?.fallback" class="hint">
+          预期位置不可写，已回落到应用数据目录，不影响使用。
         </p>
-        <p class="line">
-          <span class="line-key">同步请求</span>
-          <span class="line-val mono">{{ budget.used }} / {{ budget.limit }}</span>
+        <button v-if="desktop" class="secondary" type="button" @click="onOpenLocalDir">打开这个文件夹</button>
+      </template>
+
+      <template v-else>
+        <p class="section-title">本地缓存</p>
+        <div class="card-plain">
+          <p class="line">
+            <span class="line-key">状态</span>
+            <span class="line-val">{{ sync.usable ? sync.label : '未连接' }}</span>
+          </p>
+          <p class="line">
+            <span class="line-key">缓存目录</span>
+            <span class="line-val mono" :title="sync.dir">{{ sync.dir || '—' }}</span>
+          </p>
+          <p class="line">
+            <span class="line-key">同步请求</span>
+            <span class="line-val mono">{{ budget.used }} / {{ budget.limit }}</span>
+          </p>
+        </div>
+        <p class="hint">
+          同步请求是最近 30 分钟发出的次数。坚果云免费版每 30 分钟 600 次，超了会被临时限流；
+          DoNote 已把所有请求排成一条队、每个至少隔 3.2 秒，正常用不会撞上。
         </p>
-      </div>
-      <p class="hint">
-        同步请求是最近 30 分钟发出的次数。坚果云免费版每 30 分钟 600 次，超了会被临时限流；
-        DoNote 已把所有请求排成一条队、每个至少隔 3.2 秒，正常用不会撞上。
-      </p>
-      <p v-if="sync.fallback" class="hint">
-        安装目录不可写，缓存已放到应用数据目录，不影响使用。
-      </p>
+        <p v-if="sync.fallback" class="hint">
+          安装目录不可写，缓存已放到应用数据目录，不影响使用。
+        </p>
+      </template>
 
       <div v-if="sync.conflicts.length" class="conflicts">
         <p class="conflict-title">以下几篇云端比本地新，选一个版本</p>
@@ -336,21 +400,23 @@ async function onDisconnect(): Promise<void> {
         <ThemeToggle />
       </div>
 
-      <p class="section-title">WebDAV</p>
-      <div class="card-plain">
-        <p class="line">
-          <span class="line-key">服务器</span>
-          <span class="line-val mono">{{ webdav.baseUrl }}</span>
-        </p>
-        <p class="line">
-          <span class="line-key">账号</span>
-          <span class="line-val mono">{{ webdav.account || '—' }}</span>
-        </p>
-        <p class="line">
-          <span class="line-key">同步目录</span>
-          <span class="line-val mono">{{ webdav.root }}</span>
-        </p>
-      </div>
+      <template v-if="!webdav.isLocal">
+        <p class="section-title">WebDAV</p>
+        <div class="card-plain">
+          <p class="line">
+            <span class="line-key">服务器</span>
+            <span class="line-val mono">{{ webdav.baseUrl }}</span>
+          </p>
+          <p class="line">
+            <span class="line-key">账号</span>
+            <span class="line-val mono">{{ webdav.account || '—' }}</span>
+          </p>
+          <p class="line">
+            <span class="line-key">同步目录</span>
+            <span class="line-val mono">{{ webdav.root }}</span>
+          </p>
+        </div>
+      </template>
 
       <p class="section-title">关于</p>
       <div class="card-plain">
@@ -374,8 +440,13 @@ async function onDisconnect(): Promise<void> {
         {{ updateActionLabel }}
       </button>
 
+      <!-- 配置说明：本地模式放哪、坚果云/群晖/威联通/Windows 共享盘怎么开，全在里面 -->
+      <button v-if="desktop" class="secondary" type="button" @click="onOpenGuide">
+        打开配置说明（PDF）
+      </button>
+
       <button class="logout" type="button" :disabled="signingOut" @click="onDisconnect">
-        {{ signingOut ? '正在断开…' : '断开连接' }}
+        {{ signingOut ? '正在退出…' : webdav.isLocal ? '退出本地模式' : '断开连接' }}
       </button>
     </div>
   </div>

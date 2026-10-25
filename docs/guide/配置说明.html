@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<title>DoNote 配置说明</title>
+<style>
+  @page { size: A4; margin: 16mm 15mm; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: "Microsoft YaHei", "PingFang SC", "Segoe UI", sans-serif;
+    font-size: 10.5pt;
+    line-height: 1.65;
+    color: #1a1f28;
+  }
+  h1 { font-size: 20pt; margin: 0 0 2pt; }
+  .sub { color: #5b6472; font-size: 9.5pt; margin: 0 0 14pt; }
+  h2 {
+    font-size: 12.5pt;
+    margin: 18pt 0 6pt;
+    padding-bottom: 3pt;
+    border-bottom: 1px solid #dfe3ea;
+    page-break-after: avoid;
+  }
+  h3 { font-size: 10.5pt; margin: 10pt 0 3pt; }
+  p { margin: 4pt 0; }
+  ul, ol { margin: 4pt 0 4pt 16pt; padding: 0; }
+  li { margin: 2pt 0; }
+  code, .m {
+    font-family: Consolas, "Cascadia Mono", monospace;
+    font-size: 9.5pt;
+    background: #f2f4f8;
+    padding: 1px 4px;
+    border-radius: 3px;
+  }
+  table { width: 100%; border-collapse: collapse; margin: 6pt 0; font-size: 9.5pt; }
+  th, td { border: 1px solid #dfe3ea; padding: 5px 7px; text-align: left; vertical-align: top; }
+  th { background: #f5f7fa; font-weight: 600; }
+  .box {
+    margin: 8pt 0;
+    padding: 8pt 10pt;
+    border-left: 3px solid #2f6fed;
+    background: #f3f7ff;
+    font-size: 9.8pt;
+  }
+  .warn { border-left-color: #d9534f; background: #fdf4f4; }
+  .muted { color: #5b6472; }
+  .fig { font-size: 9pt; color: #5b6472; margin: 2pt 0 8pt; }
+  pre {
+    margin: 4pt 0;
+    padding: 7pt 9pt;
+    background: #1e2430;
+    color: #e8ecf4;
+    border-radius: 4px;
+    font-family: Consolas, "Cascadia Mono", monospace;
+    font-size: 9pt;
+    overflow-wrap: anywhere;
+  }
+  .page-break { page-break-before: always; }
+</style>
+</head>
+<body>
+
+<h1>DoNote 配置说明</h1>
+<p class="sub">这一页说清楚：笔记存在哪、怎么连、连不上怎么查。全文不需要懂技术，照抄字面就行。</p>
+
+<h2>一、先选一种用法</h2>
+<table>
+  <tr><th style="width:22%">用法</th><th style="width:40%">适合什么情况</th><th>代价</th></tr>
+  <tr>
+    <td><strong>本地模式</strong></td>
+    <td>只有这一台电脑用，不想注册任何网盘、不想把笔记放到别人服务器上</td>
+    <td>换电脑要自己拷文件夹；两台电脑同时写不会自动合并</td>
+  </tr>
+  <tr>
+    <td><strong>网盘模式</strong>（WebDAV）</td>
+    <td>几台设备都要看同一批笔记；或者想要一份放在自己网盘里的备份</td>
+    <td>要准备一个 WebDAV 地址和账号（坚果云、自己的 NAS 都行）</td>
+  </tr>
+</table>
+<div class="box">
+  两种模式**随时可以切换**：设置 → 最下面那个按钮退出，回到登录页重新选。已经写下的笔记不会因为切换被删掉，
+  但两种模式的笔记是**分开存**的（本地归本地，网盘归网盘），切过去看不到另一边的笔记。
+</div>
+
+<h2>二、本地模式（什么都不用配）</h2>
+<ol>
+  <li>打开 DoNote，在登录页最下面点 <strong>「只用本地，不同步」</strong>。</li>
+  <li>直接进列表页，右上角「新建笔记」就能写。</li>
+  <li>想知道笔记在哪：<strong>设置 → 本地笔记 → 位置</strong>，那一行就是完整路径；桌面版旁边有
+      「打开这个文件夹」，点一下就在资源管理器里打开。</li>
+</ol>
+
+<h3>笔记放在哪</h3>
+<table>
+  <tr><th style="width:26%">装的哪种</th><th>位置</th></tr>
+  <tr><td>绿色版（解压即用）</td><td><code>&lt;解压目录&gt;\data\notes</code> —— 整个文件夹拷走就带走了全部笔记</td></tr>
+  <tr><td>安装版</td><td><code>文档\DoNote</code>（即 <code>C:\Users\你的用户名\Documents\DoNote</code>）</td></tr>
+  <tr><td>上面两处都写不进</td><td>退回 <code>%APPDATA%\DoNote\notes</code>，设置页会写一句「预期位置不可写，已回落」</td></tr>
+</table>
+<p class="muted">笔记就是普通的 <code>.md</code> 文本文件，可以直接用记事本、VS Code 打开；备份就是把整个文件夹复制一份。</p>
+
+<div class="box warn">
+  <strong>为什么安装版不放程序安装目录：</strong>卸载程序会把安装目录一起删掉，笔记会跟着没；
+  另外安装时如果改了目录，新装的会读不到旧目录里的笔记。放在「文档」下面，卸载不动它，也能自己找到。
+</div>
+
+<h2 class="page-break">三、网盘模式 · 坚果云（最省事）</h2>
+<ol>
+  <li>注册并登录坚果云网页版（<code>jianguoyun.com</code>）。</li>
+  <li>右上角头像 → <strong>账户信息</strong> → 左侧 <strong>安全选项</strong> → <strong>第三方应用管理</strong> →
+      <strong>添加应用密码</strong>。</li>
+  <li>名称随便填（例如 <code>DoNote</code>），点生成，复制那串 <strong>16 位密码</strong>。</li>
+  <li>回到 DoNote 登录页，按下表填：</li>
+</ol>
+<table>
+  <tr><th style="width:24%">栏目</th><th>填什么</th></tr>
+  <tr><td>服务器地址</td><td><code>https://dav.jianguoyun.com/dav</code>（默认已填好）</td></tr>
+  <tr><td>账号</td><td>坚果云的注册邮箱</td></tr>
+  <tr><td>密码</td><td>刚才生成的<strong>应用密码</strong>，不是你登录坚果云的密码</td></tr>
+</table>
+<p>点「连接」。第一次连会自动在网盘里建一个 <code>DoNote</code> 文件夹，笔记都存在这里。</p>
+<div class="box warn">
+  坚果云开了<strong>微信二次验证</strong>的话，WebDAV 会连不上，先在安全选项里关掉。
+  免费版有流量额度（上传 1GB / 下载 3GB 每月），日常记笔记够用。
+</div>
+
+<h2>四、网盘模式 · 群晖 NAS</h2>
+<ol>
+  <li>DSM → <strong>套件中心</strong>，安装 <strong>WebDAV Server</strong>。</li>
+  <li>打开它，勾选 <strong>启用 HTTP</strong>（内网够用）或 <strong>启用 HTTPS</strong>，端口默认 <code>5005</code> / <code>5006</code>，应用。</li>
+  <li>在 <strong>控制面板 → 用户与群组</strong> 里确认这个账号对目标共享文件夹有<strong>读写</strong>权限。</li>
+  <li>DoNote 里填：</li>
+</ol>
+<table>
+  <tr><th style="width:24%">栏目</th><th>填什么</th></tr>
+  <tr><td>服务器地址</td><td><code>http://192.168.1.x:5005</code>（把 IP 换成 NAS 的地址；开了 HTTPS 就是 <code>https://…:5006</code>）</td></tr>
+  <tr><td>账号 / 密码</td><td>DSM 的登录账号与密码</td></tr>
+</table>
+<p class="muted">连上之后 DoNote 会在根目录建 <code>/DoNote</code>。想换到某个共享文件夹里，可以先用文件管理器建好再指定。</p>
+
+<h2>五、网盘模式 · 威联通 NAS</h2>
+<ol>
+  <li>App Center 安装 <strong>WebDAV</strong>（QTS 里叫 Web Server 的一部分）。</li>
+  <li>控制台 → <strong>应用服务 → Web 服务器</strong>，启用 WebDAV，端口默认 <code>8081</code>（HTTP）/ <code>8080</code>（HTTPS）。</li>
+  <li>DoNote 里服务器地址填 <code>http://192.168.1.x:8081</code>，账号密码用 NAS 的。</li>
+</ol>
+
+<h2 class="page-break">六、网盘模式 · 用一台 Windows 电脑当盘</h2>
+<p>Windows 自带的「共享文件夹」是 SMB 协议，DoNote 不支持；要在那台电脑上跑一个 WebDAV 服务。最省事的是 dufs（单文件，免安装）：</p>
+<ol>
+  <li>在 <code>github.com/sigoden/dufs/releases</code> 下载 <code>dufs-x86_64-pc-windows-msvc.exe</code>。</li>
+  <li>把它放到你要共享的文件夹里，同一层打开命令行，执行：</li>
+</ol>
+<pre>dufs.exe -A --allow-all --enable-webdav -p 5005</pre>
+<ul>
+  <li><code>-A</code> 用当前目录当根；<code>--allow-all</code> 允许上传 / 删除；<code>--enable-webdav</code> 就是 WebDAV。</li>
+  <li>DoNote 里服务器地址填 <code>http://那台电脑的IP:5005</code>。没有账号密码也可以连（内网自用够）。</li>
+  <li>想开机自启：把这个命令行写成 <code>.bat</code>，放进「启动」文件夹。</li>
+</ul>
+<div class="box">
+  也可以用 <code>rclone serve webdav D:\笔记 --addr 0.0.0.0:5005</code>，效果一样，还能顺带把别的网盘挂出来。
+</div>
+
+<h2>七、网盘模式 · 软路由 / 树莓派 / 小主机</h2>
+<p>Linux 上同样跑 dufs 或 rclone，换个系统而已：</p>
+<pre>./dufs -A --allow-all --enable-webdav -p 5005
+# 或
+rclone serve webdav /srv/notes --addr 0.0.0.0:5005</pre>
+<p>想用系统自带的 Apache / Nginx 也行，开 <code>mod_dav</code> 指向一个目录即可。</p>
+
+<h2>八、不在家也想同步</h2>
+<p>别做路由器端口映射（明文暴露到公网不安全）。装 <strong>Tailscale</strong> 更省事：</p>
+<ol>
+  <li>NAS / 电脑和笔记本上都装 Tailscale，登录同一个账号。</li>
+  <li>在 Tailscale 后台看到那台机器的 <strong>100.x.x.x</strong> 地址。</li>
+  <li>DoNote 的服务器地址把 <code>192.168.1.x</code> 换成 <code>100.x.x.x</code>，其他不变。</li>
+</ol>
+<p class="muted">这样两台机器在一个虚拟内网里，出门也能连，不用碰路由器。</p>
+
+<h2>九、连不上怎么查</h2>
+<table>
+  <tr><th style="width:34%">现象</th><th>原因与做法</th></tr>
+  <tr>
+    <td>提示「账号或密码不对」</td>
+    <td>坚果云八成是填了登录密码 —— 要用<strong>应用密码</strong>。其他服务确认账号没写错、开了二次验证的先关掉。</td>
+  </tr>
+  <tr>
+    <td>提示「连接失败 / 无法访问」</td>
+    <td>地址写错或机器不在线：先用浏览器打开 <code>http://地址:端口</code> 看有没有反应；内网地址只在家里能用，出门见第八节。</td>
+  </tr>
+  <tr>
+    <td>能连上但看不到文件 / 提示无权限</td>
+    <td>账号对那个目录没有读写权限（群晖最常见），去 NAS 的共享文件夹权限里给上。</td>
+  </tr>
+  <tr>
+    <td>网页版连内网地址失败，桌面版可以</td>
+    <td>浏览器不允许 HTTPS 页面请求 <code>http://</code> 内网地址。用桌面版，或者给服务端配上 HTTPS。</td>
+  </tr>
+  <tr>
+    <td>用一会儿提示「请求太多」</td>
+    <td>坚果云免费版 600 次 / 30 分钟。等半小时自动恢复；设置页能看到最近用掉了多少次。</td>
+  </tr>
+  <tr>
+    <td>两台机器改同一篇，谁赢</td>
+    <td>后保存的覆盖前面的，另一台会提示「云端比本地新」，让你选保留哪一版。</td>
+  </tr>
+</table>
+
+<h2>十、安全与边界</h2>
+<ul>
+  <li><strong>账号密码只存在这台电脑上</strong>：Windows 凭据管理器里，不写进任何文件，也不上传。</li>
+  <li><strong>本地模式不联网</strong>：除了检查更新，DoNote 不会向外发任何请求。</li>
+  <li><strong>卸载</strong>：安装版不会删「文档\DoNote」里的笔记；绿色版删了解压目录才会删。</li>
+  <li><strong>备份</strong>：网盘模式 —— 网盘里那批文件就是原文；本地模式 —— 复制设置页显示的那个文件夹。</li>
+</ul>
+
+<p class="muted" style="margin-top:16pt">配置入口都在「设置」页；这一份说明在安装目录里也有一份（<code>DoNote-配置说明.pdf</code>）。</p>
+
+</body>
+</html>

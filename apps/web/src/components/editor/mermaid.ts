@@ -15,6 +15,8 @@ import type { EditorView, NodeView } from '@milkdown/kit/prose/view';
 import { $view } from '@milkdown/kit/utils';
 import { codeBlockSchema } from '@milkdown/kit/preset/commonmark';
 import { shallowRef } from 'vue';
+import { parseMindmap } from './mindmap';
+import { mermaidToBulletList } from './outline';
 
 const MERMAID_LANG = 'mermaid';
 
@@ -83,6 +85,11 @@ export interface MermaidEdit {
   code: string;
   /** 面板点「完成」时把新源码写回块里 */
   apply: (next: string) => void;
+  /**
+   * 把这一块换成嵌套列表。只有思维导图才给 —— 流程图转成列表没有意义。
+   * 面板据此决定要不要显示「转成列表」那个按钮。
+   */
+  toList?: () => void;
 }
 
 /**
@@ -176,10 +183,27 @@ function mermaidBlock(node: Node, view: EditorView, getPos: () => number | undef
     view.dispatch(tr);
   };
 
+  /**
+   * 导图 → 嵌套列表。面板底部的「转成列表」用它。
+   * 读的是**块的当前内容**而不是面板里的草稿 —— 调用方会先把草稿写回去再调它。
+   */
+  const toList = (): void => {
+    const pos = getPos();
+    if (typeof pos !== 'number') return;
+    const current = view.state.doc.nodeAt(pos);
+    if (!current) return;
+    const tree = parseMindmap(current.textContent);
+    if (!tree) return;
+    const list = mermaidToBulletList(view.state.schema, tree);
+    if (!list) return;
+    view.dispatch(view.state.tr.replaceWith(pos, pos + current.nodeSize, list).scrollIntoView());
+    view.focus();
+  };
+
   const open = (): void => {
     // 只读（回收站里的笔记）不给编辑入口
     if (!view.editable) return;
-    mermaidEdit.value = { code, apply: write };
+    mermaidEdit.value = { code, apply: write, toList };
   };
   const onKey = (event: KeyboardEvent): void => {
     if (event.key === 'Enter' || event.key === ' ') open();

@@ -5,10 +5,11 @@
  * 宽度由 CSS 变量 --sidebar-w 定，主内容让位靠 <html data-sidebar> 推导出的
  * --content-offset，两侧不会各算各的。
  */
-import { onMounted, ref, watch } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
 import { RouterLink, useRoute, useRouter } from 'vue-router';
 import { notesApi } from '@/storage/notes';
 import { useSyncStore } from '@/stores/sync';
+import { useWebdavStore } from '@/stores/webdav';
 import { useLayoutStore } from '@/stores/layout';
 import { useUiStore } from '@/stores/ui';
 import SidebarTree from '@/components/SidebarTree.vue';
@@ -104,6 +105,10 @@ const entries: NavEntry[] = [
  */
 const allTags = ref<Array<{ name: string; count: number }>>([]);
 const sync = useSyncStore();
+const webdav = useWebdavStore();
+
+/** 侧栏底部那句「数据存在哪」：本地模式不该说成网盘 */
+const dataPlaceText = computed(() => (webdav.isLocal ? '数据存在这台电脑上' : '数据存在你自己的网盘'));
 
 async function loadTags(): Promise<void> {
   if (!layout.open) {
@@ -306,7 +311,7 @@ function onResizeKey(e: KeyboardEvent): void {
     </nav>
 
     <div class="rail-foot">
-      <span class="hint">数据存在你自己的网盘</span>
+      <span class="hint">{{ dataPlaceText }}</span>
     </div>
 
     <!--

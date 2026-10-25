@@ -15,6 +15,7 @@ import type { EditorView } from '@milkdown/kit/prose/view';
 import { listenerCtx } from '@milkdown/kit/plugin/listener';
 import { editorViewCtx } from '@milkdown/kit/core';
 import {
+  insertFlowchart,
   insertHr,
   insertMermaid,
   insertMultiList,
@@ -74,6 +75,12 @@ const ITEMS = computed<SlashItem[]>(() => {
       label: '思维导图',
       keys: 'mermaid mindmap siweidaotu naotu 脑图',
       run: () => insertMermaid(e),
+    },
+    {
+      id: 'flowchart',
+      label: '流程图',
+      keys: 'flowchart graph liuchengtu liucheng 流程 连线 关系图',
+      run: () => insertFlowchart(e),
     },
   ];
 });

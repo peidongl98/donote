@@ -25,4 +25,5 @@ export function getStorage(): StorageAdapter {
 }
 
 export * from './types';
+export { LocalAdapter } from './local';
 export { WebdavAdapter } from './webdav';

@@ -17,14 +17,18 @@ import {
   alignColumn,
   applyLink,
   clearFormat,
+  convertToMindmap,
   dropTable,
   insertHr,
+  insertFlowchart,
   insertMermaid,
   insertMath,
   insertTable,
   insertWikilink,
   liftList,
   MAX_LIST_DEPTH,
+  moveListDown,
+  moveListUp,
   removeCol,
   removeLink,
   removeRow,
@@ -176,6 +180,11 @@ const BLOCK_TOOLS: Tool[] = [
     paths: ['M3.8 12h5', 'M8.8 5.5v13', 'M8.8 5.5h4M8.8 12h4M8.8 18.5h4', 'M14.8 3.5h5v4h-5zM14.8 10h5v4h-5zM14.8 16.5h5v4h-5z'],
   },
   {
+    id: 'flowchart',
+    label: '流程图',
+    paths: ['M4 5.5h6v4H4z', 'M7 9.5v5', 'M4 14.5h12v4H4z', 'M13 7.5h5v11h-2', 'M16 16.5h2v-2'],
+  },
+  {
     id: 'formula',
     label: '公式',
     paths: ['M17.6 6.4H7.2l5.4 5.8-5.4 5.8h10.4', 'M19.6 9.6v4.8'],
@@ -285,6 +294,9 @@ function onTool(tool: Tool): void {
     case 'mindmap':
       insertMermaid(e);
       break;
+    case 'flowchart':
+      insertFlowchart(e);
+      break;
     case 'formula':
       insertMath(e);
       break;
@@ -331,6 +343,17 @@ function removeAxis(kind: 'row' | 'col'): void {
 function dropLink(): void {
   removeLink(props.editor);
   linkOpen.value = false;
+}
+
+/**
+ * 「转成导图」。
+ *
+ * 转不出东西时说一句：用户点了一个按钮什么都没发生，只会以为按钮坏了。
+ */
+function toMindmap(): void {
+  if (props.disabled) return;
+  const result = convertToMindmap(props.editor);
+  if (result === 'empty') ui.toast('这一段里没有列表或标题，转不出导图');
 }
 </script>
 
@@ -453,71 +476,78 @@ function dropLink(): void {
       </button>
 
       <!--
-        光标在列表里才出现：当前第几级 + 两个按钮。
-        层级本身 Tab / Shift+Tab 就能改，这里给的是「看得见」，以及不知道快捷键时的入口。
+        列表的层级控件不在这里 —— 它跟表格一样是「只在某种上下文里才有」的东西，
+        统一放到顶栏下面单独一行（见 .row.is-context）。这条规矩写在 docs/ui-patterns.md。
       -->
-      <template v-if="state.listDepth > 0 && !disabled">
-        <span class="divider" aria-hidden="true" />
+    </div>
+
+    <!--
+      二级工具条：只在某种上下文里才出现的控件一律放这一行，不再往顶栏里塞分隔线。
+      现在两处用到：光标在大纲（列表 / 标题）里（本行）、光标在表格里（下一行）。
+    -->
+    <div v-if="(state.listDepth > 0 || state.heading > 0) && !disabled" class="row is-context is-list">
+      <span class="row-label">{{ state.listDepth > 0 ? '列表' : '标题' }}</span>
+      <template v-if="state.listDepth > 0">
         <button
           type="button"
-          class="tool"
-          aria-label="减少缩进"
+          class="chip"
           title="减少缩进 (Shift+Tab)"
           @mousedown.prevent
           @click="liftList(editor)"
         >
-          <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
-            <path
-              d="M11 7h9M11 12h9M11 17h9"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="1.6"
-              stroke-linecap="round"
-            />
-            <path
-              d="M7.6 9.4 4.4 12l3.2 2.6"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="1.6"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-            />
-          </svg>
+          减少缩进
         </button>
         <span class="level-badge" :title="`当前在第 ${state.listDepth} 级`">第 {{ state.listDepth }} 级</span>
         <button
           type="button"
-          class="tool"
-          aria-label="增加缩进"
+          class="chip"
           :title="state.listDepth >= MAX_LIST_DEPTH ? `最多 ${MAX_LIST_DEPTH} 级` : '增加缩进 (Tab)'"
           :disabled="state.listDepth >= MAX_LIST_DEPTH"
           @mousedown.prevent
           @click="sinkList(editor)"
         >
-          <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
-            <path
-              d="M11 7h9M11 12h9M11 17h9"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="1.6"
-              stroke-linecap="round"
-            />
-            <path
-              d="M4.4 9.4 7.6 12l-3.2 2.6"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="1.6"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-            />
-          </svg>
+          增加缩进
         </button>
+
+        <span class="divider" aria-hidden="true" />
+
+        <button
+          type="button"
+          class="chip"
+          title="整条上移 (Alt+Shift+↑)"
+          @mousedown.prevent
+          @click="moveListUp(editor)"
+        >
+          上移
+        </button>
+        <button
+          type="button"
+          class="chip"
+          title="整条下移 (Alt+Shift+↓)"
+          @mousedown.prevent
+          @click="moveListDown(editor)"
+        >
+          下移
+        </button>
+
+        <span class="divider" aria-hidden="true" />
       </template>
+
+      <!-- 大纲 → 导图：列表和标题都算大纲，两种都能转 -->
+      <button
+        type="button"
+        class="chip"
+        title="把这一块换成思维导图，点图就能可视化编辑"
+        @mousedown.prevent
+        @click="toMindmap"
+      >
+        转成导图
+      </button>
     </div>
 
     <!-- 光标在表格里时多出一行表格操作 -->
-    <div v-if="tableOpen && !disabled" class="row is-table">
-      <span class="table-label">表格</span>
+    <div v-if="tableOpen && !disabled" class="row is-context is-table">
+      <span class="row-label">表格</span>
       <button type="button" class="chip" @mousedown.prevent @click="addRowAfter(editor)">下方加行</button>
       <button type="button" class="chip" @mousedown.prevent @click="addColAfter(editor)">右侧加列</button>
       <button type="button" class="chip" @mousedown.prevent @click="removeAxis('row')">删除本行</button>
@@ -620,13 +650,15 @@ function dropLink(): void {
   flex-wrap: wrap;
 }
 
-.row.is-table {
+/* 二级工具条：只在某种上下文里才出现的控件都放这一行（列表 / 表格…），
+   与顶栏之间用一条细线隔开，视觉上是「这一层的工具」而不是顶栏的一部分 */
+.row.is-context {
   gap: 6px;
   padding-top: 6px;
   border-top: 1px solid var(--divider);
 }
 
-.table-label {
+.row-label {
   font-size: var(--fs-xs);
   color: var(--text-2);
   margin-right: 2px;
@@ -721,6 +753,16 @@ function dropLink(): void {
 
 .chip:hover {
   background: var(--accent-soft);
+}
+
+/* 到顶时「增加缩进」保持可见但不响应：直接消失会让人以为按钮没了 */
+.chip:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.chip:disabled:hover {
+  background: var(--surface-2);
 }
 
 .chip.is-primary {

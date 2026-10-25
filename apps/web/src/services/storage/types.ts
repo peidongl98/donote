@@ -12,10 +12,11 @@
  */
 
 /**
- * 存储后端种类。目前只有一种：标准 WebDAV 协议。
- * 坚果云、Nextcloud、群晖、自建服务都走它，差别只在地址与凭据。
+ * 存储后端种类。
+ * - `webdav`：标准 WebDAV 协议。坚果云、Nextcloud、群晖、自建服务都走它，差别只在地址与凭据；
+ * - `local`：本地模式，不连任何服务器，文件就在这台机器上（见 `local.ts`）。
  */
-export type StorageKind = 'webdav';
+export type StorageKind = 'webdav' | 'local';
 
 /** 默认服务器：坚果云。用户可以改成任意 WebDAV 地址 */
 export const DEFAULT_BASE_URL = 'https://dav.jianguoyun.com/dav';
