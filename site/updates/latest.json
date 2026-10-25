@@ -1,11 +1,11 @@
 {
-  "version": "0.4.7",
-  "notes": "这一版修「用助手或脚本直接改了笔记，应用里还是旧内容」。\n\n以前的毛病是：笔记被别处改写之后，重新打开、甚至退出应用再进，看到的还是改写前的版本，只有清掉本地缓存才会正常。原因在判断「有没有变化」的方式上——应用一边记着「云端这一版是什么样子」，一边留着一份正文副本，而这两件事被当成同一回事。云端被改写时，程序只更新了前者、没动后者，于是之后每次比对都得出「没变化」的结论，永远不去重新下载。现在两边一对不上，就直接把旧副本作废，下次打开从云端重新读。\n\n顺带补上了正在阅读时的那一段：改写发生在打开后不久、后台还没来得及对账的情况下，读到的副本会在后台被换掉，但屏幕上的字不会自己变；本版让它在内容确实不同、且你没有未保存的改动时，就地换成新版本。如果你正在写，不会打断——保存优先。\n\n另外，正文完全相同的时候不会重复刷新，避免光标和滚动位置被无谓地重置。",
-  "pub_date": "2026-10-19T17:31:35Z",
+  "version": "0.4.8",
+  "notes": "这一版给列表加了层级和折叠。\n\n原来只有一层的圆点和序号，嵌套得在源码里手打空格，缩进还会越缩越窄。现在列表最多九级，和 Word 一样：有序标记依次是 1. / a. / i. / 1) / a) / i) / (1) / (a) / (i)，无序标记是圆点、空心圆、方块三循环。Tab 降一级，Shift+Tab 升一级，第九级再按 Tab 不再往下钻。Alt+Shift+↑↓ 把整条连同子级一起上移下移，不会跑到别的父级里去。\n\n有子级的条目，行尾会出现一个小三角，点一下把下面整棵子树收起来，再点一下展开。折叠只作用在显示上，正文、源码和导出的 Markdown 都不变，重开笔记一律是展开的，也不会因此产生任何同步请求。\n\n光标进到列表里时，工具栏会显示当前在第几级，旁边是升降级两个按钮。斜杠菜单里也加了「多级列表」，一次插出三级骨架。\n\n列表的标记和缩进现在由同一份样式决定，编辑器、源码预览、导出的 HTML 三处一致。\n\n顺带修好一个选区跟进的小问题：选中文字后浮出的那条小工具条，有时按上一版的位置算，慢一步。",
+  "pub_date": "2026-10-25T08:27:54Z",
   "platforms": {
     "windows-x86_64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSWTRLN1pZbGY4NGlpWTNjV1RjSlVuNGpEcWc0cy9MZjc2dnVhK3gwZHhBek11RDNvbnNrRE5ybUYzUVBMSllLUWxiVXJjVlFHYVBOdHhmUXd3UnNqMEFmNHZ6ODFaRXdjPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkyNDMxMDk0CWZpbGU6RG9Ob3RlXzAuNC43X3g2NC1zZXR1cC5leGUJdmVyc2lvbjowLjQuNwpVSTk1bGlWL1c2bXZCelhBN05ZcXZnT3VLRkhDc3ZUZjZIZkd0QWNhM1ZYT2czbENQOTE3VkdKQXVDQW93bU1kNG1iNVJkQlRPcW5KL1FVREQxQVBEUT09Cg==",
-      "url": "https://donote.pages.dev/downloads/DoNote-0.4.7-win-x64.exe"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSWTRLN1pZbGY4NGpoOGR0OGpMS0JlUlU1TWhNNnh5cWtXU2RIeTRxb3FPQnNzMUpMVnlMT2tUdzdiSk1BYnNNdmNIYUJxeWdDKzM1K0ZUdDVkRTk3SlJaTVhoT3B0VndZPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkyOTE2ODc0CWZpbGU6RG9Ob3RlXzAuNC44X3g2NC1zZXR1cC5leGUJdmVyc2lvbjowLjQuOAo5NWtYdTI1Nk5XSnVRaVBHbWJzdi9OaUFRRllHVC94M0FWWUJ4OHhDKytKZUxNNDNJb1QyZHMvZzZ4T3g4cVNFVmplMkxGa1IrWTJqTStCY2RtdThEZz09Cg==",
+      "url": "https://donote.pages.dev/downloads/DoNote-0.4.8-win-x64.exe"
     }
   }
 }
