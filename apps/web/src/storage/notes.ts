@@ -35,6 +35,7 @@ import {
   uniqueName,
 } from '@/services/attachments';
 import { excerptOf, parseNote, serializeNote, type NoteMeta } from './frontmatter';
+import { cleanExcerpt } from '@/utils/format';
 
 /** 视图层一直用的是这个名字，这里保持导出，避免无谓的改动面 */
 export { StorageError as DavError };
@@ -236,9 +237,19 @@ let treeCache: { at: number; data: Tree } | null = null;
 /** 正在跑的那次遍历。同时要列表和文件夹时共用它，不重复走一遍目录树 */
 let treePending: Promise<Tree> | null = null;
 
+/**
+ * 归一化后的正文，rel → 当时的 mtime 与文本。搜索用，放在这里是因为 invalidateTree 要清它。
+ *
+ * 搜索框每停 300ms 就重跑一次，每次都把整库正文重新读一遍纯属浪费；mtime 变了说明
+ * 这篇改过，重读那一篇即可。invalidateTree()（每次写操作后都会调）会一并清空。
+ */
+const bodyTexts = new Map<string, { m: number; text: string }>();
+
 /** 缓存层在后台校验出差异时，由 stores/sync 调这个把遍历结果作废 */
 export function invalidateTree(): void {
   treeCache = null;
+  // 写过东西了，搜索用的正文缓存跟着作废
+  bodyTexts.clear();
 }
 
 async function tree(force = false): Promise<Tree> {
@@ -591,6 +602,68 @@ function entryTitles(data: Tree): Array<{ rel: string; title: string }> {
   ];
 }
 
+/* ------------------------------ 全文搜索 ------------------------------ */
+
+/** 正文去掉 Markdown 记号、压掉空白、转小写 —— 匹配与片段都基于这一份文本 */
+function normalizedBody(raw: string): string {
+  return cleanExcerpt(raw).toLowerCase();
+}
+
+/**
+ * 命中处的上下文片段。
+ *
+ * 卡片只显示 90 个字（见 NoteCard 的 `slice(0, 90)`），所以总长压到 78 ——
+ * 超了就会把命中点裁在外面，用户看到一段和自己搜的词无关的句子。
+ */
+function snippetAt(text: string, keyword: string): string {
+  const at = text.indexOf(keyword);
+  if (at < 0) return '';
+  const from = Math.max(0, at - 12);
+  const cut = text.slice(from, from + 76);
+  return `${from > 0 ? '…' : ''}${cut}${from + 76 < text.length ? '…' : ''}`;
+}
+
+/**
+ * 全文搜索的命中判据，三条取并：
+ * 1. 标题含关键字；
+ * 2. **正文**含关键字 —— 这是本次改造的目的，用的是本机副本，不发网络请求；
+ * 3. 摘要含关键字 —— 只对「本机还没有副本」的笔记起作用，维持改造前的行为，
+ *    免得首次连上或断网时搜出来一篇都没有。
+ *
+ * 正文命中时把摘要换成命中处那一小段：列表上要能看出「它凭什么被搜出来」。
+ */
+async function searchRows(rows: NoteSummaryDTO[], keyword: string): Promise<NoteSummaryDTO[]> {
+  // rel 是一次 base64 解码来的，先算好，后面别再重复算
+  const relOf = new Map(rows.map((row) => [row, decodeId(row.id)]));
+
+  // 只补读 mtime 变过或还没读过的，已经读过且没改的直接用
+  const stale = rows
+    .filter((row) => {
+      const hit = bodyTexts.get(relOf.get(row) ?? '');
+      return !hit || hit.m !== row.updated_at;
+    })
+    .map((row) => relOf.get(row) as string);
+
+  if (stale.length) {
+    const fetched = await getStorage().cachedBodies(stale);
+    const mtimeOf = new Map(rows.map((row) => [relOf.get(row), row.updated_at]));
+    for (const [rel, raw] of fetched) {
+      bodyTexts.set(rel, { m: mtimeOf.get(rel) ?? 0, text: normalizedBody(raw) });
+    }
+  }
+
+  const out: NoteSummaryDTO[] = [];
+  for (const row of rows) {
+    const body = bodyTexts.get(relOf.get(row) ?? '')?.text ?? '';
+    const inTitle = row.title.toLowerCase().includes(keyword);
+    const inBody = body.includes(keyword);
+    const inExcerpt = row.excerpt.toLowerCase().includes(keyword);
+    if (!inTitle && !inBody && !inExcerpt) continue;
+    out.push(inBody ? { ...row, excerpt: snippetAt(body, keyword) || row.excerpt } : row);
+  }
+  return out;
+}
+
 /* ------------------------------ 笔记 API ------------------------------ */
 
 export interface NoteListQuery {
@@ -683,12 +756,7 @@ export const notesApi = {
     if (tag) rows = rows.filter((row) => row.tags.includes(tag));
 
     const keyword = query.q?.trim().toLowerCase();
-    if (keyword) {
-      rows = rows.filter(
-        (row) =>
-          row.title.toLowerCase().includes(keyword) || row.excerpt.toLowerCase().includes(keyword),
-      );
-    }
+    if (keyword) rows = await searchRows(rows, keyword);
 
     rows.sort((a, b) => b.updated_at - a.updated_at);
 

@@ -1,0 +1,51 @@
+{
+  "module": {
+    "name": "entry",
+    "type": "entry",
+    "description": "$string:module_desc",
+    "mainElement": "EntryAbility",
+    "deviceTypes": [
+      "phone",
+      "tablet",
+      "2in1"
+    ],
+    "deliveryWithInstall": true,
+    "installationFree": false,
+    "pages": "$profile:main_pages",
+    "abilities": [
+      {
+        "name": "EntryAbility",
+        "srcEntry": "./ets/entryability/EntryAbility.ets",
+        "description": "$string:entry_desc",
+        "icon": "$media:app_icon",
+        "label": "$string:entry_label",
+        "startWindowIcon": "$media:app_icon",
+        "startWindowBackground": "$color:start_window_background",
+        "exported": true,
+        "skills": [
+          {
+            "entities": [
+              "entity.system.home"
+            ],
+            "actions": [
+              "action.system.home"
+            ]
+          }
+        ]
+      }
+    ],
+    "requestPermissions": [
+      {
+        // WebDAV 同步要出网。本地模式不用它，但权限得先声明，装完才不用重签
+        "name": "ohos.permission.INTERNET",
+        "reason": "$string:reason_internet",
+        "usedScene": {
+          "abilities": [
+            "EntryAbility"
+          ],
+          "when": "inuse"
+        }
+      }
+    ]
+  }
+}

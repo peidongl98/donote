@@ -20,6 +20,7 @@ import { useSyncStore } from '@/stores/sync';
 import { useUiStore } from '@/stores/ui';
 import { isTauriRuntime } from '@/storage/transport';
 import { ancestorFolderIds, buildSidebarRows, type SidebarRow } from '@/utils/sidebar-tree';
+import { dropHover, resolveDropPoint, setDropHover } from '@/services/drop-target';
 import AppDialog from '@/components/AppDialog.vue';
 import ImportDialog from '@/components/ImportDialog.vue';
 import MoveDialog from '@/components/MoveDialog.vue';
@@ -543,10 +544,167 @@ async function submitDeleteNote(): Promise<void> {
 const deleteCounts = computed(() =>
   deleteFolderTarget.value ? subtreeCount(deleteFolderTarget.value) : { total: 0, notes: 0 },
 );
+
+/* ------------------------------ 拖动改位置 ------------------------------ */
+
+/**
+ * 拖动节点换归属目录。
+ *
+ * 用指针事件自己画拖动，不走 HTML5 drag：桌面端窗口开着 Tauri 的 `dragDropEnabled`，
+ * 系统拖放（从文件管理器拖 .md 进来）被 Tauri 收走，页面里那条 HTML5 通路本质上只剩
+ * 开发调试用；自己实现一条，两件事不抢通道，触屏也能用（长按起拖）。
+ *
+ * 落点：文件夹行 = 放进它；笔记行 = 放到它旁边（那篇笔记所在目录）；树的空白处
+ * （容器自己）= 根目录，也就是把东西拖出来。
+ * **顺序不参与** —— 同一层永远是先文件夹后笔记、按名字排，这是文件系统本来的样子，
+ * 拖动只改归属，不改排序。
+ */
+const DRAG_START_PX = 6;
+/** 触屏按下就跟着手指走会和滚动抢手势，所以先长按再拖 */
+const LONG_PRESS_MS = 320;
+
+const dragging = ref<SidebarRow | null>(null);
+const ghost = ref<{ x: number; y: number; label: string } | null>(null);
+
+let press: { row: SidebarRow; x: number; y: number; timer: number | null } | null = null;
+
+/** 拖动结束后紧跟的那次 click 要吞掉，否则松手就跳进刚拖走的那篇笔记 */
+let swallowClick = false;
+
+function rowKey(row: SidebarRow): string {
+  return row.kind === 'folder' ? `f:${row.folder.id}` : `n:${row.note.id}`;
+}
+
+function labelOf(row: SidebarRow): string {
+  return row.kind === 'folder' ? row.folder.name : row.note.title;
+}
+
+/** 这一行作为落点时，接的是哪个目录（文件夹行 = 自己，笔记行 = 它所在的目录） */
+function folderUnder(row: SidebarRow): string {
+  return row.kind === 'folder' ? row.folder.id : (row.note.folder_id ?? '');
+}
+
+/** 树容器那一行代表根目录，用它当高亮的键 */
+const ROOT_KEY = 'root';
+
+/** 落点能不能接：不能放回原处、不能放进自己或自己的子树 */
+function canDrop(row: SidebarRow, folderId: string | null): boolean {
+  if (row.kind === 'note') return folderId !== (row.note.folder_id ?? null);
+  if (folderId === (row.folder.parent_id ?? null)) return false;
+  if (!folderId) return true;
+  const self = decodeId(row.folder.id);
+  const to = decodeId(folderId);
+  return to !== self && !to.startsWith(`${self}/`);
+}
+
+function clearPress(): void {
+  if (press?.timer) clearTimeout(press.timer);
+  window.removeEventListener('pointermove', onPointerMove);
+  window.removeEventListener('pointerup', onPointerUp);
+  window.removeEventListener('pointercancel', onPointerUp);
+  press = null;
+}
+
+function startDrag(row: SidebarRow): void {
+  dragging.value = row;
+  // 拖起来的时候贴着节点的菜单只会碍事
+  closeMenu();
+}
+
+function onRowPointerDown(row: SidebarRow, event: PointerEvent): void {
+  if (event.button !== 0 || busy.value || dragging.value) return;
+  // 行右侧的「＋ / ⋯」是按钮，按它们不该起拖
+  if ((event.target as HTMLElement).closest('button')) return;
+  clearPress();
+  press = { row, x: event.clientX, y: event.clientY, timer: null };
+  if (event.pointerType !== 'mouse') {
+    press.timer = window.setTimeout(() => {
+      if (!press) return;
+      press.timer = null;
+      startDrag(press.row);
+    }, LONG_PRESS_MS);
+  }
+  window.addEventListener('pointermove', onPointerMove);
+  window.addEventListener('pointerup', onPointerUp);
+  window.addEventListener('pointercancel', onPointerUp);
+}
+
+function onPointerMove(event: PointerEvent): void {
+  const held = press;
+  if (!held) return;
+  if (!dragging.value) {
+    if (Math.hypot(event.clientX - held.x, event.clientY - held.y) < DRAG_START_PX) return;
+    // 触屏没长按就滑动 = 要滚列表，放手让浏览器接管
+    if (event.pointerType !== 'mouse') {
+      clearPress();
+      return;
+    }
+    startDrag(held.row);
+  }
+  const row = dragging.value;
+  if (!row) return;
+  event.preventDefault();
+  ghost.value = { x: event.clientX, y: event.clientY, label: labelOf(row) };
+  const point = resolveDropPoint(event.clientX, event.clientY);
+  setDropHover(point && canDrop(row, point.folderId) ? point.key : null);
+}
+
+async function onPointerUp(event: PointerEvent): Promise<void> {
+  const row = dragging.value;
+  const point = event.type === 'pointerup' ? resolveDropPoint(event.clientX, event.clientY) : null;
+  clearPress();
+  setDropHover(null);
+  ghost.value = null;
+  if (!row) return;
+  dragging.value = null;
+  swallowClick = true;
+  // 拖到没行的地方松手不会派发 click，这个标志得自己兜底复位
+  window.setTimeout(() => {
+    swallowClick = false;
+  }, 120);
+  if (!point || !canDrop(row, point.folderId)) return;
+  await commitMove(row, point.folderId);
+}
+
+function onTreeClickCapture(event: MouseEvent): void {
+  if (!swallowClick) return;
+  swallowClick = false;
+  event.preventDefault();
+  event.stopPropagation();
+}
+
+async function commitMove(row: SidebarRow, folderId: string | null): Promise<void> {
+  busy.value = true;
+  try {
+    if (row.kind === 'folder') {
+      await foldersApi.move(row.folder.id, folderId);
+    } else {
+      const res = await notesApi.update(row.note.id, { folder_id: folderId });
+      // 页面（…/index.md）被移动时目录跟着改名，id 会变；正在看它就跟着跳，否则详情页 404
+      if (row.note.id === currentNoteId.value) await router.replace(`/notes/${res.note.id}`);
+    }
+    if (folderId) expand(folderId);
+    ui.toast(folderId ? '已移动' : '已移到未归类');
+    await load();
+  } catch (err) {
+    ui.toast(err instanceof DavError ? err.message : '移动失败');
+  } finally {
+    busy.value = false;
+  }
+}
 </script>
 
 <template>
-  <div class="tree" @contextmenu.prevent="onBlankMenu">
+  <div
+    class="tree"
+    :class="{ 'is-drop': dropHover.key === ROOT_KEY }"
+    data-drop-key="root"
+    data-drop-folder=""
+    data-drop-kind="root"
+    data-drop-label="未归类"
+    @contextmenu.prevent="onBlankMenu"
+    @click.capture="onTreeClickCapture"
+  >
     <p v-if="!rows.length" class="tree-empty">还没有文件夹，右键这里可以新建</p>
 
     <div
@@ -560,9 +718,17 @@ const deleteCounts = computed(() =>
           (row.kind === 'folder' &&
             (row.folder.id === currentFolderId ||
               (!!row.pageId && row.pageId === currentNoteId))),
+        'is-drop': dropHover.key === rowKey(row),
+        'is-drag-src': !!dragging && rowKey(dragging) === rowKey(row),
       }"
       :style="{ paddingLeft: `${row.depth * 18}px` }"
+      :data-drop-key="rowKey(row)"
+      :data-drop-folder="folderUnder(row)"
+      :data-drop-kind="row.kind"
+      :data-drop-label="labelOf(row)"
+      draggable="false"
       @click="onRowClick(row)"
+      @pointerdown="onRowPointerDown(row, $event)"
       @contextmenu.prevent="onRowMenu(row, $event)"
     >
       <template v-if="row.kind === 'folder'">
@@ -593,6 +759,7 @@ const deleteCounts = computed(() =>
         -->
         <RouterLink
           class="tree-link"
+          draggable="false"
           :to="row.pageId ? `/notes/${row.pageId}` : `/folders/${row.folder.id}`"
           @click.stop
         >
@@ -640,6 +807,7 @@ const deleteCounts = computed(() =>
         <span class="twist" aria-hidden="true" />
         <RouterLink
           class="tree-link"
+          draggable="false"
           :to="`/notes/${row.note.id}`"
           @click.stop
         >
@@ -876,6 +1044,18 @@ const deleteCounts = computed(() =>
   >
     <p class="menu-tip">笔记将进入回收站，30 天内可恢复。确定？</p>
   </AppDialog>
+
+  <!-- 拖动时跟着指针的一小块：侧栏是 overflow 容器，放 body 才不会被裁 -->
+  <Teleport to="body">
+    <div
+      v-if="ghost"
+      class="drag-ghost"
+      :style="{ left: `${ghost.x}px`, top: `${ghost.y}px` }"
+      aria-hidden="true"
+    >
+      {{ ghost.label }}
+    </div>
+  </Teleport>
 </template>
 
 <style scoped>
@@ -887,7 +1067,12 @@ const deleteCounts = computed(() =>
   padding: 2px 0;
   display: flex;
   flex-direction: column;
-  gap: 1px;
+  gap: 0;
+}
+
+.tree.is-drop {
+  background: var(--accent-ring);
+  border-radius: var(--r-md);
 }
 
 .tree-empty {
@@ -901,6 +1086,13 @@ const deleteCounts = computed(() =>
   position: relative;
   display: flex;
   align-items: center;
+  /* 行是可拖动对象，浏览器别插手：链接默认 draggable，一拖就变成原生拖拽，
+     pointercancel 会把我们的事件流掐断（拖动功能就废了） */
+  user-select: none;
+  -webkit-user-drag: none;
+  /* 透明下边框代替原来的 gap：行距看起来一样，但命中区是连续的 —— 行与行之间的
+     1px 缝隙也算这一行，不会被误判成「拖到根目录」 */
+  border-bottom: 1px solid transparent;
   border-radius: var(--r-xs);
   color: var(--text-2);
   transition:
@@ -917,6 +1109,37 @@ const deleteCounts = computed(() =>
   background: var(--rail-active);
   color: var(--text);
   font-weight: 600;
+}
+
+/* 拖动落点：整行描边 + 淡底，和 hover 区分得开（hover 只改底色） */
+.tree-row.is-drop {
+  background: var(--accent-ring);
+  box-shadow: inset 0 0 0 1px var(--accent);
+  color: var(--text);
+}
+
+/* 被拖起来的那一行留个虚影，用户知道自己在动哪一个 */
+.tree-row.is-drag-src {
+  opacity: 0.45;
+}
+
+/* 跟着指针的名牌：只是提示，不能挡住 elementFromPoint 找落点 */
+.drag-ghost {
+  position: fixed;
+  z-index: 40;
+  max-width: 220px;
+  padding: 4px 10px;
+  border-radius: var(--r-pill);
+  background: var(--surface);
+  border: 1px solid var(--surface-border);
+  box-shadow: var(--shadow-3);
+  font-size: var(--fs-xs);
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transform: translate(12px, 10px);
+  pointer-events: none;
 }
 
 /* 展开箭头；没有子项时同尺寸占位，名字才对得齐 */

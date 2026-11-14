@@ -30,6 +30,12 @@ const STAMP = Date.now().toString(36).slice(-6);
 const TITLE = `E2E测试${STAMP}`;
 const FOLDER = `E2E目录${STAMP}`;
 const TOKEN = `neirong${STAMP}`;
+/**
+ * 藏在正文深处的词，前面用 280 字把它推出摘要窗口（`excerptOf` 只取前 240 字）。
+ * 未改造前搜索只查标题 + 摘要，这个词是搜不到的 —— 这一项就是那次改造的回归点。
+ */
+const TAIL = `shenchu${STAMP}`;
+const FILLER = '这一段用来把摘要窗口撑过去，让后面的词落在两百四十字之外。';
 const BODY = `第一行 ${STAMP}\n\n${TOKEN} 只在正文里出现`;
 
 
@@ -201,6 +207,13 @@ function check(name, ok, detail = '') {
   await page.keyboard.press('Enter');
   await page.keyboard.press('Enter');
   await page.keyboard.type(`${TOKEN} 只在正文里出现`);
+  await page.keyboard.press('Enter');
+  // 撑过 240 字的摘要窗口：FILLER 一句 24 字，敲 12 行 ≈ 288 字
+  for (let i = 0; i < 12; i++) {
+    await page.keyboard.type(FILLER);
+    await page.keyboard.press('Enter');
+  }
+  await page.keyboard.type(`${TAIL} 藏在正文深处`);
   await page.waitForFunction(
     () => document.querySelector('.status')?.textContent?.includes('已保存'),
     undefined,
@@ -253,6 +266,11 @@ function check(name, ok, detail = '') {
   await search.fill(TOKEN);
   await page.waitForTimeout(2500);
   check('8 按正文关键词能搜到', (await listText()).includes(TITLE));
+  await search.fill(TAIL);
+  await page.waitForTimeout(2500);
+  const deepText = await listText();
+  check('8 摘要窗口之外的正文也能搜到（全文搜索）', deepText.includes(TITLE));
+  check('8 卡片上的摘要换成命中处那一段', deepText.includes(TAIL), '摘要里应出现 TAIL');
   await search.fill(STAMP + 'zzz');
   await page.waitForTimeout(2500);
   check('8 无关关键词搜不到', !(await listText()).includes(TITLE));

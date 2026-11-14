@@ -1,0 +1,20 @@
+{
+  "string": [
+    {
+      "name": "module_desc",
+      "value": "DoNote 笔记主模块"
+    },
+    {
+      "name": "entry_desc",
+      "value": "DoNote"
+    },
+    {
+      "name": "entry_label",
+      "value": "DoNote"
+    },
+    {
+      "name": "reason_internet",
+      "value": "连接你配置的 WebDAV 服务器同步笔记"
+    }
+  ]
+}

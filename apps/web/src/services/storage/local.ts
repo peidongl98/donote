@@ -349,6 +349,24 @@ export class LocalAdapter implements StorageAdapter {
     }
   }
 
+  /**
+   * 本地模式下文件就是原件，没有「副本」这一层，所以这里等于把正文全读一遍。
+   * 落盘是同一台机器上的文件 / IndexedDB，没有网络成本，串行读即可。
+   * 单篇读失败只跳过那一篇 —— 搜索少一篇结果，比整个搜索报错好。
+   */
+  async cachedBodies(paths: string[]): Promise<Map<string, string>> {
+    const out = new Map<string, string>();
+    const decoder = new TextDecoder();
+    for (const path of paths) {
+      try {
+        out.set(path, decoder.decode(await this.backend.readBytes(path)));
+      } catch {
+        // 跳过读不到的这一篇
+      }
+    }
+    return out;
+  }
+
   async write(path: string, content: WriteContent, _etag?: string): Promise<WriteResult> {
     try {
       const data = await toBytes(content);

@@ -266,7 +266,12 @@ function toStage(clientX: number, clientY: number): { x: number; y: number } {
   };
 }
 
-function startPan(event: MouseEvent): void {
+/*
+ * 平移 / 拖节点 / 拉连线全部走 Pointer Events。
+ * 触屏只把「点一下」合成为 mousedown + mouseup，中间不产生 mousemove ——
+ * 用 mouse 事件写的拖动在手机上一动都不动。指针事件在鼠标上行为一模一样。
+ */
+function startPan(event: PointerEvent): void {
   const target = event.target as HTMLElement | null;
   if (target?.closest('.node') || event.button !== 0) return;
   selection.value = null;
@@ -274,16 +279,21 @@ function startPan(event: MouseEvent): void {
   const startX = event.clientX;
   const startY = event.clientY;
   const origin = { ...pan.value };
-  const move = (moveEvent: MouseEvent): void => {
+  const el = event.currentTarget as HTMLElement;
+  el.setPointerCapture?.(event.pointerId);
+  const move = (moveEvent: PointerEvent): void => {
     pan.value = { x: origin.x + (moveEvent.clientX - startX), y: origin.y + (moveEvent.clientY - startY) };
   };
   const up = (): void => {
     panning.value = false;
-    window.removeEventListener('mousemove', move);
-    window.removeEventListener('mouseup', up);
+    el.releasePointerCapture?.(event.pointerId);
+    el.removeEventListener('pointermove', move);
+    el.removeEventListener('pointerup', up);
+    el.removeEventListener('pointercancel', up);
   };
-  window.addEventListener('mousemove', move);
-  window.addEventListener('mouseup', up);
+  el.addEventListener('pointermove', move);
+  el.addEventListener('pointerup', up);
+  el.addEventListener('pointercancel', up);
 }
 
 /* ───────────────────────── 节点：拖动 / 改字 ───────────────────────── */
@@ -293,7 +303,7 @@ function selectNode(id: string): void {
   canvas.value?.focus();
 }
 
-function startDrag(node: FlowNode, event: MouseEvent): void {
+function startDrag(node: FlowNode, event: PointerEvent): void {
   if (event.button !== 0) return;
   if (editingId.value === node.id) return;
   event.stopPropagation();
@@ -301,25 +311,47 @@ function startDrag(node: FlowNode, event: MouseEvent): void {
 
   const start = toStage(event.clientX, event.clientY);
   const origin = { x: node.x, y: node.y };
+  const el = event.currentTarget as HTMLElement;
+  el.setPointerCapture?.(event.pointerId);
   let moved = false;
+  let longPress = 0;
 
-  const move = (moveEvent: MouseEvent): void => {
+  function detach(): void {
+    window.clearTimeout(longPress);
+    el.releasePointerCapture?.(event.pointerId);
+    el.removeEventListener('pointermove', move);
+    el.removeEventListener('pointerup', up);
+    el.removeEventListener('pointercancel', up);
+  }
+
+  const move = (moveEvent: PointerEvent): void => {
     const now = toStage(moveEvent.clientX, moveEvent.clientY);
     const dx = now.x - start.x;
     const dy = now.y - start.y;
+    // 阈值：手指点一下总会带几个像素的抖动，不设阈值会把「选中」误判成「移动」
     if (!moved && Math.abs(dx) + Math.abs(dy) < 3) return;
+    if (!moved) window.clearTimeout(longPress);
     moved = true;
     dragging.value = { id: node.id, x: Math.max(0, Math.round(origin.x + dx)), y: Math.max(0, Math.round(origin.y + dy)) };
   };
   const up = (): void => {
-    window.removeEventListener('mousemove', move);
-    window.removeEventListener('mouseup', up);
+    detach();
     const at = dragging.value;
     dragging.value = null;
     if (moved && at && at.id === node.id) emit('update:doc', moveNode(props.doc, node.id, at.x, at.y));
   };
-  window.addEventListener('mousemove', move);
-  window.addEventListener('mouseup', up);
+
+  // 触屏上没有可靠的双击，按住不动半秒也进改名
+  longPress = window.setTimeout(() => {
+    if (moved) return;
+    moved = true; // 抬手时不要再当拖动提交一次
+    detach();
+    startEdit(node);
+  }, 520);
+
+  el.addEventListener('pointermove', move);
+  el.addEventListener('pointerup', up);
+  el.addEventListener('pointercancel', up);
 }
 
 function startEdit(node: FlowNode): void {
@@ -358,31 +390,37 @@ function onEditKey(event: KeyboardEvent): void {
 
 /* ───────────────────────── 连线：拉出来 / 改标签 / 删除 ───────────────────────── */
 
-function startLink(node: FlowNode, event: MouseEvent): void {
+function startLink(node: FlowNode, event: PointerEvent): void {
   if (event.button !== 0) return;
   event.stopPropagation();
   const at = toStage(event.clientX, event.clientY);
   linking.value = { from: node.id, x: at.x, y: at.y };
+  const el = event.currentTarget as HTMLElement;
+  el.setPointerCapture?.(event.pointerId);
 
-  const move = (moveEvent: MouseEvent): void => {
+  const move = (moveEvent: PointerEvent): void => {
     const now = toStage(moveEvent.clientX, moveEvent.clientY);
     if (linking.value) linking.value = { ...linking.value, x: now.x, y: now.y };
   };
-  const up = (upEvent: MouseEvent): void => {
-    window.removeEventListener('mousemove', move);
-    window.removeEventListener('mouseup', up);
+  const up = (upEvent: PointerEvent): void => {
+    el.releasePointerCapture?.(event.pointerId);
+    el.removeEventListener('pointermove', move);
+    el.removeEventListener('pointerup', up);
+    el.removeEventListener('pointercancel', up);
     const from = linking.value?.from;
     linking.value = null;
     if (!from) return;
-    // 松手时鼠标底下是哪个节点 —— 用 elementFromPoint 而不是判坐标，省得自己算命中
-    const under = document.elementFromPoint(upEvent.clientX, upEvent.clientY) as HTMLElement | null;
-    const target = under?.closest('[data-node-id]')?.getAttribute('data-node-id');
+    // 松手时指针底下是哪个节点 —— 用 elementFromPoint 而不是判坐标，省得自己算命中
+    const under = document.elementFromPoint(upEvent.clientX, upEvent.clientY);
+    const target =
+      under instanceof Element ? under.closest('[data-node-id]')?.getAttribute('data-node-id') : null;
     if (!target || target === from) return;
     emit('update:doc', addEdge(props.doc, from, target));
     selection.value = { kind: 'edge', id: `${from}->${target}` };
   };
-  window.addEventListener('mousemove', move);
-  window.addEventListener('mouseup', up);
+  el.addEventListener('pointermove', move);
+  el.addEventListener('pointerup', up);
+  el.addEventListener('pointercancel', up);
 }
 
 function selectEdge(shape: EdgeShape): void {
@@ -549,7 +587,7 @@ watch(
       aria-label="流程图画布"
       @keydown="onKey"
       @wheel.prevent="onWheel"
-      @mousedown="startPan"
+      @pointerdown="startPan"
     >
       <div class="stage" :style="stageStyle">
         <svg class="edges" :width="size.width" :height="size.height">
@@ -615,7 +653,7 @@ watch(
           :data-node-id="box.node.id"
           :style="{ left: `${box.x}px`, top: `${box.y}px`, width: `${NODE_W}px`, height: `${NODE_H}px` }"
           :title="box.node.text"
-          @mousedown="startDrag(box.node, $event)"
+          @pointerdown="startDrag(box.node, $event)"
           @dblclick.stop="startEdit(box.node)"
         >
           <input
@@ -624,7 +662,7 @@ watch(
             v-model="editText"
             class="edit"
             type="text"
-            @mousedown.stop
+            @pointerdown.stop
             @keydown="onEditKey"
             @blur="finishEdit"
           />
@@ -633,7 +671,7 @@ watch(
           <span
             class="port"
             title="按住拖到另一个节点上，连一条线"
-            @mousedown="startLink(box.node, $event)"
+            @pointerdown="startLink(box.node, $event)"
             @dblclick.stop
           />
         </div>
@@ -722,6 +760,8 @@ watch(
   outline: none;
   cursor: grab;
   user-select: none;
+  /* 触屏上把滚动手势交给画布，否则手指一拖页面先滚走了 */
+  touch-action: none;
 }
 
 .canvas.is-panning {
@@ -892,8 +932,23 @@ watch(
   transition: opacity var(--dur-fast) var(--ease-smooth);
 }
 
+/* 视觉上还是这个 11px 的圆点，热区放大到 40×40 —— 手指根本点不中 11px */
+.port::before {
+  content: '';
+  position: absolute;
+  inset: -14px;
+  border-radius: 50%;
+}
+
 .node:hover .port,
 .node.is-selected .port {
   opacity: 1;
+}
+
+/* 触屏没有 hover，圆点得一直看得见，否则没人知道这里可以拉线 */
+@media (pointer: coarse) {
+  .port {
+    opacity: 0.9;
+  }
 }
 </style>

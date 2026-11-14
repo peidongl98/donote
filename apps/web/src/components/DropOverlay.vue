@@ -14,13 +14,16 @@ import { useRoute } from 'vue-router';
 import { useUiStore } from '@/stores/ui';
 import { isTauriRuntime } from '@/storage/transport';
 import { containerDirOf, decodeId } from '@/storage/notes';
-import { importItems, itemsFromFiles, itemsFromPaths, type ImportItem } from '@/services/import-drop';
+import { importItems, itemsFromFiles, itemsFromPaths, type ImportItem, type ImportOptions } from '@/services/import-drop';
+import { resolveDropPoint, setDropHover, type DropPoint } from '@/services/drop-target';
 
 const ui = useUiStore();
 const route = useRoute();
 const dragging = ref(false);
 const progress = ref('');
 const busy = ref(false);
+/** 这次拖放会落到哪个目录（落在侧栏行上才有值，null = 沿用当前页 / 根） */
+const target = ref<DropPoint | null>(null);
 
 /**
  * 正在看某篇笔记时，拖进来的 .md 变成它的**子页面**（Notion 的行为：拖到页面下 = 挂上去）。
@@ -40,33 +43,62 @@ const hostDir = computed<string | null>(() => {
   }
 });
 
-async function run(items: ImportItem[]): Promise<void> {
+/**
+ * 拖进来的 .md 落在哪儿。
+ *
+ * 落在侧栏某一行上 → 那一行代表的目录（文件夹行 = 它自己，笔记行 = 它所在的目录）；
+ * 没落在行上 → 沿用老行为：正在看某篇笔记时拖进来的变成它的**子页面**，否则各是一篇同级笔记。
+ */
+async function run(items: ImportItem[], point: DropPoint | null): Promise<void> {
   if (!items.length) {
     ui.toast('没有可导入的 .md 文件');
     return;
   }
   busy.value = true;
   progress.value = `导入中 0/${items.length}`;
-  const host = hostDir.value;
+  const options: ImportOptions = point
+    ? { baseFolderId: point.folderId }
+    : { asChildPagesOf: hostDir.value };
   try {
     const result = await importItems(items, {
-      asChildPagesOf: host,
+      ...options,
       onProgress: (done, total) => {
         progress.value = `导入中 ${done}/${total}`;
       },
     });
-    ui.toast(
-      host !== null
-        ? `已导入 ${result.notes} 个子页面`
-        : `已导入 ${result.notes} 篇笔记${result.folders ? `、${result.folders} 个文件夹` : ''}`,
-      3200,
-    );
+    if (point) {
+      ui.toast(
+        `已导入 ${result.notes} 篇到${point.folderId ? `「${point.label}」` : '未归类'}`,
+        3200,
+      );
+    } else {
+      ui.toast(
+        hostDir.value !== null
+          ? `已导入 ${result.notes} 个子页面`
+          : `已导入 ${result.notes} 篇笔记${result.folders ? `、${result.folders} 个文件夹` : ''}`,
+        3200,
+      );
+    }
   } catch (err) {
     ui.toast(err instanceof Error ? `导入失败：${err.message}` : '导入失败', 3600);
   } finally {
     busy.value = false;
     progress.value = '';
   }
+}
+
+/** 指针压在侧栏哪一行上（决定导入落到哪个目录），同时把高亮画出来 */
+function hoverAt(x: number, y: number): DropPoint | null {
+  const point = resolveDropPoint(x, y);
+  target.value = point;
+  setDropHover(point?.key ?? null);
+  return point;
+}
+
+/** 松手 / 拖出窗口时清干净，别把高亮留在侧栏上 */
+function clearHover(): void {
+  target.value = null;
+  setDropHover(null);
 }
 
 /* --------------------------- 浏览器：HTML5 拖放 --------------------------- */
@@ -83,11 +115,15 @@ function onDragOver(event: DragEvent): void {
   if (!dragging.value) return;
   event.preventDefault();
   if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy';
+  hoverAt(event.clientX, event.clientY);
 }
 
 function onDragLeave(): void {
   depth = Math.max(0, depth - 1);
-  if (depth === 0) dragging.value = false;
+  if (depth === 0) {
+    dragging.value = false;
+    clearHover();
+  }
 }
 
 function onDrop(event: DragEvent): void {
@@ -97,31 +133,53 @@ function onDrop(event: DragEvent): void {
   const files = Array.from(event.dataTransfer?.files ?? []);
   if (!files.length) return;
   event.preventDefault();
-  void run(itemsFromFiles(files));
+  const point = resolveDropPoint(event.clientX, event.clientY);
+  clearHover();
+  void run(itemsFromFiles(files), point);
 }
 
 /* --------------------------- 桌面端：Tauri 拖放 --------------------------- */
 
 let stopTauri: (() => void) | null = null;
 
+/** Tauri 给的是物理像素的窗口坐标，elementFromPoint 要的是 CSS 像素 */
+function toClientPosition(position: unknown): { x: number; y: number } | null {
+  if (!position || typeof position !== 'object') return null;
+  const raw = position as {
+    x?: number;
+    y?: number;
+    toLogical?: (scale: number) => { x: number; y: number };
+  };
+  if (typeof raw.toLogical === 'function') {
+    const logical = raw.toLogical(window.devicePixelRatio || 1);
+    return { x: logical.x, y: logical.y };
+  }
+  return typeof raw.x === 'number' && typeof raw.y === 'number' ? { x: raw.x, y: raw.y } : null;
+}
+
 async function listenTauri(): Promise<void> {
   const { getCurrentWebview } = await import('@tauri-apps/api/webview');
   stopTauri = await getCurrentWebview().onDragDropEvent((event) => {
     const payload = event.payload;
-    if (payload.type === 'over') {
+    if (payload.type === 'over' || payload.type === 'enter') {
       dragging.value = true;
+      // 压在侧栏某一行上时那一行亮起来 —— 松手就落到那儿，不再由「当前页面」决定
+      const at = toClientPosition(payload.position);
+      if (at) hoverAt(at.x, at.y);
+      else clearHover();
       return;
     }
     if (payload.type === 'leave') {
       dragging.value = false;
+      clearHover();
       return;
     }
-    if (payload.type === 'drop') {
-      dragging.value = false;
-      if (busy.value) return;
-      // 只处理真正拖进来的文件（payload.position 是鼠标位置，这里不按落点分流）
-      void itemsFromPaths(payload.paths).then(run);
-    }
+    dragging.value = false;
+    if (busy.value) return;
+    const at = toClientPosition(payload.position);
+    const point = at ? resolveDropPoint(at.x, at.y) : null;
+    clearHover();
+    void itemsFromPaths(payload.paths).then((items) => run(items, point));
   });
 }
 
@@ -152,9 +210,11 @@ onBeforeUnmount(() => {
         <p class="drop-title">松手导入</p>
         <p class="drop-tip">
           {{
-            hostDir !== null
-              ? '.md 会变成这篇笔记的子页面'
-              : '.md 会各变成一篇笔记，文件夹会跟着建出来'
+            target
+              ? `放进${target.folderId ? `「${target.label}」` : '未归类'}`
+              : hostDir !== null
+                ? '.md 会变成这篇笔记的子页面'
+                : '拖到左侧某个文件夹上可以指定位置；不然各是一篇笔记'
           }}
         </p>
       </div>

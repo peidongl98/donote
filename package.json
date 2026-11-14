@@ -1,6 +1,6 @@
 {
   "name": "donote",
-  "version": "0.4.10",
+  "version": "0.4.11",
   "private": true,
   "license": "MIT",
   "type": "module",
@@ -10,6 +10,8 @@
     "build:web": "pnpm --filter @donote/web build",
     "dev:desktop": "pnpm --filter @donote/desktop dev",
     "build:desktop": "pnpm --filter @donote/desktop build",
+    "build:harmony": "node scripts/build-harmony.mjs",
+    "sign:harmony": "node scripts/sign-harmony.mjs",
     "typecheck": "pnpm -r typecheck",
     "regress": "node scripts/regression/run-regression.cjs",
     "release": "node scripts/release.mjs"

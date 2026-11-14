@@ -367,6 +367,20 @@ export class CachedStorage implements StorageAdapter {
     return this.inner.readBytes(path);
   }
 
+  /**
+   * 搜索用的批量取正文：只读本地副本，一条网络请求都不发。
+   * 没有副本的笔记（还没被打开或预拉取过的）不出现在结果里，交由调用方退回标题匹配。
+   */
+  async cachedBodies(paths: string[]): Promise<Map<string, string>> {
+    await this.ready;
+    const out = new Map<string, string>();
+    for (const rel of paths) {
+      const text = await this.readCache(rel);
+      if (text !== null) out.set(rel, text);
+    }
+    return out;
+  }
+
   async read(path: string, options?: ReadOptions): Promise<string> {
     await this.ready;
 

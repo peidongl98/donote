@@ -1,11 +1,11 @@
 {
-  "version": "0.4.10",
-  "notes": "这一版全是你报的问题。\n\n**流程图：有回路的图不再变成一条一万像素的线**\n\n那张「试测流程」里有一条「题目不够 → 回到第 4 步」。排版时它被当成「可以一直往下走」，\n十二个节点被推到画布最右边（x≈12600），打开只能看见一条横穿整个屏幕的连线。\n\n现在先把会成环的那条线摘出来，剩下的按层排；环本身还画着，只是不参与排版。\n方向也跟着代码走：`flowchart TD` 竖着排，`LR` 横着排，不再一律横过来。\n之前打开过、点过「完成」的笔记，存下的坏坐标会被识别出来重新排，不用手动改。\n\n**思维导图：一个分支一个颜色，越深越浅**\n\n原来的浅灰 / 深灰交替涂法看不出中心，浅灰底上的字也发虚。\n\n- 一级分支各一个色相，它下面的子节点沿用同一色；\n- 深度决定明暗：中心最深、白字加粗，二级是浅底深字，三级以后更浅；\n- 连线跟着通向的那个分支上色；\n- 暗色主题另有一套（不是把浅色反过来）。\n\n**列表：三处不合直觉的地方**\n\n1. 选中几段一起点「有序列表」以前**什么都没发生**（只能一段一段加）；\n2. 一段一段加会得到好几张列表，每张都从 1 开始编号；\n3. 在第一条按 `Tab` 焦点会跳到工具栏上。\n\n现在：整段选区一次包成一张列表；接着往下加会并进同一张、编号连续；`Tab` 降不了级时\n吃掉按键、焦点留在正文。`Shift+Tab` 的行为没变（第 1 级再退就离开列表）。\n\n**设置**\n\n去掉了重复的「回收站」磁贴（侧栏已经有入口），自动清理那个块里直接显示「回收站里 N 条」。\n\n---\n\n回归：13 套 398 项全部通过。",
-  "pub_date": "2026-10-25T10:31:34Z",
+  "version": "0.4.11",
+  "notes": "· 侧栏可以直接拖动了：把笔记或文件夹拖到另一行上就换位置，拖到列表下方的空白处回到「未归类」；拖进自己的子目录会被挡下。\n· 从资源管理器拖 .md 进来时，指针停在左侧哪一行就放进哪个文件夹，不用先导入再搬。\n· 搜索改成查正文全文，命中处在卡片摘要里显示那一段（原来只查标题和正文开头 240 字）。",
+  "pub_date": "2026-11-14T13:32:47Z",
   "platforms": {
     "windows-x86_64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSWTRLN1pZbGY4NHFKQ0dFYXBtUmo1Zm5nSDlUNjljU1dpZFlyNUUwVzJqK1JlZFNMR2RCcTFQa0xQK25QK0xnbWdZTzI0THorMG15QWVVQjZoWXJuVzJKa1VROVBzNlFBPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkyOTI0Mjk0CWZpbGU6RG9Ob3RlXzAuNC4xMF94NjQtc2V0dXAuZXhlCXZlcnNpb246MC40LjEwCllaaGtVa1BNNlEwSkZDYTlmNzR3VFZxRVR1cVV4TDFLdGRMMTV3OVhpTDNiUWpUTE51ZHJLK3BGbS9QLzZBanJKNk44d1JMOUVWNzNRT0NuR3JzU0FBPT0K",
-      "url": "https://donote.pages.dev/downloads/DoNote-0.4.10-win-x64.exe"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSWTRLN1pZbGY4NGo4SW1pNTVSTGx6VlJuOFU1dVFiTzhraU5VdXNxZm1YT3cwWndzTFI0bllWa1BjRmJkU2NxUGYwbWtGOXAySStUd3dzVmgxeitrczJEV2V6c2hXL3djPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzk0NjYzMTY3CWZpbGU6RG9Ob3RlXzAuNC4xMV94NjQtc2V0dXAuZXhlCXZlcnNpb246MC40LjExCnlJWWV1dmFkbXE1T1NUVU1VeDN5aHJ2RzlCd2dCWS9JZlh3OU56QkVDRWppcWYwVjBsOCtqZFZHT1FlNSt0RXVvSlBQOGQrZnRYMDVFOTNRUEF1K0J3PT0K",
+      "url": "https://donote.pages.dev/downloads/DoNote-0.4.11-win-x64.exe"
     }
   }
 }

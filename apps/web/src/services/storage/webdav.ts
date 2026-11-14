@@ -345,6 +345,15 @@ export class WebdavAdapter implements StorageAdapter {
     return res.text();
   }
 
+  /**
+   * 裸适配器没有本地副本 —— 注册给业务层的从来是套了 CachedStorage 的那一层
+   * （见 stores/webdav.ts 的 register），所以这里恒为空表：宁可搜索只命中标题，
+   * 也不在这里按 path 逐个 GET，那会把限流额度一次打光。
+   */
+  async cachedBodies(_paths: string[]): Promise<Map<string, string>> {
+    return new Map();
+  }
+
   /** 读原始字节。与 read 同一条传输通道，只是不按文本解码。 */
   async readBytes(path: string): Promise<ArrayBuffer> {
     const res = await this.send(this.url(path), { headers: { Authorization: this.auth() } });

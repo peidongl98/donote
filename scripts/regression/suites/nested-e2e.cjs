@@ -176,6 +176,75 @@ function check(name, ok, detail = '') {
     }
   }
 
+  /**
+   * 拖动侧栏一行到另一行上。Playwright 的 mouse 会派发 pointermove，
+   * 与真机鼠标走同一条通路（侧栏的拖动就是 Pointer 事件）。
+   * 返回「拖起来时目标行有没有亮」—— 高亮是落点算对了的直接证据。
+   */
+  async function dragRowTo(srcText, dstText) {
+    const src = await treeRow(srcText).boundingBox();
+    const dst = await treeRow(dstText).boundingBox();
+    if (!src || !dst) return false;
+    await page.mouse.move(src.x + 40, src.y + src.height / 2);
+    await page.mouse.down();
+    // 先过 6px 阈值，再往目标走 —— 一步到位会被当成点击
+    await page.mouse.move(src.x + 60, src.y + src.height / 2, { steps: 3 });
+    await page.mouse.move(dst.x + 60, dst.y + dst.height / 2, { steps: 10 });
+    await page.waitForTimeout(200);
+    const lit = await page.locator('.tree-row.is-drop').count();
+    await page.mouse.up();
+    await page.waitForTimeout(900);
+    return lit > 0;
+  }
+
+  /** 拖一行到任意坐标：树的空白区代表根目录（把笔记从文件夹里拖出来） */
+  async function dragRowToPoint(srcText, x, y) {
+    const src = await treeRow(srcText).boundingBox();
+    if (!src) return false;
+    await page.mouse.move(src.x + 40, src.y + src.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(src.x + 60, src.y + src.height / 2, { steps: 3 });
+    await page.mouse.move(x, y, { steps: 10 });
+    await page.waitForTimeout(200);
+    const lit = await page.locator('.tree.is-drop').count();
+    await page.mouse.up();
+    await page.waitForTimeout(900);
+    return lit > 0;
+  }
+
+  /** 拖一个 .md 到侧栏某一行上（带落点坐标，DropOverlay 靠它算导入到哪个目录） */
+  async function dropMarkdownAtRow(rowText, name, text) {
+    const box = await treeRow(rowText).boundingBox();
+    if (!box) return false;
+    await page.evaluate(
+      ({ x, y, fileName, body }) => {
+        const dt = new DataTransfer();
+        dt.items.add(new File([body], fileName, { type: 'text/markdown' }));
+        window.dispatchEvent(new DragEvent('dragenter', { dataTransfer: dt, bubbles: true }));
+        window.dispatchEvent(
+          new DragEvent('dragover', {
+            dataTransfer: dt,
+            bubbles: true,
+            cancelable: true,
+            clientX: x,
+            clientY: y,
+          }),
+        );
+        window.dispatchEvent(
+          new DragEvent('drop', {
+            dataTransfer: dt,
+            bubbles: true,
+            cancelable: true,
+            clientX: x,
+            clientY: y,
+          }),
+        );
+      },
+      { x: box.x + 40, y: box.y + box.height / 2, fileName: name, body: text },
+    );
+    return true;
+  }
+
   /** 等某篇的正文里出现一段文字（改名后改写引用是异步的，要等它落盘） */
   async function waitForBody(rel, snippet, timeout = 20000) {
     const until = Date.now() + timeout;
@@ -556,6 +625,29 @@ function check(name, ok, detail = '') {
       danglingOk,
       danglingOk ? '' : '等不到 is-missing',
     );
+
+    // ---------- 拖动 1：笔记拖到另一行上 → 换归属目录 ----------
+    // 只验高亮不算过：高亮只证明落点算对了，文件必须真的搬了位置。
+    await treeRow(PARENT).waitFor({ state: 'visible', timeout: 15000 });
+    const lit = await dragRowTo(PLAIN, PARENT);
+    check('拖动 1 拖起来时目标行亮起', lit);
+    check('拖动 1 笔记被搬进目标目录', await waitForDav(`${PARENT}/${PLAIN}.md`));
+
+    // ---------- 拖动 2：把 .md 拖到侧栏某一行 → 指定导入位置 ----------
+    const DROP_S = `DS${STAMP}`;
+    await dropMarkdownAtRow(PARENT, `${DROP_S}.md`, `# ${DROP_S}\n\n侧栏落点导入测试`);
+    check(
+      '拖动 2 拖到侧栏某一行 → 直接导进那个目录',
+      await waitForDav(`${PARENT}/${DROP_S}.md`),
+    );
+
+    // ---------- 拖动 3：拖到树的空白处 → 回到「未归类」 ----------
+    // 只进不出等于半个功能：拖出来的落点是树容器本身（行下方那片空白）。
+    const tailBox = await page.locator('.tree').boundingBox();
+    const outLit = await dragRowToPoint(PLAIN, tailBox.x + 60, tailBox.y + tailBox.height - 20);
+    check('拖动 3 拖到空白处时根区域亮起', outLit);
+    check('拖动 3 笔记回到未归类', await waitForDav(`${PLAIN}.md`));
+    check('拖动 3 原位置已清空', (await davText(`${PARENT}/${PLAIN}.md`)) === null);
 
     // ---------- 嵌套 8：删父页面 → 整棵进 .trash ----------
     const before = await davNames('.trash');

@@ -1,0 +1,43 @@
+{
+  "app": {
+    // 签名配置等 Profile 到手再填（见 sign/README.md），现在留空也能编
+    "signingConfigs": [],
+    "products": [
+      {
+        "name": "default",
+        // compatibleSdkVersion 是最低能装的系统版本，不是编译用的 SDK。
+        // 设高了老机器装不上，等确认手机系统版本再定。
+        "compatibleSdkVersion": "5.0.0(12)",
+        "runtimeOS": "HarmonyOS",
+        "buildOption": {
+          "strictMode": {
+            "caseSensitiveCheck": true,
+            "useNormalizedOHMUrl": true
+          }
+        }
+      }
+    ],
+    "buildModeSet": [
+      {
+        "name": "debug"
+      },
+      {
+        "name": "release"
+      }
+    ]
+  },
+  "modules": [
+    {
+      "name": "entry",
+      "srcPath": "./entry",
+      "targets": [
+        {
+          "name": "default",
+          "applyToProducts": [
+            "default"
+          ]
+        }
+      ]
+    }
+  ]
+}

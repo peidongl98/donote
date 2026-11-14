@@ -173,6 +173,16 @@ export interface StorageAdapter {
   /* 单文件 / 单目录 */
   read(path: string, options?: ReadOptions): Promise<string>;
 
+  /**
+   * 批量取正文，只给**本地全文搜索**用。
+   *
+   * 硬约定：只取本机已有的东西，**不在这里发网络请求**。
+   * 搜索框每停 300ms 就要重跑一次，而网盘模式的出网闸门是全球 1 个在途、3.2 秒一个
+   * —— 一百篇笔记的全文扫描会拖成五分钟，还会把 600 次 / 30 分钟的额度烧掉大半。
+   * 没有本地副本的条目直接缺席（不出现在返回的 Map 里），调用方退回标题 / 摘要素匹配。
+   */
+  cachedBodies(paths: string[]): Promise<Map<string, string>>;
+
   /** 读原始字节（导出 HTML 时把图片内嵌成 base64 用）。不走缓存，直接问云端。 */
   readBytes(path: string): Promise<ArrayBuffer>;
   write(path: string, content: WriteContent, etag?: string): Promise<WriteResult>;

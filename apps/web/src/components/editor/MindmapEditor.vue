@@ -172,15 +172,24 @@ function onWheel(event: WheelEvent): void {
   };
 }
 
-/** 按住空白处平移。节点上的按下要留给拖拽换父级，这里直接放行 */
-function startPan(event: MouseEvent): void {
+/**
+ * 按住空白处平移。
+ *
+ * 用 Pointer Events 而不是 mouse 事件：触屏只把「点一下」合成为 mousedown + mouseup，
+ * 中间不会有 mousemove，靠 mouse 事件写的拖动在手机上一下都动不了。指针事件在鼠标上
+ * 行为完全一致，一套代码两端通用。
+ */
+function startPan(event: PointerEvent): void {
   const target = event.target as HTMLElement | null;
   if (target?.closest('.node') || event.button !== 0) return;
   panning.value = true;
   const startX = event.clientX;
   const startY = event.clientY;
   const origin = { ...pan.value };
-  const move = (moveEvent: MouseEvent): void => {
+  const el = event.currentTarget as HTMLElement;
+  // 捕获指针：手指滑出画布甚至滑出窗口，后续事件仍然回到这里
+  el.setPointerCapture?.(event.pointerId);
+  const move = (moveEvent: PointerEvent): void => {
     pan.value = {
       x: origin.x + (moveEvent.clientX - startX),
       y: origin.y + (moveEvent.clientY - startY),
@@ -188,11 +197,14 @@ function startPan(event: MouseEvent): void {
   };
   const up = (): void => {
     panning.value = false;
-    window.removeEventListener('mousemove', move);
-    window.removeEventListener('mouseup', up);
+    el.releasePointerCapture?.(event.pointerId);
+    el.removeEventListener('pointermove', move);
+    el.removeEventListener('pointerup', up);
+    el.removeEventListener('pointercancel', up);
   };
-  window.addEventListener('mousemove', move);
-  window.addEventListener('mouseup', up);
+  el.addEventListener('pointermove', move);
+  el.addEventListener('pointerup', up);
+  el.addEventListener('pointercancel', up);
 }
 
 watch(
@@ -210,6 +222,10 @@ function commit(next: MindNode): void {
 }
 
 function select(id: string): void {
+  if (swallowClick) {
+    swallowClick = false;
+    return;
+  }
   selectedId.value = id;
   canvas.value?.focus();
 }
@@ -296,31 +312,68 @@ function onKey(event: KeyboardEvent): void {
 
 /* ─────────────── 拖拽换父级 ─────────────── */
 
-function onDragStart(id: string, event: DragEvent): void {
-  dragId.value = id;
-  event.dataTransfer?.setData('text/plain', id);
-  if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move';
+/*
+ * 原来是 HTML5 拖放（draggable + dragstart / dragover / drop）。这套 API 在触屏上
+ * 完全不触发，节点根本拖不动，所以改成自己用指针事件画：按下先记位置，位移超过阈值
+ * 才算拖；拖动中按坐标找指针底下的节点当落点。
+ *
+ * 阈值不能省 —— 否则「点一下选中」也会被判成拖动，双击改字就跟着废了。
+ */
+const DRAG_THRESHOLD = 6;
+/** 触屏没有可靠的双击，长按也进改名 */
+const LONG_PRESS_MS = 520;
+
+let drag: { id: string; startX: number; startY: number; active: boolean } | null = null;
+let longPress = 0;
+/** 长按已经进了改名，抬手时那次 click 不能再把焦点抢回画布 */
+let swallowClick = false;
+
+function onNodeDown(id: string, event: PointerEvent): void {
+  if (event.button !== 0) return;
+  // 改名中的输入框不接管，否则点不到光标
+  if ((event.target as HTMLElement)?.tagName === 'INPUT') return;
+  selectedId.value = id;
+  drag = { id, startX: event.clientX, startY: event.clientY, active: false };
+  (event.currentTarget as HTMLElement).setPointerCapture?.(event.pointerId);
+
+  window.clearTimeout(longPress);
+  longPress = window.setTimeout(() => {
+    if (!drag || drag.active) return;
+    drag = null;
+    swallowClick = true;
+    startEdit(id);
+  }, LONG_PRESS_MS);
 }
 
-function onDragOver(id: string, event: DragEvent): void {
-  if (!dragId.value || dragId.value === id) return;
-  event.preventDefault();
-  dropId.value = id;
+function onNodeMove(event: PointerEvent): void {
+  if (!drag) return;
+  if (!drag.active) {
+    const moved = Math.abs(event.clientX - drag.startX) + Math.abs(event.clientY - drag.startY);
+    if (moved < DRAG_THRESHOLD) return;
+    window.clearTimeout(longPress);
+    drag.active = true;
+    dragId.value = drag.id;
+  }
+  const hit = document.elementFromPoint(event.clientX, event.clientY);
+  const over = hit instanceof Element ? hit.closest('.node')?.getAttribute('data-id') ?? null : null;
+  dropId.value = over && over !== drag.id ? over : null;
 }
 
-function onDrop(id: string): void {
-  const from = dragId.value;
-  dropId.value = null;
+function onNodeUp(event: PointerEvent): void {
+  window.clearTimeout(longPress);
+  (event.currentTarget as HTMLElement).releasePointerCapture?.(event.pointerId);
+  const state = drag;
+  drag = null;
+  const to = dropId.value;
   dragId.value = null;
-  if (!from || from === id) return;
-  commit(reparent(props.tree, from, id));
-  selectedId.value = from;
+  dropId.value = null;
+  // 没超过阈值 = 只是点了一下，选中在按下时已经做过
+  if (!state?.active) return;
+  if (to && to !== state.id) {
+    commit(reparent(props.tree, state.id, to));
+    selectedId.value = state.id;
+  }
   canvas.value?.focus();
-}
-
-function onDragEnd(): void {
-  dragId.value = null;
-  dropId.value = null;
 }
 </script>
 
@@ -356,7 +409,7 @@ function onDragEnd(): void {
       aria-label="思维导图画布"
       @keydown="onKey"
       @wheel.prevent="onWheel"
-      @mousedown="startPan"
+      @pointerdown="startPan"
     >
       <div class="stage" :style="stageStyle">
         <svg class="links" :width="size.width" :height="size.height" aria-hidden="true">
@@ -384,16 +437,16 @@ function onDragEnd(): void {
             borderColor: box.selected || box.dropTarget ? undefined : box.tone.border,
           }"
           :title="box.node.text"
-          draggable="true"
+          :data-id="box.node.id"
           role="treeitem"
           :aria-selected="box.selected"
           @click="select(box.node.id)"
           @dblclick.stop="startEdit(box.node.id)"
-          @dragstart.stop="onDragStart(box.node.id, $event)"
-          @dragover="onDragOver(box.node.id, $event)"
-          @dragleave="dropId = null"
-          @drop.prevent.stop="onDrop(box.node.id)"
-          @dragend="onDragEnd"
+          @pointerdown.stop="onNodeDown(box.node.id, $event)"
+          @pointermove.stop="onNodeMove"
+          @pointerup.stop="onNodeUp"
+          @pointercancel.stop="onNodeUp"
+          @contextmenu.prevent
         >
           <input
             v-if="editingId === box.node.id"
@@ -481,6 +534,8 @@ function onDragEnd(): void {
   cursor: grab;
   /* 画布上不要选中文字：拖画布时选中一片蓝底很难看 */
   user-select: none;
+  /* 触屏上把滚动手势交给画布自己处理，否则手指一拖页面先滚走了 */
+  touch-action: none;
 }
 
 .canvas.is-panning {

@@ -46,3 +46,16 @@ scripts/regression/.logs/
 
 # 安装包是可再生成的产物（每次发版都变、体积 MB 级），由 scripts/make-release.mjs 铺出来
 site/downloads/*
+
+# 鸿蒙签名材料：私钥与证书绝不入库
+apps/harmony/sign/*
+!apps/harmony/sign/README.md
+
+# 鸿蒙构建产物与本地环境路径（都由 scripts/build-harmony.mjs / hvigorw 再生成）
+apps/harmony/**/build/
+apps/harmony/**/.hvigor/
+apps/harmony/**/oh_modules/
+apps/harmony/**/node_modules/
+apps/harmony/local.properties
+# 塞进 HAP 的前端产物：由 pnpm build:harmony 从 apps/web/dist 拷进来
+apps/harmony/entry/src/main/resources/rawfile/www/

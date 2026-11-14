@@ -11,7 +11,22 @@ import { VitePWA } from 'vite-plugin-pwa';
  */
 const isDesktop = !!process.env.TAURI_ENV_PLATFORM;
 
+/**
+ * 是否在给鸿蒙外壳打产物的那次构建。
+ *
+ * 由 scripts/build-harmony.mjs 注入。和桌面端同理：Service Worker 在这里没有意义
+ * （页面从 HAP 的 rawfile 读，走的是 resource:// 协议，SW 连注册都过不去），
+ * 但又会在 index.html 里塞一段注册代码，索性一起关掉。
+ */
+const isHarmony = !!process.env.DONOTE_WEB_HARMONY;
+
 export default defineConfig({
+  /*
+   * 鸿蒙那边是 ArkWeb 从 rawfile 里加载页面，页面 URL 形如 resource://rawfile/www/index.html。
+   * 如果资源写成绝对路径 /assets/x.js，会被解析到 rawfile 根、丢掉 www 这一层，页面直接白屏。
+   * 所以打包进 HAP 时用 DONOTE_WEB_BASE=./ 构一次；桌面版与网页版仍是 /。
+   */
+  base: process.env.DONOTE_WEB_BASE ?? '/',
   plugins: [
     vue(),
     VitePWA({
@@ -28,7 +43,7 @@ export default defineConfig({
        * `useHttpsScheme: true` —— 换 origin 到 `https://tauri.localhost`，
        * 旧注册按 origin 隔离自然失效。详见项目 MEMORY.md 的【桌面端 SW 缓存坑】。
        */
-      disable: isDesktop,
+      disable: isDesktop || isHarmony,
       registerType: 'autoUpdate',
       includeAssets: ['icon-192.png', 'icon-512.png'],
       manifest: {

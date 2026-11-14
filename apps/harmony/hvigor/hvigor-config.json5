@@ -1,0 +1,18 @@
+{
+  /*
+   * hvigor 的入口配置。缺这个文件 hvigorw 会直接报 00304004 退出。
+   *
+   * dependencies 故意留空：留空时 hvigorw 会把命令行工具自带的 hvigor / 插件
+   * 拷进本目录（离线可用），不会去 ohpm 仓库拉包 —— 本机到 ohpm 的连接不稳定，
+   * 走在线安装十次有九次卡住。
+   */
+  "modelVersion": "6.0.0",
+  "dependencies": {},
+  "execution": {
+    // 单机打包，并行收益不大，但日志更干净
+    "daemon": false
+  },
+  "logging": {
+    "level": "info"
+  }
+}
