@@ -13,7 +13,17 @@
  *   node scripts/build-harmony.mjs --keep   # 保留 apps/web/dist（只铺进 rawfile 就退出）
  */
 
-import { existsSync, mkdirSync, renameSync, rmSync, cpSync, statSync, readdirSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  renameSync,
+  rmSync,
+  cpSync,
+  statSync,
+  readdirSync,
+  readFileSync,
+  writeFileSync,
+} from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execFileSync } from 'node:child_process';
@@ -96,6 +106,25 @@ mkdirSync(RAWFILE, { recursive: true });
 cpSync(DIST, WWW, { recursive: true });
 
 const { n: files, bytes } = countFiles(WWW);
+
+// 4 改写 index.html：模块脚本 → 经典脚本
+/*
+ * ArkWeb 里页面 origin 是 null，`<script type="module">` 的取指要过 CORS，而
+ * resource:// 不在允许的协议白名单里 —— 不处理就是每个 chunk 都 ERR_FAILED、整页白屏。
+ * 经典 <script> 不做 CORS 检查，所以把 type="module" 去掉、换成 defer（保持 DOM 就绪后执行），
+ * 同时去掉 crossorigin（那是给 CORS 用的，留着反而会触发检查）与 modulepreload。
+ * 产物本身已经用 iife 单文件构建（见 apps/web/vite.config.ts），不依赖模块语义。
+ */
+const htmlPath = join(WWW, 'index.html');
+let html = readFileSync(htmlPath, 'utf8');
+const before = html;
+html = html
+  .replace(/<link[^>]+rel="modulepreload"[^>]*>\s*/g, '')
+  .replace(/<script([^>]*?)\stype="module"/g, '<script$1 defer')
+  .replace(/\scrossorigin(="[^"]*")?/g, '');
+if (html === before) die('index.html 里没找到可改写的模块脚本', ['确认没被关掉 build.modulePreload']);
+writeFileSync(htmlPath, html);
+
 log(`· rawfile/www ← dist  ${files} 个文件 / ${(bytes / 1e6).toFixed(1)}MB`);
 log('\n✓ 前端已就位，可以打 HAP：');
 log('    cd apps/harmony && hvigorw assembleHap --mode module -p product=default');

@@ -22,6 +22,18 @@
 }
 
 /*
+ * 触屏（平板 / 手机）：顶栏从「流内的 sticky」改成「固定覆盖层」（见 AppHeader），
+ * 这样它收起来只需要一个 transform，正文不会跟着重排 —— 收放才是滑的。
+ *
+ * 让位的那一条高度加在**滚动容器自己的内边距**上，不加在 .page 上：
+ * 加在 .page 上会把整个滚动区推下去，顶栏一收就露出 104px 的空白（内容滚不上去）；
+ * 加在 .page-body 里，滚动区仍然铺满整屏，正文可以一直滚到状态栏底下。
+ */
+html[data-touch='1'] .page-body {
+  padding-top: calc(var(--topbar-h) + var(--safe-top) + var(--sp-3));
+}
+
+/*
  * 滚动容器。容器本身铺满可用宽度（滚动条才落在窗口右缘），内容列居中改由
  * 左右 padding 承担 —— 数值按改前的 max-width + margin:auto 反推，宽屏上逐像素一致：
  * 原来的 max-width 是**含内边距**的 border box，所以居中量要再加上一个 gutter。
@@ -187,7 +199,7 @@
 .toast {
   position: fixed;
   left: calc(var(--content-offset) + (100% - var(--content-offset)) / 2);
-  bottom: calc(96px + env(safe-area-inset-bottom, 0px));
+  bottom: calc(96px + var(--safe-bottom));
   transform: translateX(-50%);
   z-index: 30;
   max-width: min(calc(100% - var(--content-offset) - 2 * var(--sp-3)), 420px);
@@ -275,7 +287,7 @@
   max-width: 720px;
   margin: 0 auto;
   padding: var(--sp-1);
-  padding-bottom: calc(var(--sp-1) + env(safe-area-inset-bottom, 0px));
+  padding-bottom: calc(var(--sp-1) + var(--safe-bottom));
   border-radius: var(--r-xl) var(--r-xl) 0 0;
   display: flex;
   flex-direction: column;

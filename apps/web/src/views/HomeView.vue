@@ -308,6 +308,12 @@ onBeforeUnmount(() => {
   transform: scale(0.94);
 }
 
+/* 触屏：贴到底部的悬浮按钮要给系统手势条让位，否则会被盖住一半 */
+html[data-touch='1'] .fab {
+  right: var(--sp-2);
+  bottom: calc(var(--sp-3) + var(--safe-bottom));
+}
+
 .tag-filter {
   display: flex;
   align-items: center;

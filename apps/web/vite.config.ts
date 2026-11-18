@@ -123,5 +123,19 @@ export default defineConfig({
     // 导致 Chromium 侧整条声明失效（毛玻璃不生效）。
     cssMinify: 'esbuild',
     outDir: 'dist',
+    /*
+     * 鸿蒙壳里不能用 ES module 产物。
+     *
+     * ArkWeb 从 rawfile 加载页面，页面 origin 是 null，模块脚本的取指走 CORS，
+     * resource:// 不在允许的协议白名单里 → 每个 chunk 都 ERR_FAILED，白屏。
+     * 改成 iife 单文件（经典 <script>，不做 CORS 检查），代价是动态 import 全部内联。
+     * index.html 里的 type="module" / crossorigin 由 scripts/build-harmony.mjs 后处理掉。
+     */
+    ...(isHarmony
+      ? {
+          modulePreload: false,
+          rolldownOptions: { output: { format: 'iife' as const, inlineDynamicImports: true } },
+        }
+      : {}),
   },
 });

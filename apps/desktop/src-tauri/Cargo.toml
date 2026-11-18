@@ -1,6 +1,6 @@
 [package]
 name = "donote"
-version = "0.4.12"
+version = "0.4.13"
 description = "DoNote — 本地优先的 Markdown 笔记客户端"
 authors = ["peidongl98"]
 edition = "2021"
@@ -17,8 +17,6 @@ indexmap = { version = "1.9", features = ["std"] }
 [dependencies]
 tauri = { version = "2", features = [] }
 tauri-plugin-http = "2"
-# 应用内在线更新：下载新版本并按签名校验后原地升级，用户不用再去官网拿安装包
-tauri-plugin-updater = "2"
 # 更新完成后重启自身
 tauri-plugin-process = "2"
 # 选本机图片：系统文件对话框（插件只给路径，内容由本文件的 read_image 读回来）
@@ -27,8 +25,17 @@ tauri-plugin-dialog = "2"
 tauri-plugin-opener = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-# 凭据存 Windows 凭据管理器，不落磁盘明文
+
+# 在线更新只有桌面端有意义：应用内下载安装包并原地升级。
+# Android / iOS 上包由商店或手动安装，插件本身也不支持这两个平台，所以按目标平台摘掉。
+[target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
+tauri-plugin-updater = "2"
+
+# 凭据存 Windows 凭据管理器，不落磁盘明文。
+# Android 没有对应的系统钥匙串，那边由前端退回 WebView 自己的存储（见 storage/tauri.ts）。
+[target.'cfg(target_os = "windows")'.dependencies]
 keyring = { version = "3", default-features = false, features = ["windows-native"] }
+
 # 不是为了在代码里用 indexmap，而是为了把 indexmap 1.9 的 `std` 特性打开：
 # schemars 0.8.22（tauri 链路里的传递依赖）依赖 indexmap 1.9 却关掉了它的 default，
 # 于是 IndexMap<K,V,S> 失去 S 的默认值、编译不过。特性合并会把这里的开关传过去。

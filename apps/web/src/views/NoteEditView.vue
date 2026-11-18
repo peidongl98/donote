@@ -7,6 +7,7 @@ import { uploadAttachment } from '@/services/attachments';
 import { pickImage } from '@/services/pick-image';
 import { useEditingStore } from '@/stores/editing';
 import { useSyncStore } from '@/stores/sync';
+import { useThemeStore } from '@/stores/theme';
 import { useUiStore } from '@/stores/ui';
 import AppHeader from '@/components/AppHeader.vue';
 import AppDialog from '@/components/AppDialog.vue';
@@ -25,6 +26,7 @@ const router = useRouter();
 const ui = useUiStore();
 const editing = useEditingStore();
 const sync = useSyncStore();
+const theme = useThemeStore();
 
 /** 标题即文件名，改名会换 id，所以这里必须是响应式的 */
 const noteId = ref(String(route.params.id));
@@ -83,6 +85,15 @@ function backToWysiwyg(): void {
  * 光标连同「下次插图落哪」一起丢了。所以 key 挂加载代次，改名时纹丝不动。
  */
 const loadSeq = ref(0);
+
+/**
+ * 正文容器。桌面端它不滚（滚的是里面的正文框），触屏上它才是滚动容器 ——
+ * 换笔记时要把它滚回顶部，否则会停在上一篇读到的一半。
+ * 桌面端这句是空操作（scrollTop 恒为 0），不用分设备判断。
+ */
+const bodyRef = ref<HTMLElement | null>(null);
+
+watch(loadSeq, () => bodyRef.value?.scrollTo({ top: 0 }));
 
 const folders = ref<FolderDTO[]>([]);
 const sheetOpen = ref(false);
@@ -454,6 +465,20 @@ type ExportKind = 'html' | 'docx' | 'pdf';
 
 const exporting = ref<ExportKind | ''>('');
 
+/** 二级弹窗「导出为」是否展开 */
+const exportOpen = ref(false);
+
+/**
+ * 从二级弹窗里点了某一种格式。
+ * 先把两层弹层都收掉再开始导：导出要 flush + 读图片，慢的时候一两秒，
+ * 留着弹层挡在正文上只会让人以为卡住了。
+ */
+function pickExport(kind: ExportKind): void {
+  exportOpen.value = false;
+  sheetOpen.value = false;
+  void exportAs(kind);
+}
+
 /**
  * 导出这篇笔记：HTML / Word / PDF 三种，共用同一次 flush ——
  * 标题、正文还在防抖窗口里的话，导出的会是上一次的内容。
@@ -750,7 +775,7 @@ onBeforeUnmount(() => {
       不放「编辑」这种没有信息量的词，也不放「编辑中 / 已保存」这类状态字：保存是自动的，
       一直挂个字反而吵。保存状态只留给屏幕阅读器播报（视觉上隐藏），保存失败另外走 toast。
     -->
-    <AppHeader :title="isTrashed ? '回收站中的笔记' : ''" :crumbs="crumbs" back>
+    <AppHeader :title="isTrashed ? '回收站中的笔记' : ''" :crumbs="crumbs" back bare>
       <template #actions>
         <span class="sr-only status" role="status" aria-live="polite">{{ statusText }}</span>
         <!--
@@ -802,7 +827,7 @@ onBeforeUnmount(() => {
           </svg>
         </button>
         <button
-          class="icon-btn"
+          class="icon-btn mode-btn"
           type="button"
           :aria-label="mode === 'wysiwyg' ? '源码' : '所见即所得'"
           :title="mode === 'wysiwyg' ? '切到源码模式' : '切回所见即所得模式'"
@@ -837,6 +862,7 @@ onBeforeUnmount(() => {
     </div>
 
     <div
+      ref="bodyRef"
       class="body"
       :class="{ 'is-resizable': ctrlDown }"
       :style="docWidth === null ? undefined : { width: `${docWidth}px` }"
@@ -974,6 +1000,14 @@ onBeforeUnmount(() => {
       <Transition name="sheet">
         <div v-if="sheetOpen" class="sheet-mask" @click.self="sheetOpen = false">
           <div class="sheet glass">
+            <!--
+              明暗模式放在最上面：它是「这一屏看起来怎么样」的事，与下面的编辑动作不同类。
+              文字跟着当前模式走 —— 亮色时说「暗夜模式」（点了会变暗），暗色时说「日间模式」。
+              只在手机上出现：桌面端顶栏本来就有那枚太阳/月亮按钮。
+            -->
+            <button type="button" class="sheet-item is-phone-only" @click="theme.toggle()">
+              {{ theme.theme === 'dark' ? '日间模式' : '暗夜模式' }}
+            </button>
             <button
               type="button"
               class="sheet-item"
@@ -990,29 +1024,22 @@ onBeforeUnmount(() => {
             >
               移动到文件夹
             </button>
+            <!--
+              导出是二级弹窗：三种格式并列摊在一级菜单里，把「新建 / 移动 / 删除」挤成一条长列表，
+              而导出本身一周也用不上一次。手机上尤其明显。
+              开二级时把一级收掉 —— 两块面板高度不同，叠着会让上一级从上面露出来一截。
+            -->
             <button
               type="button"
               class="sheet-item"
               :disabled="isTrashed || loading || !!exporting"
-              @click="exportAs('docx')"
+              @click="sheetOpen = false; exportOpen = true"
             >
-              {{ exporting === 'docx' ? '导出中…' : '导出 Word（.docx）' }}
+              {{ exporting ? '导出中…' : '导出' }}
             </button>
-            <button
-              type="button"
-              class="sheet-item"
-              :disabled="isTrashed || loading || !!exporting"
-              @click="exportAs('pdf')"
-            >
-              {{ exporting === 'pdf' ? '导出中…' : '导出 PDF（A4）' }}
-            </button>
-            <button
-              type="button"
-              class="sheet-item"
-              :disabled="isTrashed || loading || !!exporting"
-              @click="exportAs('html')"
-            >
-              {{ exporting === 'html' ? '导出中…' : '导出 HTML' }}
+            <!-- 源码切换在手机上从顶栏挪到这里：顶栏只留 主页 / 返回 / 撤销 / 重做 / 更多 -->
+            <button type="button" class="sheet-item is-phone-only" @click="sheetOpen = false; toggleMode()">
+              {{ mode === 'wysiwyg' ? '源码模式' : '所见即所得' }}
             </button>
             <button
               v-if="!isTrashed"
@@ -1031,6 +1058,40 @@ onBeforeUnmount(() => {
               彻底删除
             </button>
             <button type="button" class="sheet-item is-cancel" @click="sheetOpen = false">取消</button>
+          </div>
+        </div>
+      </Transition>
+
+      <!-- 导出的二级弹窗 -->
+      <Transition name="sheet">
+        <div v-if="exportOpen" class="sheet-mask is-second" @click.self="exportOpen = false">
+          <div class="sheet glass">
+            <p class="sheet-title">导出为</p>
+            <button
+              type="button"
+              class="sheet-item"
+              :disabled="isTrashed || loading || !!exporting"
+              @click="pickExport('docx')"
+            >
+              {{ exporting === 'docx' ? '导出中…' : 'Word（.docx）' }}
+            </button>
+            <button
+              type="button"
+              class="sheet-item"
+              :disabled="isTrashed || loading || !!exporting"
+              @click="pickExport('pdf')"
+            >
+              {{ exporting === 'pdf' ? '导出中…' : 'PDF（A4）' }}
+            </button>
+            <button
+              type="button"
+              class="sheet-item"
+              :disabled="isTrashed || loading || !!exporting"
+              @click="pickExport('html')"
+            >
+              {{ exporting === 'html' ? '导出中…' : 'HTML' }}
+            </button>
+            <button type="button" class="sheet-item is-cancel" @click="exportOpen = false">取消</button>
           </div>
         </div>
       </Transition>
@@ -1122,7 +1183,7 @@ onBeforeUnmount(() => {
   --content-max: 100%;
   /* 桌面端给侧边栏让位；移动端 --content-offset 恒为 0 */
   padding-left: var(--content-offset);
-  padding-bottom: env(safe-area-inset-bottom, 0px);
+  padding-bottom: var(--safe-bottom);
   transition: padding-left var(--follow-dur) var(--ease-smooth);
 }
 
@@ -1527,5 +1588,99 @@ onBeforeUnmount(() => {
   background: var(--accent-soft);
   border-style: solid;
   border-color: var(--accent-ring);
+}
+
+/*
+ * 触屏（平板 / 手机，<html data-touch> 由壳上报）。
+ *
+ * 顶栏这一排在平板上已经放不下了：标题 + 已缓存 + 撤销 + 重做 + 源码 + 更多 + 主题，
+ * 光按钮就 6 个 × 32px，右端会被挤出可视区（用户看到的就是「顶栏显示不全」）。
+ * 两条措施：图标长到 40px 触控尺寸（顶栏已抬到 56px），「已缓存」这枚文字标记先让位 ——
+ * 它只解释「打开为什么慢」，不是每篇都要看的信息。
+ */
+html[data-touch='1'] .cache-chip {
+  display: none;
+}
+
+/*
+ * 触屏：让**整页**一起滚。
+ *
+ * 桌面端是「标题 / 标签条 / 工具栏钉住，只有正文框滚」，好处是写的时候始终知道自己在
+ * 哪一篇。手机上这套占掉 300 多像素 —— 816 高的屏上，真正能读的只剩一半。
+ * 所以触屏把滚动交给 .body：标题、标签、工具栏跟着正文一起滚走，读的时候整屏都是字；
+ * 顶栏那一条由 AppHeader 的收放负责（utils/auto-hide-bars）。
+ *
+ * 让位给固定顶栏的内边距也加在这里（加在 .editor 上会变成一条滚不走的空白）。
+ */
+html[data-touch='1'] .body {
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  padding-top: calc(var(--topbar-h) + var(--safe-top) + var(--sp-2));
+}
+
+html[data-touch='1'] .icon-btn {
+  width: 40px;
+  height: 40px;
+  border-radius: var(--r-sm);
+}
+
+html[data-touch='1'] .more {
+  width: 40px;
+  height: 40px;
+}
+
+/* 正文两侧的呼吸距离：32px 在窄屏上占掉的比例太大 */
+html[data-touch='1'] .body {
+  --body-pad-x: var(--sp-2);
+}
+
+/* 触屏没有 Ctrl 可按，宽度手柄留着只会白占命中区 */
+html[data-touch='1'] .width-grip {
+  display: none;
+}
+
+/* 手机 */
+html[data-device='phone'] .icon-btn {
+  width: 44px;
+  height: 44px;
+}
+
+/*
+ * 源码切换在手机上收进「更多」菜单了（顶栏只留 主页 / 返回 / 撤销 / 重做 / 更多）。
+ * 这条得写在这里而不是 AppHeader：这个按钮在本组件的模板里，只认本组件的 scope id。
+ */
+html[data-device='phone'] .mode-btn {
+  display: none;
+}
+
+html[data-device='phone'] .title-input {
+  font-size: 22px;
+}
+
+html[data-device='phone'] .body {
+  /* padding-top 不在这里改：上面触屏那条已经把它换成了「让开固定顶栏」的算式 */
+  gap: var(--sp-1);
+}
+
+/* ------------------------------ 弹层 ------------------------------ */
+
+/*
+ * 二级弹层（导出格式）压在一级之上：一级 .sheet-mask 是 21、对话框是 22，
+ * 取 23 才不会两层面板叠在一起时上半截露出来。
+ */
+.sheet-mask.is-second {
+  z-index: 23;
+}
+
+/*
+ * 源码切换那一行只在手机上出现 —— 桌面端顶栏本来就有那个按钮（</>），
+ * 再在菜单里放一条就是同一个动作两个入口。
+ */
+.sheet-item.is-phone-only {
+  display: none;
+}
+
+html[data-device='phone'] .sheet-item.is-phone-only {
+  display: block;
 }
 </style>

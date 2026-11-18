@@ -7,6 +7,11 @@ const props = defineProps<{ source: string; empty?: string }>();
 // html: false —— 不允许原始 HTML 穿透，避免把笔记内容变成 XSS 载体
 const md = new MarkdownIt({ html: false, linkify: true, breaks: false });
 
+// 表格包一层滚动容器：窄屏上列多的时候要能左右滑，而 <table> 自己设 overflow-x 是无效的
+// （它不是块级滚动容器）。容器本身在宽屏下不产生滚动条，样式见下面 html[data-touch] 那条。
+md.renderer.rules.table_open = () => '<div class="table-scroll"><table>';
+md.renderer.rules.table_close = () => '</table></div>';
+
 const html = computed(() => (props.source.trim() ? md.render(props.source) : ''));
 </script>
 
@@ -102,6 +107,33 @@ const html = computed(() => (props.source.trim() ? md.render(props.source) : '')
   margin: var(--sp-2) 0;
   border-collapse: collapse;
   font-size: 15px;
+}
+
+/*
+ * 触屏：表格按内容定宽，超出正文就左右滑（容器由 markdown-it 的 table_open 规则包出来）。
+ * 桌面端保持原样 —— 那里表格本来就该占满正文宽度。
+ */
+html[data-touch='1'] .md :deep(.table-scroll) {
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  -webkit-overflow-scrolling: touch;
+  margin: var(--sp-2) 0;
+  scrollbar-width: none;
+}
+
+html[data-touch='1'] .md :deep(.table-scroll)::-webkit-scrollbar {
+  display: none;
+}
+
+html[data-touch='1'] .md :deep(.table-scroll) table {
+  width: max-content;
+  min-width: 100%;
+  margin: 0;
+}
+
+html[data-touch='1'] .md :deep(.table-scroll) th,
+html[data-touch='1'] .md :deep(.table-scroll) td {
+  min-width: 92px;
 }
 
 .md :deep(th),

@@ -841,4 +841,36 @@ function toMindmap(): void {
   color: var(--text-2);
   opacity: 0.75;
 }
+
+/*
+ * 触屏工具条（平板 / 手机，<html data-touch> 由壳上报）。
+ *
+ * 两件事：
+ * 1. 按钮从 30px 长到 40px —— 30px 的方块手指点下去两侧会各露一半，经常按到隔壁。
+ * 2. 不换行，改成单行横向滚动。按钮变大之后 920px 宽也放不下这一排（20 多个），
+ *    换行会叠成三四层、把正文挤到屏幕下半截；横向滑动是触屏上的常规手势，不新鲜。
+ *    滚动条本身隐藏 —— 它占 8px 高，而这一行才 40px。
+ */
+html[data-touch='1'] .row {
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scrollbar-width: none;
+}
+
+html[data-touch='1'] .row::-webkit-scrollbar {
+  display: none;
+}
+
+html[data-touch='1'] .tool {
+  width: 40px;
+  height: 40px;
+  flex: none;
+}
+
+/* 下拉（标题级别）比图标宽，宽度靠 padding 撑，只把高度对齐到 40 */
+html[data-touch='1'] .picker select {
+  height: 40px;
+  flex: none;
+}
 </style>

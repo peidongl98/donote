@@ -1,15 +1,13 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "DoNote 桌面端权限：放行用户自行填写的 WebDAV 服务器（http/https，任意主机与端口）、插入图片时的系统文件对话框，以及无边框窗口自绘标题栏所需的窗口操作",
-  "windows": ["main"],
+  "description": "DoNote 的通用权限：放行用户自行填写的 WebDAV 服务器（http/https，任意主机与端口）、插入图片时的系统文件对话框，以及无边框窗口自绘标题栏所需的窗口操作。不限制窗口 label —— 桌面端只有一个 main，Android 上只有一个系统托管的 WebView，写死 label 反而会让移动端整份权限失效",
   "permissions": [
     "core:default",
     {
       "identifier": "http:default",
       "allow": [{ "url": "https://*:*" }, { "url": "http://*:*" }]
     },
-    "updater:default",
     "process:default",
     "dialog:default",
     {

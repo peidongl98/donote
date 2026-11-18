@@ -9,7 +9,7 @@
  * 这里只管「拿到文件」，不管存到哪、更不管怎么插进正文 —— 那些在 attachments.ts
  * 和编辑器里，路径规则只有一份。
  */
-import { isTauriRuntime } from '@/storage/transport';
+import { isMobileShell, isTauriRuntime } from '@/storage/transport';
 
 export interface PickedImage {
   name: string;
@@ -21,6 +21,9 @@ const IMAGE_EXT = ['png', 'jpg', 'jpeg', 'webp', 'gif', 'bmp', 'avif', 'svg'];
 
 /** 用户取消返回 null，两条路一致 */
 export async function pickImage(): Promise<PickedImage | null> {
+  // 移动端的系统对话框给的是 content:// URI，read_image 打不开 → 走 <input type="file">
+  // （WebView 里它同样会拉起系统相册/文件选择器，拿到的直接是 Blob）
+  if (isMobileShell()) return pickInBrowser();
   return isTauriRuntime() ? pickInDesktop() : pickInBrowser();
 }
 

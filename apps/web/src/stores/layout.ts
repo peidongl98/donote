@@ -28,25 +28,39 @@ function readWidth(): number {
 /**
  * 侧边栏状态。
  *
- * 只有一种形态：**常驻栏**。折叠与否、栏有多宽都记在本机。窗口缩到桌面端最小宽
- * （880px）也还是这条常驻栏 —— 不做抽屉、不做遮罩、不做底部标签栏，那些是手机形态，
- * 将来另写移动客户端时在那边做，不混进桌面壳（混进来的代价是拿视口宽度猜设备，
- * 880–1023px 这一段桌面窗口会被判成「手机」）。
+ * 两种形态：
+ * - 宽屏（> 600px）：**常驻栏**。折叠与否、栏有多宽都记在本机。
+ * - 窄屏（≤ 600px，手机）：**抽屉**。从左侧盖上来，主内容不让位；关掉记忆，
+ *   每次进入都是收起的（手机上一进来就被抽屉占掉半屏是最糟的默认）。
+ *
+ * 判据只有视口宽度一条。不拿 UA / pointer 猜设备 —— 同一份产物在 Windows 窗口、
+ * 平板、手机上跑，猜的那两种都会各错一次。平板竖屏（实测 720 CSS px）落在常驻栏区间，
+ * 那里两栏还撑得住。
  *
  * 真实状态写进 <html>：data-sidebar 决定「栏本身是否滑出」，--sidebar-w 决定宽度，
- * 而主内容让出的 --content-offset 只是 --sidebar-w 的别名（见 tokens.css）。
- * 所以调宽只需要改这一个变量，内容区、对话框、底部浮条就全都跟着走了，
+ * 而主内容让出的 --content-offset 只是 --sidebar-w 的别名（见 tokens.css，
+ * 窄屏那份覆盖成 0）。所以调宽只需要改这一个变量，内容区、对话框、底部浮条就全都跟着走了，
  * 不用把宽度从这层一路 prop 传到距离很远的组件里。
  */
 export const useLayoutStore = defineStore('layout', () => {
-  /** 默认展开，用户明确折叠过才关 */
+  /**
+   * 手机形态的判据：**壳上报的设备类型**（<html data-device>，见 storage/harmony.ts），
+   * 不是视口宽度。平板是 920 CSS px，与拖窄的桌面窗口重叠，按宽度分必然错一边。
+   * 桌面端没有这个属性 → 恒为常驻栏，行为与改前一致。
+   */
+  const isNarrow = ref(
+    typeof document !== 'undefined' && document.documentElement.getAttribute('data-device') === 'phone',
+  );
+  /** 默认展开，用户明确折叠过才关（仅宽屏） */
   const preferOpen = ref(typeof window !== 'undefined' ? localStorage.getItem(KEY) !== 'closed' : true);
+  /** 窄屏抽屉是否展开。每次启动都从收起开始，不落盘 */
+  const drawer = ref(false);
   /** 栏宽，px */
   const width = ref(readWidth());
   /** 是否正在拖拽调宽（只影响跟随动画的时长和光标，不参与布局计算） */
   const resizing = ref(false);
 
-  const open = computed(() => preferOpen.value);
+  const open = computed(() => (isNarrow.value ? drawer.value : preferOpen.value));
 
   function apply(): void {
     if (typeof document === 'undefined') return;
@@ -84,9 +98,38 @@ export const useLayoutStore = defineStore('layout', () => {
   }
 
   function toggle(): void {
+    if (isNarrow.value) {
+      drawer.value = !drawer.value;
+      apply();
+      return;
+    }
     preferOpen.value = !preferOpen.value;
     localStorage.setItem(KEY, preferOpen.value ? 'open' : 'closed');
     apply();
+  }
+
+  /** 关抽屉。窄屏下点了导航就该收起来，否则用户还得再点一次遮罩 */
+  function closeDrawer(): void {
+    if (!isNarrow.value || !drawer.value) return;
+    drawer.value = false;
+    apply();
+  }
+
+  /**
+   * 设备标记是壳在启动时写到 <html> 上的，而 store 有可能比它早一步创建
+   * （实测会：首帧读到的 data-device 为空，于是按宽屏渲染成常驻栏）。
+   * 盯住这个属性，晚到也能纠正过来 —— 只监听 data-device，apply() 写的
+   * data-sidebar 不会自己触发自己。
+   */
+  if (typeof MutationObserver !== 'undefined' && typeof document !== 'undefined') {
+    const observer = new MutationObserver(() => {
+      const next = document.documentElement.getAttribute('data-device') === 'phone';
+      if (next === isNarrow.value) return;
+      isNarrow.value = next;
+      drawer.value = false;
+      apply();
+    });
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-device'] });
   }
 
   /**
@@ -97,6 +140,7 @@ export const useLayoutStore = defineStore('layout', () => {
 
   return {
     open,
+    isNarrow,
     width,
     minWidth: WIDTH_MIN,
     maxWidth: WIDTH_MAX,
@@ -106,5 +150,6 @@ export const useLayoutStore = defineStore('layout', () => {
     commitWidth,
     resetWidth,
     toggle,
+    closeDrawer,
   };
 });

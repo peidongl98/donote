@@ -5,6 +5,8 @@ import { router } from './router';
 import { useWebdavStore } from './stores/webdav';
 import { useThemeStore } from './stores/theme';
 import { installTauriBridge } from './storage/tauri';
+import { installHarmonyBridge } from './storage/harmony';
+import { markTouchDevice } from './storage/transport';
 import { installExternalLinks } from './utils/open-external';
 
 import './styles/tokens.css';
@@ -20,7 +22,12 @@ const pinia = createPinia();
 app.use(pinia);
 
 // 端上先换成原生传输层与系统凭据存储（浏览器里是空操作）
-installTauriBridge();
+// 鸿蒙壳注入的是 window.DoNoteNative，桌面端是 __TAURI_INTERNALS__，两者互斥
+if (!installTauriBridge()) installHarmonyBridge();
+
+// 两个壳都装不上时（浏览器直连 PWA）没有设备信息可问，按 UA 兜一次，
+// 否则手机上会落回桌面排版 —— 表格直接顶出屏幕。
+markTouchDevice();
 
 // 外部链接统一交给系统浏览器：WebView2 自己对 target="_blank" 不做任何事
 installExternalLinks();

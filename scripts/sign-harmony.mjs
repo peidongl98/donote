@@ -2,6 +2,11 @@
 /**
  * 给 hvigorw 打出来的 HAP 签名。
  *
+ * 子命令是 sign-app（不是 sign）：hap-sign-tool 26.0.0 起把 sign 拆成了
+ * sign-app / sign-profile，旧写法会报 "Can not find method {sign}"。
+ * 同时 -compatibleVersion 成了 sign-app 的必填项，值取自 module.json5 的
+ * minAPIVersion（50000012 = API 12 / HarmonyOS 5.0.0）。
+ *
  * 为什么单独一步、不写进 build-profile.json5：
  * 那个文件是入库的，而 signingConfigs 里的 storePassword 只能是明文 —— 写进去等于
  * 把密钥库口令提交到仓库。改成在这里现读 apps/harmony/sign/.storepass（已 gitignore），
@@ -88,7 +93,12 @@ if (!unsigned) {
 // 签名材料
 const storeFile = join(SIGN, 'donote.p12');
 const certFile = join(SIGN, 'donote.cer');
-const profile = join(SIGN, 'donote.p7b');
+// Profile 文件名由 AGC 决定（下载时叫什么就是什么），所以按后缀找，不写死
+const profile = readdirSync(SIGN)
+  .filter((f) => f.toLowerCase().endsWith('.p7b'))
+  .sort()
+  .map((f) => join(SIGN, f))
+  .pop();
 const passFile = join(SIGN, '.storepass');
 for (const [f, hint] of [
   [storeFile, '密钥库丢了就要重新生成密钥并重签证书'],
@@ -114,9 +124,11 @@ try {
     [
       '-jar',
       join(lib, 'hap-sign-tool.jar'),
-      'sign',
+      'sign-app',
       '-mode',
       'localSign',
+      '-compatibleVersion',
+      '50000012',
       '-keystoreFile',
       storeFile,
       '-keystorePwd',

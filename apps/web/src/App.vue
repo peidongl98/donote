@@ -5,10 +5,17 @@ import AppSidebar from '@/components/AppSidebar.vue';
 import DropOverlay from '@/components/DropOverlay.vue';
 import UpdatePrompt from '@/components/UpdatePrompt.vue';
 import { runTrashAutoClean } from '@/services/trash-auto';
+import { installAutoHideBars, resetBars } from '@/utils/auto-hide-bars';
 import { useUiStore } from '@/stores/ui';
 
 const route = useRoute();
 const ui = useUiStore();
+
+// 移动端阅读态的顶栏收放（桌面端是空操作，见 utils/auto-hide-bars）
+installAutoHideBars();
+
+/** 换页时把顶栏放回来：新页面第一眼要看得见「这是哪儿」和抽屉按钮 */
+watch(() => route.fullPath, () => resetBars());
 
 /** 登录页没有导航；其余已连接页面都挂侧边栏 */
 const showShell = computed(() => route.meta.requiresAuth === true);

@@ -1,11 +1,11 @@
 {
-  "version": "0.4.12",
-  "notes": "笔记可导出 Word（.docx）与 PDF（A4）\n\n- 笔记页「更多操作」与侧栏右键菜单都多了导出项：Word（.docx）、PDF（A4）、HTML。\n- Word 是真正的 docx：A4 页面、25.4mm 页边距、正文小四 1.5 倍行距、英文 Times New Roman + 中文黑体、\n  标题走 Heading 1/2/3、列表为可续写的 Word 编号（有序/无序/嵌套三层）、表格带表头底色、\n  代码块灰底边框、页脚「第 X 页 / 共 Y 页」，图片按正文宽度等比缩放内嵌。\n- PDF 走 A4 打印样式后交给系统打印对话框，选「另存为 PDF」：文字是矢量、可搜索可选中，\n  中文直接用本机字体（思源黑体 → Noto Sans CJK → 微软雅黑 → 黑体）。\n- 导出的 HTML 也加上了 A4 打印样式，直接打印就是 A4 版面。\n- Word 相关的库改成点导出时才加载，不拖慢打开笔记。",
-  "pub_date": "2026-11-18T08:47:56Z",
+  "version": "0.4.13",
+  "notes": "移动端适配与安卓版\n\n- 新增安卓版（Tauri Android，arm64），与桌面端共用同一套界面与本地笔记库。\n- 手机、平板各一套排版：字号放大、按钮给到 40px 触控尺寸、顶栏与列表按安全区避让。\n- 顶栏改为沉浸式：向上滚动自动收起、向下滚动回弹；右侧动作收进「更多」菜单。\n- 表格在窄屏改为列按内容定宽 + 左右拖动，不再挤压换行；编辑器与预览一致。\n- 移动端导入图片、导入文件改走系统文件选择器，避开 content:// 路径读取不到的问题。\n- 鸿蒙壳上报设备形态（phone / tablet / 2in1），桌面形态不再误用触屏排版。",
+  "pub_date": "2026-11-18T17:34:18Z",
   "platforms": {
     "windows-x86_64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSWTRLN1pZbGY4NHRPUmIwMG1BSTJXZlBjVjVEZ0xHMUcyNmp5NUFSRWZYdUIyOU9maVZZcm9yck9VdmorU3phNHBjcFlyNm5ISmV5akFyTXRFVzh2Wk5DeUdWQ1JJNVFVPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzk0OTkxNjc2CWZpbGU6RG9Ob3RlXzAuNC4xMl94NjQtc2V0dXAuZXhlCXZlcnNpb246MC40LjEyCjBTRlRrdm5lbFZsQWdmYWVrRnlxVGFoUU1oSWlHVzdHSUlENVhjQW1FTUlmVm5qZXc4Q2RTV2M3cTAxVTBqMHB2Mnpjb0QvcHp5VGcwVTRlZ3NmTkFRPT0K",
-      "url": "https://donote.pages.dev/downloads/DoNote-0.4.12-win-x64.exe"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSWTRLN1pZbGY4NHRacUdCcTdZZ0lPbzBpSnEvWk4rWlBYN0ExN2R4U2ZmeWVDR3dZVjEvRFVHNTNRcEZ5ZW5ZRi81RmJUdjVFTzYxV3FheHA5MWxHdDZpM1lqL3JpWEFRPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzk1MDIzMjU4CWZpbGU6RG9Ob3RlXzAuNC4xM194NjQtc2V0dXAuZXhlCXZlcnNpb246MC40LjEzCjluSWg0c1pmMmpMbVNqL1V4WDZyZVRHNmVTTDNiWk9XNUxER0ZUa0laa2gzc3F6cEZMOCtaYmRYWi9lWWYvSlAraVFEVnloOG5NVUM5ZXZFbSswaUF3PT0K",
+      "url": "https://donote.pages.dev/downloads/DoNote-0.4.13-win-x64.exe"
     }
   }
 }

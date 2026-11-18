@@ -21,6 +21,36 @@ export function isTauriRuntime(): boolean {
 }
 
 /**
+ * Tauri 的移动端（目前只有 Android）。
+ *
+ * 判据是 UA 而不是 Tauri 的 os 插件：这里只关心「文件对话框给的是不是 content:// 这种
+ * 系统 URI」，Android / iOS 的 WebView 都是同一个特征。桌面端 UA 里不含这些词。
+ *
+ * 用途只有一处 —— 文件相关的入口要绕开系统对话框（见 pick-image / import-pick / export-save）：
+ * 移动端 `dialog.open` 返回的是 content:// URI，拿给 Rust 的 `std::fs` 一定打不开。
+ */
+export function isMobileShell(): boolean {
+  return isTauriRuntime() && /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+}
+
+/**
+ * 把设备形态写到 <html>，触屏排版（data-touch / data-device）全靠这一处。
+ *
+ * 三个来源都会走到这里，谁先写谁算数：鸿蒙壳问原生（storage/harmony.ts）、
+ * Android 壳自己按 UA 判（storage/tauri.ts）、浏览器直连时由 main.ts 兜底。
+ * 已经有值就不再覆盖 —— 壳的判断比 UA 准。
+ */
+export function markTouchDevice(): void {
+  if (typeof document === 'undefined') return;
+  const el = document.documentElement;
+  if (el.hasAttribute('data-device')) return;
+  if (!/Android|iPhone|iPad|iPod|HarmonyOS/i.test(navigator.userAgent)) return;
+  const shortEdge = Math.min(window.innerWidth, window.innerHeight);
+  el.setAttribute('data-touch', '1');
+  el.setAttribute('data-device', shortEdge < 600 ? 'phone' : 'tablet');
+}
+
+/**
  * 限速只在**正式构建**里生效，dev 下一律不限速。
  *
  * 为什么不在 dev 里也限：dev 下从地址上分不出「真坚果云」和「回归用的假 DAV」——

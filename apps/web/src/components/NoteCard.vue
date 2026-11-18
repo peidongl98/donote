@@ -193,6 +193,18 @@ function onMenu(): void {
   }
 }
 
+/* 触屏：30px 的行内按钮手指点不准，抬到 40；摘要行字号跟着令牌走 */
+html[data-touch='1'] .more {
+  width: 40px;
+  height: 40px;
+  top: 4px;
+  right: 2px;
+}
+
+html[data-touch='1'] .excerpt {
+  font-size: var(--fs-sm);
+}
+
 .excerpt {
   margin-top: 6px;
   font-size: 13px;

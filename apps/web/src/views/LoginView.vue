@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue';
+import { LOGO_SRC } from '@/utils/logo';
 import { useRoute, useRouter } from 'vue-router';
 import { DEFAULT_BASE_URL } from '@/services/storage';
 import { useWebdavStore } from '@/stores/webdav';
@@ -125,7 +126,7 @@ watch(password, () => {
     <GlassCard class="panel lift">
       <div class="brand">
         <span class="mark" aria-hidden="true">
-          <img src="/favicon.svg" alt="" width="44" height="44" />
+          <img :src="LOGO_SRC" alt="" width="44" height="44" />
         </span>
         <div>
           <h1 class="title">DoNote</h1>
@@ -219,7 +220,7 @@ watch(password, () => {
 
 .topbar {
   position: fixed;
-  top: calc(var(--sp-2) + env(safe-area-inset-top, 0px));
+  top: calc(var(--sp-2) + var(--safe-top));
   right: var(--sp-2);
   z-index: 3;
 }

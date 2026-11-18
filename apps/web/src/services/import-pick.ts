@@ -9,7 +9,7 @@
  *
  * 浏览器（开发调试）没有目录选择能力，退化成一个可多选的 <input type="file">。
  */
-import { isTauriRuntime } from '@/storage/transport';
+import { isMobileShell, isTauriRuntime } from '@/storage/transport';
 import { useUiStore } from '@/stores/ui';
 import { importItems, itemsFromFiles, itemsFromPaths, type ImportResult } from './import-drop';
 
@@ -45,7 +45,8 @@ async function run(items: Awaited<ReturnType<typeof itemsFromPaths>>, baseFolder
 
 /** 选若干 .md 文件导入 */
 export async function importFiles(baseFolderId: string | null = null): Promise<ImportOutcome> {
-  if (!isTauriRuntime()) {
+  // 移动端的系统对话框只给 content:// URI，Rust 侧读不到 → 用 <input type="file">
+  if (!isTauriRuntime() || isMobileShell()) {
     const files = await pickBrowserFiles();
     return files.length ? run(itemsFromFiles(files), baseFolderId) : null;
   }
@@ -62,7 +63,9 @@ export async function importFiles(baseFolderId: string | null = null): Promise<I
 
 /** 选若干文件夹，递归导入里面的 .md（子目录结构跟着建出来） */
 export async function importFolder(baseFolderId: string | null = null): Promise<ImportOutcome> {
-  if (!isTauriRuntime()) return importFiles(baseFolderId);
+  // 移动端没有「选目录」这回事（<input type="file" webkitdirectory> 在 WebView 里不认），
+  // 退化成选文件；要整目录搬的话在电脑上导入更合适。
+  if (!isTauriRuntime() || isMobileShell()) return importFiles(baseFolderId);
   const { open } = await import('@tauri-apps/plugin-dialog');
   const picked = await open({ multiple: true, directory: true });
   const paths = Array.isArray(picked) ? picked : typeof picked === 'string' ? [picked] : [];

@@ -44,6 +44,7 @@ mod corners {
 }
 
 /// Windows 凭据管理器里的服务名。凭据只进系统钥匙串，不落磁盘明文。
+#[cfg(target_os = "windows")]
 const SERVICE: &str = "donote";
 
 /// 绿色版标记文件：放在 exe 同目录即视为绿色版。
@@ -73,6 +74,7 @@ pub struct SecretPayload {
     pub value: Option<String>,
 }
 
+#[cfg(target_os = "windows")]
 #[tauri::command]
 fn secret_read(key: String) -> Result<SecretPayload, String> {
     let entry = keyring::Entry::new(SERVICE, &key).map_err(|e| e.to_string())?;
@@ -83,12 +85,14 @@ fn secret_read(key: String) -> Result<SecretPayload, String> {
     }
 }
 
+#[cfg(target_os = "windows")]
 #[tauri::command]
 fn secret_write(key: String, value: String) -> Result<(), String> {
     let entry = keyring::Entry::new(SERVICE, &key).map_err(|e| e.to_string())?;
     entry.set_password(&value).map_err(|e| e.to_string())
 }
 
+#[cfg(target_os = "windows")]
 #[tauri::command]
 fn secret_clear(key: String) -> Result<(), String> {
     let entry = keyring::Entry::new(SERVICE, &key).map_err(|e| e.to_string())?;
@@ -96,6 +100,27 @@ fn secret_clear(key: String) -> Result<(), String> {
         Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
         Err(e) => Err(e.to_string()),
     }
+}
+
+// 非 Windows（目前的实际目标是 Android）：没有系统钥匙串可写。
+// 前端在这类平台上不会安装这套存储，会退回 WebView 自己的 localStorage；
+// 这里保留同名命令只为让生成的处理表两端一致，调用时如实说没有。
+#[cfg(not(target_os = "windows"))]
+#[tauri::command]
+fn secret_read(_key: String) -> Result<SecretPayload, String> {
+    Ok(SecretPayload { value: None })
+}
+
+#[cfg(not(target_os = "windows"))]
+#[tauri::command]
+fn secret_write(_key: String, _value: String) -> Result<(), String> {
+    Err("这个平台没有系统凭据存储".into())
+}
+
+#[cfg(not(target_os = "windows"))]
+#[tauri::command]
+fn secret_clear(_key: String) -> Result<(), String> {
+    Ok(())
 }
 
 /// 打开随安装包附带的《配置说明》PDF（设置页那个按钮）。
@@ -178,41 +203,52 @@ fn list_dir(path: String) -> Result<Vec<DirEntryDto>, String> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let builder = tauri::Builder::default()
         // 走 Rust 侧 reqwest 发请求，不经浏览器，天然不受坚果云的 CORS 限制
         .plugin(tauri_plugin_http::init())
-        // 在线更新：endpoint 与公钥在 tauri.conf.json 的 plugins.updater 里
-        .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         // 插入图片时的系统文件对话框
         .plugin(tauri_plugin_dialog::init())
         // 用系统默认浏览器打开外部链接：WebView2 里 <a target="_blank"> 默认没有任何反应，
         // 前端把 http/https 外链统一交给它（capabilities 里只放行 https）
-        .plugin(tauri_plugin_opener::init())
-        .setup(|app| {
-            // 窗口在这里自建，不再交给 tauri.conf.json 里那条（那边标了 create:false）。
-            // 原因：绿色版要把 WebView 的数据目录（连接配置就存在它的 localStorage 里）
-            // 也搬进解压目录，而 Windows 上 Tauri 会强制使用 %LOCALAPPDATA% 下的固定
-            // 目录，只有自己建窗口才换得掉。窗口参数仍从 conf 读，不重复第二份。
-            let config = app
-                .config()
-                .app
-                .windows
-                .iter()
-                .find(|w| w.label == "main")
-                .cloned()
-                .ok_or_else(|| "tauri.conf.json 里找不到 main 窗口".to_string())?;
-            let mut builder = tauri::WebviewWindowBuilder::from_config(app.handle(), &config)?;
-            if let Some(profile) = portable_root().map(|root| root.join("webview")) {
-                let _ = std::fs::create_dir_all(&profile);
-                builder = builder.data_directory(profile);
-            }
-            let window = builder.build()?;
+        .plugin(tauri_plugin_opener::init());
 
-            // 窗口是无边框的，圆角要向系统要（Win10 上会失败，忽略）
-            #[cfg(target_os = "windows")]
-            if let Ok(hwnd) = window.hwnd() {
-                corners::round(hwnd.0);
+    // 在线更新（endpoint 与公钥在 tauri.conf.json 的 plugins.updater 里）只有桌面端有：
+    // 移动端的包由安装器或商店负责，插件也不支持 Android / iOS。
+    #[cfg(desktop)]
+    let builder = builder.plugin(tauri_plugin_updater::Builder::new().build());
+
+    builder
+        .setup(|app| {
+            // 窗口只在桌面端自建。移动端由系统托管唯一的 WebView，多建一个只会崩。
+            //
+            // 桌面端不交给 tauri.conf.json 里那条（那边标了 create:false）的原因：
+            // 绿色版要把 WebView 的数据目录（连接配置就存在它的 localStorage 里）也搬进
+            // 解压目录，而 Windows 上 Tauri 会强制使用 %LOCALAPPDATA% 下的固定目录，
+            // 只有自己建窗口才换得掉。窗口参数仍从 conf 读，不重复第二份。
+            #[cfg(desktop)]
+            {
+                let config = app
+                    .config()
+                    .app
+                    .windows
+                    .iter()
+                    .find(|w| w.label == "main")
+                    .cloned()
+                    .ok_or_else(|| "tauri.conf.json 里找不到 main 窗口".to_string())?;
+                let mut window_builder =
+                    tauri::WebviewWindowBuilder::from_config(app.handle(), &config)?;
+                if let Some(profile) = portable_root().map(|root| root.join("webview")) {
+                    let _ = std::fs::create_dir_all(&profile);
+                    window_builder = window_builder.data_directory(profile);
+                }
+                let window = window_builder.build()?;
+
+                // 窗口是无边框的，圆角要向系统要（Win10 上会失败，忽略）
+                #[cfg(target_os = "windows")]
+                if let Ok(hwnd) = window.hwnd() {
+                    corners::round(hwnd.0);
+                }
             }
             let _ = app;
             Ok(())

@@ -1,4 +1,9 @@
-import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router';
+import {
+  createRouter,
+  createWebHashHistory,
+  createWebHistory,
+  type RouteRecordRaw,
+} from 'vue-router';
 import { useWebdavStore } from '@/stores/webdav';
 
 declare module 'vue-router' {
@@ -54,8 +59,15 @@ const routes: RouteRecordRaw[] = [
   { path: '/:pathMatch(.*)*', redirect: '/' },
 ];
 
+/**
+ * 鸿蒙壳里页面是 resource://rawfile/www/index.html，不是 http(s)。
+ * 这种协议下 history.pushState 改不出可用的路径，刷新/回退就会丢页面；
+ * 换成 hash 模式，路由全在 # 后面，文档 URL 不变，资源相对路径也不会跟着移位。
+ */
+const isRawfileShell = typeof location !== 'undefined' && location.protocol === 'resource:';
+
 export const router = createRouter({
-  history: createWebHistory(),
+  history: isRawfileShell ? createWebHashHistory() : createWebHistory(),
   routes,
   scrollBehavior: () => ({ top: 0 }),
 });

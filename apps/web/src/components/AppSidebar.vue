@@ -11,6 +11,7 @@ import { notesApi } from '@/storage/notes';
 import { useSyncStore } from '@/stores/sync';
 import { useWebdavStore } from '@/stores/webdav';
 import { useLayoutStore } from '@/stores/layout';
+import { LOGO_SRC } from '@/utils/logo';
 import { useUiStore } from '@/stores/ui';
 import SidebarTree from '@/components/SidebarTree.vue';
 import ImportButton from '@/components/ImportButton.vue';
@@ -193,10 +194,23 @@ function onResizeKey(e: KeyboardEvent): void {
 </script>
 
 <template>
+  <!--
+    窄屏抽屉的遮罩。只在手机形态（≤600px）且抽屉展开时存在：
+    宽屏是常驻栏，没有「盖住内容」这回事，加了遮罩反而会把内容点不动。
+  -->
+  <Transition name="scrim">
+    <div
+      v-if="layout.isNarrow && layout.open"
+      class="rail-scrim"
+      aria-hidden="true"
+      @click="layout.closeDrawer()"
+    />
+  </Transition>
+
   <aside class="rail" aria-label="主导航">
     <div class="brand">
       <span class="logo" aria-hidden="true">
-        <img src="/favicon.svg" alt="" width="28" height="28" />
+        <img :src="LOGO_SRC" alt="" width="28" height="28" />
       </span>
       <span class="name">DoNote</span>
       <button class="rail-close" type="button" aria-label="收起侧边栏" @click="layout.toggle()">
@@ -248,6 +262,7 @@ function onResizeKey(e: KeyboardEvent): void {
           :to="entry.to"
           class="nav-item"
           :class="{ 'is-active': entry.match(route.path) && route.path !== '/login' }"
+          @click="layout.closeDrawer()"
         >
           <svg v-if="entry.icon === 'notes'" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
             <path
@@ -302,6 +317,7 @@ function onResizeKey(e: KeyboardEvent): void {
           class="tag-item"
           :class="{ 'is-active': route.query.tag === tag.name }"
           :to="{ path: '/', query: { tag: tag.name } }"
+          @click="layout.closeDrawer()"
         >
           <span class="tag-hash">#</span>
           <span class="tag-name">{{ tag.name }}</span>
@@ -345,7 +361,7 @@ function onResizeKey(e: KeyboardEvent): void {
   flex-direction: column;
   gap: var(--sp-2);
   padding: var(--sp-2) 12px;
-  padding-top: calc(var(--sp-2) + env(safe-area-inset-top, 0px));
+  padding-top: calc(var(--sp-2) + var(--safe-top));
   background: var(--rail-bg);
   border-right: 1px solid var(--surface-border);
   backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturation));
@@ -354,6 +370,28 @@ function onResizeKey(e: KeyboardEvent): void {
   transition:
     transform var(--dur) var(--ease-smooth),
     background-color var(--dur) var(--ease-smooth);
+}
+
+/*
+ * 手机遮罩。
+ * z-index 19 是阶梯里「侧栏下方、内容上方」那一档（侧栏 20，底部浮条 21，对话框 22）。
+ * 铺满视口而不是只铺内容区：抽屉是从窗口左缘滑出来的，遮罩只盖住右边一半会露出缝隙。
+ */
+.rail-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 19;
+  background: rgba(0, 0, 0, 0.42);
+}
+
+.scrim-enter-active,
+.scrim-leave-active {
+  transition: opacity var(--dur) var(--ease-smooth);
+}
+
+.scrim-enter-from,
+.scrim-leave-to {
+  opacity: 0;
 }
 
 /* 收起：滑出画面，主内容靠 --content-offset 收回宽度 */
@@ -631,5 +669,78 @@ html[data-resizing] .rail-resizer::after {
 .tag-count {
   font-size: var(--fs-xs);
   opacity: 0.7;
+}
+
+/*
+ * 触屏（平板 / 手机，<html data-touch> 由壳上报）。
+ * 栏还是常驻的，只把行高抬到 40px —— 手指点 34px 高的行，两边各露一半是常事。
+ */
+html[data-touch='1'] .rail {
+  padding-left: 10px;
+  padding-right: 10px;
+}
+
+html[data-touch='1'] .rail-search {
+  height: 38px;
+}
+
+html[data-touch='1'] .new {
+  height: 42px;
+}
+
+html[data-touch='1'] .nav-item,
+html[data-touch='1'] .tag-item {
+  height: 40px;
+}
+
+/*
+ * 手机（data-device="phone"）：常驻栏改成**抽屉** —— 盖在内容上滑出，主内容不再让位
+ * （--content-offset 归零，见 tokens.css 同名选择器）。
+ * 宽度不跟 --sidebar-w：那是用户在宽屏上拖出来的值，手机上应该是「一屏的八成」。
+ *
+ * 这里三处改动都是为了「打开时不要卡一下」：
+ * 1. 背景改成不透明色、关掉 backdrop-filter —— 半透明 + 模糊意味着滑动的每一帧
+ *    都要把身后 320×800 的画面重新模糊一次，端上（ArkWeb）掉帧最明显的地方就是它；
+ * 2. transform 写 translate3d，并**常驻** will-change —— 抽屉是整屏高的元素，
+ *    临时提层会正好卡在动画的第一帧上；
+ * 3. 过渡只留 transform，不再顺带过渡 background-color（打开时那一次背景变化
+ *    没人在看，却要多跑一条属性动画）。
+ */
+html[data-device='phone'] .rail {
+  width: min(84vw, 320px);
+  background: var(--rail-solid);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  box-shadow: var(--shadow-3);
+  will-change: transform;
+  transform: translate3d(0, 0, 0);
+  transition: transform var(--bars-dur) var(--bars-ease);
+}
+
+/* 收起来时不该在左边缘留一道阴影 */
+html[data-device='phone'][data-sidebar='closed'] .rail {
+  transform: translate3d(-100%, 0, 0);
+  box-shadow: none;
+}
+
+/* 手机上不存在「拖宽」这回事：没有空白可拖，手势会跟系统返回冲突 */
+html[data-device='phone'] .rail-resizer {
+  display: none;
+}
+
+html[data-device='phone'] .rail-search,
+html[data-device='phone'] .new {
+  height: 46px;
+}
+
+html[data-device='phone'] .rail-close {
+  width: 40px;
+  height: 40px;
+}
+
+html[data-device='phone'] .nav-item,
+html[data-device='phone'] .tag-item {
+  height: 46px;
+  font-size: var(--fs-base);
 }
 </style>

@@ -32,8 +32,14 @@ withDefaults(
     backTo?: string;
     /** 面包屑；给了就不显示 title */
     crumbs?: Crumb[];
+    /**
+     * 手机上只留按钮、不留字（标题 / 面包屑 / 抽屉按钮都收掉）。
+     * 编辑页用：那一页的标题就在顶栏正下方，重复一遍只会把按钮挤出去。
+     * 桌面端不受影响 —— 这个开关只在 `html[data-device='phone']` 下生效。
+     */
+    bare?: boolean;
   }>(),
-  { title: '', subtitle: '', back: false, backTo: '', crumbs: () => [] },
+  { title: '', subtitle: '', back: false, backTo: '', crumbs: () => [], bare: false },
 );
 
 const router = useRouter();
@@ -96,8 +102,13 @@ function closeWindow(): void {
     （脚本对 A / BUTTON / INPUT … 这些可点元素直接返回 false），不影响点击。
     注意：**不要**在内层再挂裸属性，裸属性会短路整条向上查找，反而把 "deep" 挡掉。
   -->
-  <header class="topbar" data-tauri-drag-region="deep">
-    <button class="icon-btn" type="button" aria-label="收起或展开侧边栏" @click="layout.toggle()">
+  <header class="topbar" :class="{ 'is-bare': bare }" data-tauri-drag-region="deep">
+    <button
+      class="icon-btn menu-btn"
+      type="button"
+      aria-label="收起或展开侧边栏"
+      @click="layout.toggle()"
+    >
       <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
         <path
           d="M4.5 7h15M4.5 12h15M4.5 17h15"
@@ -220,9 +231,10 @@ function closeWindow(): void {
   display: flex;
   align-items: center;
   gap: 6px;
-  height: var(--topbar-h);
+  height: calc(var(--topbar-h) + var(--safe-top));
   padding: 0 var(--page-gutter);
-  padding-top: env(safe-area-inset-top, 0px);
+  /* 全屏窗口下顶栏要自己让开状态栏，否则标题会压在时间/电量上 */
+  padding-top: var(--safe-top);
   background: var(--glass-bg);
   border-bottom: 1px solid var(--divider);
   backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturation));
@@ -404,5 +416,131 @@ a.crumb:hover {
 .win-btn.is-close:hover {
   background: #c42b1c;
   color: #fff;
+}
+
+/*
+ * 触屏（平板 / 手机，<html data-touch> 由壳上报）。
+ * 这一档要解决的是「顶栏显示不全」：顶栏高 48px、图标 32px、面包屑按全路径铺开，
+ * 在 920px 宽的平板上再叠上右侧那排动作按钮就放不下了 —— 右边的按钮被挤出可视区。
+ * 做法是三条：抬高顶栏（tokens 里已改 56px）让图标能长到 40px 触控尺寸、
+ * 面包屑只留当前层（路径在窄屏上没有信息价值，反而挤掉按钮）。
+ */
+html[data-touch='1'] .topbar {
+  gap: 4px;
+}
+
+html[data-touch='1'] .icon-btn {
+  width: 40px;
+  height: 40px;
+  margin-left: 0;
+  border-radius: var(--r-sm);
+}
+
+html[data-touch='1'] .icon-btn + .icon-btn {
+  margin-left: 0;
+}
+
+/* 面包屑只保留最后一段（当前页），前面的层级交给返回箭头 */
+html[data-touch='1'] .crumbs > :not(.is-current) {
+  display: none;
+}
+
+html[data-touch='1'] .crumb {
+  font-size: var(--fs-base);
+}
+
+/*
+ * 手机：当前页名按剩余宽度截断成「pract…」。
+ * 不写这两条的话，flex 会把这段文字压到只剩一个字的宽度 ——
+ * 编辑页实测就剩「p」加半个标点，看着像坏了。
+ */
+html[data-device='phone'] .crumbs {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+html[data-device='phone'] .crumb {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+html[data-touch='1'] .sep {
+  display: none;
+}
+
+/* 手机：再放大一档，让拇指点得准 */
+html[data-device='phone'] .icon-btn {
+  width: 44px;
+  height: 44px;
+}
+
+html[data-device='phone'] .topbar {
+  padding-left: 8px;
+  padding-right: 8px;
+}
+
+/*
+ * 手机：主题开关让位。
+ * 编辑页这一排是 6 个 44px 图标 + 更多 + 主题，378 CSS px 上还差 20px ——
+ * 实测主题开关整块被推出右边界，只看得见半个太阳。主题在设置页里照样能切，
+ * 顶栏优先留给「撤销 / 重做 / 源码 / 更多」这些编稿时真正按的键。
+ */
+html[data-device='phone'] .actions > .toggle {
+  display: none;
+}
+
+/*
+ * 手机上的「只留按钮」形态（编辑页用，见 NoteEditView 的 bare）。
+ *
+ * 这个页面的标题就在顶栏正下方，面包屑再写一遍只会把右侧那排按钮挤出屏幕；
+ * 抽屉按钮也一并收掉 —— 主页按钮回列表，要导航从列表页开抽屉。
+ * 桌面端不受影响：这些规则都挂在 data-device='phone' 下面。
+ */
+html[data-device='phone'] .topbar.is-bare .menu-btn,
+html[data-device='phone'] .topbar.is-bare .crumbs,
+html[data-device='phone'] .topbar.is-bare .titles {
+  display: none;
+}
+
+/* 只剩按钮了，右侧那排靠右对齐，不再被标题占位影响 */
+html[data-device='phone'] .topbar.is-bare .actions {
+  margin-left: auto;
+}
+
+/* ==========================================================================
+   移动端的顶栏收放（阅读态自动隐藏，见 utils/auto-hide-bars.ts）
+   --------------------------------------------------------------------------
+   为什么要把顶栏从「流内 sticky」改成「固定覆盖层」：
+   sticky 的位移只影响自己，收起来会在顶部留一条 56px 的空带；而给它设负 margin
+   或者缩高度都是布局变化，每一帧都要重排一次正文，滚起来就是抖的。
+   改成 fixed 之后，收 = `transform: translateY(-100%)`，只走合成层，
+   正文一动不动地继续往上滚，视觉上就是「栏滑走了、字接着走」。
+   代价已经由 app.css 里 `.page` 的 padding-top 还回来了。
+   ========================================================================== */
+html[data-touch='1'] .topbar {
+  position: fixed;
+  top: 0;
+  left: var(--content-offset);
+  right: 0;
+  /* 提前提层：不写的话，第一次滑动才临时建层，正好卡在那一帧上 */
+  will-change: transform;
+  transform: translate3d(0, 0, 0);
+  transition:
+    transform var(--bars-dur) var(--bars-ease),
+    /* 平板上侧栏收合时，顶栏要跟着内容区一起平移，否则会「跳」一下 */
+    left var(--follow-dur) var(--ease-smooth),
+    background-color var(--dur) var(--ease-smooth),
+    border-color var(--dur) var(--ease-smooth);
+}
+
+html[data-touch='1'][data-bars='hidden'] .topbar {
+  transform: translate3d(0, -100%, 0);
+}
+
+/* 收起来时它已经不在画面里，别再吃上面的点击（拖动选区时会卡住拖不出去） */
+html[data-touch='1'][data-bars='hidden'] .topbar {
+  pointer-events: none;
 }
 </style>
