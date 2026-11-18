@@ -141,6 +141,13 @@ fn write_text(path: String, contents: String) -> Result<(), String> {
     std::fs::write(&path, contents).map_err(|e| format!("写不进去这个位置：{e}"))
 }
 
+/// 写二进制（导出 .docx 用）。`data` 是 base64 —— 走 JSON 通道比塞数字数组小一个量级。
+#[tauri::command]
+fn write_bytes(path: String, data: String) -> Result<(), String> {
+    let bytes = local::decode_base64(&data)?;
+    std::fs::write(&path, bytes).map_err(|e| format!("写不进去这个位置：{e}"))
+}
+
 #[derive(Serialize)]
 pub struct DirEntryDto {
     pub path: String,
@@ -218,6 +225,7 @@ pub fn run() {
             read_image,
             read_text,
             write_text,
+            write_bytes,
             list_dir,
             cache::cache_dir,
             cache::cache_read,

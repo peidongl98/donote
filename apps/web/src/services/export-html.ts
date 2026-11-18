@@ -11,6 +11,8 @@
  */
 import MarkdownIt from 'markdown-it';
 import { getStorage } from '@/services/storage';
+import { toBase64 } from '@/utils/base64';
+import { saveFile } from '@/services/export-save';
 // 列表外观与应用内**同一份源码**：`?raw` 把 CSS 原文取进来，不做任何改写。
 // 这样「编辑时 / 源码预览 / 导出」三处不会各写一遍、各漂一处。
 import listCss from '@/styles/list-style.css?raw';
@@ -58,17 +60,6 @@ export function resolveAssetPath(notePath: string, src: string): string | null {
   }
   if (!clean || clean.startsWith('/')) return null;
   return dir ? `${dir}/${clean}` : clean;
-}
-
-/** ArrayBuffer → base64（分块，别一次 apply 几十万个参数） */
-export function toBase64(buffer: ArrayBuffer): string {
-  const bytes = new Uint8Array(buffer);
-  let binary = '';
-  const chunk = 0x8000;
-  for (let i = 0; i < bytes.length; i += chunk) {
-    binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
-  }
-  return btoa(binary);
 }
 
 async function inlineImages(note: ExportNote, html: string): Promise<{ html: string; inlined: number; missed: number }> {
@@ -130,15 +121,40 @@ footer { margin-top: 56px; font-size: 12px; color: #8b96ad; }
   a { color: #7e9acd; }
   footer { color: #6b7280; }
 }
+/* 导出文件被人直接 Ctrl+P 时也按 A4 排：纸上看不出屏幕那一套（深色底、卡片圆角全是黑的） */
+@media print {
+  :root { color-scheme: light; }
+  @page { size: A4; margin: 20mm 18mm; }
+  body { max-width: none; padding: 0; background: #fff !important; color: #000 !important;
+    font-family: "Times New Roman", "Source Han Sans SC", "Noto Sans CJK SC", "Microsoft YaHei", SimHei, serif; }
+  a { color: #000 !important; text-decoration: underline; }
+  code { background: none; border: 1px solid #ddd; }
+  pre { background: #f5f5f5 !important; }
+  th { background: #f2f2f2 !important; }
+  th, td, table { border-color: #999 !important; }
+  blockquote { color: #333 !important; border-left-color: #bbb !important; }
+  footer { display: none; }
+}
 `;
 
-const escapeHtml = (text: string): string =>
+export const escapeHtml = (text: string): string =>
   text.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c] as string);
+
+/**
+ * 正文 → 内嵌图片后的 HTML 片段。三种导出（HTML / Word / PDF）共用这一份，
+ * 免得同一个 Markdown 在三处各渲染一遍、各漂一处。
+ */
+export async function renderNoteBody(
+  note: ExportNote,
+): Promise<{ body: string; inlined: number; missed: number }> {
+  const raw = md.render(note.content);
+  const { html, inlined, missed } = await inlineImages(note, raw);
+  return { body: html, inlined, missed };
+}
 
 /** 组装自包含 HTML（不写文件，方便先测） */
 export async function buildExportHtml(note: ExportNote): Promise<ExportResult> {
-  const body = md.render(note.content);
-  const { html, inlined, missed } = await inlineImages(note, body);
+  const { body: html, inlined, missed } = await renderNoteBody(note);
   const doc = `<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
@@ -158,23 +174,5 @@ ${html}
 
 /** 落盘：桌面端走系统保存对话框，浏览器退化成下载 */
 export async function saveExportHtml(fileName: string, html: string): Promise<'saved' | 'canceled'> {
-  const { isTauriRuntime } = await import('@/storage/transport');
-  if (isTauriRuntime()) {
-    const { save } = await import('@tauri-apps/plugin-dialog');
-    const { invoke } = await import('@tauri-apps/api/core');
-    const target = await save({ defaultPath: fileName, filters: [{ name: 'HTML', extensions: ['html'] }] });
-    if (typeof target !== 'string') return 'canceled';
-    await invoke('write_text', { path: target, contents: html });
-    return 'saved';
-  }
-
-  const url = URL.createObjectURL(new Blob([html], { type: 'text/html;charset=utf-8' }));
-  const link = document.createElement('a');
-  link.href = url;
-  link.download = fileName;
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 4000);
-  return 'saved';
+  return saveFile(fileName, html, { name: 'HTML', extensions: ['html'] });
 }

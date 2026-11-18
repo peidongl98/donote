@@ -9,7 +9,7 @@
       "title": "笔记数据层",
       "covers": "连接 / 新建 / 编辑自动保存 / 改名 / 移动进文件夹 / 软删 / 回收站 / 恢复 / 彻底删除 / 删文件夹 / 断开",
       "estSeconds": 95,
-      "checks": 49
+      "checks": 52
     },
     "attach": {
       "file": "attach-e2e.cjs",

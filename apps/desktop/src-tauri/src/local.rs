@@ -228,7 +228,7 @@ pub fn local_mkdir(app: AppHandle, path: String) -> Result<(), String> {
 }
 
 /// 标准 base64（带 `=` 填充）。自己写十行，不为一次编解码引一个 crate。
-fn decode_base64(input: &str) -> Result<Vec<u8>, String> {
+pub(crate) fn decode_base64(input: &str) -> Result<Vec<u8>, String> {
     fn value(c: u8) -> Option<u8> {
         match c {
             b'A'..=b'Z' => Some(c - b'A'),

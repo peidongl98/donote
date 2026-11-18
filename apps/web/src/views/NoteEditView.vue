@@ -14,6 +14,8 @@ import NoteEditor from '@/components/editor/NoteEditor.vue';
 import { EMPTY_SNAPSHOT, redo, undo } from '@/components/editor/commands';
 import { clampDocWidth } from '@/components/editor/doc-width';
 import { buildExportHtml, saveExportHtml } from '@/services/export-html';
+import { exportPdf } from '@/services/export-pdf';
+import { saveFile } from '@/services/export-save';
 import { suggestTags } from '@/utils/suggest-tags';
 
 type SaveStatus = 'idle' | 'dirty' | 'saving' | 'saved' | 'error';
@@ -448,31 +450,47 @@ function addSuggestedTag(word: string): void {
 
 /* --------------------------- 导出 --------------------------- */
 
-const exporting = ref(false);
+type ExportKind = 'html' | 'docx' | 'pdf';
+
+const exporting = ref<ExportKind | ''>('');
 
 /**
- * 导出这篇笔记为自包含 HTML。
- *
- * 导出前先 flush：标题/正文还在防抖窗口里的话，导出的会是上一次的内容。
+ * 导出这篇笔记：HTML / Word / PDF 三种，共用同一次 flush ——
+ * 标题、正文还在防抖窗口里的话，导出的会是上一次的内容。
  */
-async function exportHtml(): Promise<void> {
+async function exportAs(kind: ExportKind): Promise<void> {
   if (exporting.value) return;
-  exporting.value = true;
+  exporting.value = kind;
+  const titleSafe = title.value.trim() || '无标题笔记';
   try {
     await flush();
-    const result = await buildExportHtml({
-      path: decodeId(noteId.value),
-      title: title.value.trim() || '无标题笔记',
-      content: content.value,
-    });
-    const saved = await saveExportHtml(`${title.value.trim() || '无标题笔记'}.html`, result.html);
-    if (saved === 'canceled') return;
-    const miss = result.missed ? `，${result.missed} 张图片没读出来（保留了原引用）` : '';
-    ui.toast(`已导出 HTML（内嵌 ${result.inlined} 张图片${miss}）`, 3600);
+    const note = { path: decodeId(noteId.value), title: titleSafe, content: content.value };
+
+    if (kind === 'html') {
+      const result = await buildExportHtml(note);
+      const saved = await saveExportHtml(`${titleSafe}.html`, result.html);
+      if (saved === 'canceled') return;
+      const miss = result.missed ? `，${result.missed} 张图片没读出来（保留了原引用）` : '';
+      ui.toast(`已导出 HTML（内嵌 ${result.inlined} 张图片${miss}）`, 3600);
+    } else if (kind === 'docx') {
+      // docx 库（含 jszip）四百多 KB，只在真要导出 Word 时才加载
+      const { buildDocxFile } = await import('@/services/export-docx');
+      const file = await buildDocxFile(note);
+      const saved = await saveFile(`${titleSafe}.docx`, file.blob, {
+        name: 'Word 文档',
+        extensions: ['docx'],
+      });
+      if (saved === 'canceled') return;
+      const miss = file.missed ? `，${file.missed} 张图片 Word 收不了（已跳过）` : '';
+      ui.toast(`已导出 Word（${file.images} 张图片${miss}）`, 3600);
+    } else {
+      await exportPdf(note);
+      ui.toast('已在打印窗口里打开，选「另存为 PDF」即可', 4200);
+    }
   } catch (err) {
     ui.toast(err instanceof Error ? `导出失败：${err.message}` : '导出失败', 3600);
   } finally {
-    exporting.value = false;
+    exporting.value = '';
     sheetOpen.value = false;
   }
 }
@@ -975,10 +993,26 @@ onBeforeUnmount(() => {
             <button
               type="button"
               class="sheet-item"
-              :disabled="isTrashed || loading || exporting"
-              @click="exportHtml"
+              :disabled="isTrashed || loading || !!exporting"
+              @click="exportAs('docx')"
             >
-              {{ exporting ? '导出中…' : '导出 HTML' }}
+              {{ exporting === 'docx' ? '导出中…' : '导出 Word（.docx）' }}
+            </button>
+            <button
+              type="button"
+              class="sheet-item"
+              :disabled="isTrashed || loading || !!exporting"
+              @click="exportAs('pdf')"
+            >
+              {{ exporting === 'pdf' ? '导出中…' : '导出 PDF（A4）' }}
+            </button>
+            <button
+              type="button"
+              class="sheet-item"
+              :disabled="isTrashed || loading || !!exporting"
+              @click="exportAs('html')"
+            >
+              {{ exporting === 'html' ? '导出中…' : '导出 HTML' }}
             </button>
             <button
               v-if="!isTrashed"

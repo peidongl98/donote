@@ -16,6 +16,8 @@ import type { FolderDTO, NoteSummaryDTO } from '@donote/shared';
 import { RouterLink, useRoute, useRouter } from 'vue-router';
 import { DavError, containerDirOf, decodeId, foldersApi, notesApi } from '@/storage/notes';
 import { buildExportHtml, saveExportHtml } from '@/services/export-html';
+import { exportPdf } from '@/services/export-pdf';
+import { saveFile } from '@/services/export-save';
 import { useSyncStore } from '@/stores/sync';
 import { useUiStore } from '@/stores/ui';
 import { isTauriRuntime } from '@/storage/transport';
@@ -385,24 +387,43 @@ function openNote(note: NoteSummaryDTO): void {
 }
 
 /**
- * 导出单篇为自包含 HTML。与详情页的导出同一套：读正文 → 内嵌图片 → 落盘。
+ * 导出单篇：HTML / Word / PDF，与详情页同一套实现。
  * 侧栏手上只有标题（列表不带正文），所以这里要再读一次。
  */
-async function exportNote(note: NoteSummaryDTO): Promise<void> {
+async function exportNote(note: NoteSummaryDTO, kind: 'html' | 'docx' | 'pdf'): Promise<void> {
   closeMenu();
   if (busy.value) return;
   busy.value = true;
+  const titleSafe = note.title || '无标题笔记';
   try {
     const full = await notesApi.get(note.id);
-    const result = await buildExportHtml({
+    const payload = {
       path: decodeId(note.id),
       title: full.note.title || '无标题笔记',
       content: full.note.content,
-    });
-    const saved = await saveExportHtml(`${full.note.title || '无标题笔记'}.html`, result.html);
-    if (saved === 'canceled') return;
-    const miss = result.missed ? `，${result.missed} 张图片没读出来（保留了原引用）` : '';
-    ui.toast(`已导出 HTML（内嵌 ${result.inlined} 张图片${miss}）`, 3600);
+    };
+
+    if (kind === 'html') {
+      const result = await buildExportHtml(payload);
+      const saved = await saveExportHtml(`${titleSafe}.html`, result.html);
+      if (saved === 'canceled') return;
+      const miss = result.missed ? `，${result.missed} 张图片没读出来（保留了原引用）` : '';
+      ui.toast(`已导出 HTML（内嵌 ${result.inlined} 张图片${miss}）`, 3600);
+    } else if (kind === 'docx') {
+      // docx 库（含 jszip）四百多 KB，只在真要导出 Word 时才加载
+      const { buildDocxFile } = await import('@/services/export-docx');
+      const file = await buildDocxFile(payload);
+      const saved = await saveFile(`${titleSafe}.docx`, file.blob, {
+        name: 'Word 文档',
+        extensions: ['docx'],
+      });
+      if (saved === 'canceled') return;
+      const miss = file.missed ? `，${file.missed} 张图片 Word 收不了（已跳过）` : '';
+      ui.toast(`已导出 Word（${file.images} 张图片${miss}）`, 3600);
+    } else {
+      await exportPdf(payload);
+      ui.toast('已在打印窗口里打开，选「另存为 PDF」即可', 4200);
+    }
   } catch (err) {
     ui.toast(err instanceof Error ? `导出失败：${err.message}` : '导出失败', 3600);
   } finally {
@@ -928,7 +949,13 @@ async function commitMove(row: SidebarRow, folderId: string | null): Promise<voi
           <button type="button" class="menu-item" @click="openMove('note', menu.note!)">
             移到…
           </button>
-          <button type="button" class="menu-item" @click="exportNote(menu.note!)">
+          <button type="button" class="menu-item" :disabled="busy" @click="exportNote(menu.note!, 'docx')">
+            导出 Word
+          </button>
+          <button type="button" class="menu-item" :disabled="busy" @click="exportNote(menu.note!, 'pdf')">
+            导出 PDF
+          </button>
+          <button type="button" class="menu-item" :disabled="busy" @click="exportNote(menu.note!, 'html')">
             导出 HTML
           </button>
           <button

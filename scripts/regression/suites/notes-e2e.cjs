@@ -225,6 +225,40 @@ function check(name, ok, detail = '') {
   check('5 标题改名把 id 一起换掉（文件名跟标题走）', savedId !== createdId, `${createdId} → ${savedId}`);
   await page.screenshot({ path: path.join(SHOTS, '01-editor.png') });
 
+  // ---------- 3b. 导出 Word / PDF ----------
+  // 导出面板三个格式都得在；Word 要真的落下一个能被 Office 打开的包（zip 头 PK），
+  // PDF 走的是打印链路，这里只验 A4 打印视图挂起来了。
+  await page.getByRole('button', { name: '更多操作' }).click();
+  await page.waitForTimeout(500);
+  const exportItems = await page.locator('.sheet-item').allInnerTexts();
+  check(
+    '3b 导出面板有 Word / PDF / HTML',
+    ['导出 Word', '导出 PDF', '导出 HTML'].every((label) => exportItems.some((t) => t.includes(label))),
+    exportItems.join('/'),
+  );
+
+  const [docxDownload] = await Promise.all([
+    page.waitForEvent('download', { timeout: 30000 }),
+    page.locator('.sheet-item', { hasText: '导出 Word' }).click(),
+  ]);
+  const docxPath = await docxDownload.path();
+  const docxHead = docxPath ? fs.readFileSync(docxPath).subarray(0, 2).toString('utf8') : '';
+  check(
+    '3b 导出 Word 落下一个 .docx',
+    /\.docx$/.test(docxDownload.suggestedFilename()) && docxHead === 'PK',
+    `${docxDownload.suggestedFilename()} ${docxHead}`,
+  );
+
+  await page.getByRole('button', { name: '更多操作' }).click();
+  await page.waitForTimeout(400);
+  await page.locator('.sheet-item', { hasText: '导出 PDF' }).click();
+  await page.waitForTimeout(1500);
+  const pdfView = await page.evaluate(() => ({
+    frames: document.querySelectorAll('iframe').length,
+    toasted: document.body.innerText.includes('另存为 PDF'),
+  }));
+  check('3b 导出 PDF 挂起 A4 打印视图', pdfView.frames > 0 && pdfView.toasted, JSON.stringify(pdfView));
+
   // ---------- 4. 直接问坚果云：文件真的落了 ----------
   await page.waitForTimeout(1500);
   const fileStatus = await davStatus(`${TITLE}.md`);
