@@ -1,7 +1,8 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "DoNote 的通用权限：放行用户自行填写的 WebDAV 服务器（http/https，任意主机与端口）、插入图片时的系统文件对话框，以及无边框窗口自绘标题栏所需的窗口操作。不限制窗口 label —— 桌面端只有一个 main，Android 上只有一个系统托管的 WebView，写死 label 反而会让移动端整份权限失效",
+  "description": "DoNote 的通用权限：放行用户自行填写的 WebDAV 服务器（http/https，任意主机与端口）、插入图片时的系统文件对话框，以及无边框窗口自绘标题栏所需的窗口操作。必须写明 windows —— Tauri 运行时只放行 windows / webviews 里命中当前窗口的命令（见 tauri::ipc::authority::resolve_access），不写等于一条也不放行。桌面端与安卓壳的窗口 label 都是 main",
+  "windows": ["main"],
   "permissions": [
     "core:default",
     {

@@ -1,11 +1,11 @@
 {
-  "version": "0.4.13",
-  "notes": "移动端适配与安卓版\n\n- 新增安卓版（Tauri Android，arm64），与桌面端共用同一套界面与本地笔记库。\n- 手机、平板各一套排版：字号放大、按钮给到 40px 触控尺寸、顶栏与列表按安全区避让。\n- 顶栏改为沉浸式：向上滚动自动收起、向下滚动回弹；右侧动作收进「更多」菜单。\n- 表格在窄屏改为列按内容定宽 + 左右拖动，不再挤压换行；编辑器与预览一致。\n- 移动端导入图片、导入文件改走系统文件选择器，避开 content:// 路径读取不到的问题。\n- 鸿蒙壳上报设备形态（phone / tablet / 2in1），桌面形态不再误用触屏排版。",
-  "pub_date": "2026-11-18T17:34:18Z",
+  "version": "0.4.14",
+  "notes": "修复：窗口按钮（最小化 / 最大化 / 关闭）点击无反应\n\n上一版为兼容安卓，把权限文件里的 windows 声明去掉了。Tauri 运行时只放行\nwindows / webviews 里命中当前窗口的命令，不写等于一条都不放行，\n于是整个窗口操作（最小化、最大化、关闭、拖动标题栏）全部被拒。\n本次把 windows: [\"main\"] 加回来；安卓侧不受影响，因为它的窗口 label 同样是 main，\n真正会让安卓校验失败的在线更新权限，已经单独拆到 desktop-updater.json 并按平台限定。",
+  "pub_date": "2026-11-19T03:14:35Z",
   "platforms": {
     "windows-x86_64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSWTRLN1pZbGY4NHRacUdCcTdZZ0lPbzBpSnEvWk4rWlBYN0ExN2R4U2ZmeWVDR3dZVjEvRFVHNTNRcEZ5ZW5ZRi81RmJUdjVFTzYxV3FheHA5MWxHdDZpM1lqL3JpWEFRPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzk1MDIzMjU4CWZpbGU6RG9Ob3RlXzAuNC4xM194NjQtc2V0dXAuZXhlCXZlcnNpb246MC40LjEzCjluSWg0c1pmMmpMbVNqL1V4WDZyZVRHNmVTTDNiWk9XNUxER0ZUa0laa2gzc3F6cEZMOCtaYmRYWi9lWWYvSlAraVFEVnloOG5NVUM5ZXZFbSswaUF3PT0K",
-      "url": "https://donote.pages.dev/downloads/DoNote-0.4.13-win-x64.exe"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSWTRLN1pZbGY4NG5HU1ZHWlFjZXdoZWVaZ2w5SEN0c25hNnJBeFRxdHhhcjc1a2ZRdEJkMWVLK0RjSkFXWVdIRUwvQzZTdVk0VzJjZ2JvUURHUW5RNlFURURFK1pWaEFjPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzk1MDU4MDc0CWZpbGU6RG9Ob3RlXzAuNC4xNF94NjQtc2V0dXAuZXhlCXZlcnNpb246MC40LjE0ClE2MUZVWm82WTFMR1k5R09wS1dPNEFKd1d5cmJlTytGdEQ3dlJxenorUGtCbm1Ea3hYQmd0b2xlSzZ2RlhTUyt4dG9jTzZVbktSdlFLUTgxM04yOERRPT0K",
+      "url": "https://donote.pages.dev/downloads/DoNote-0.4.14-win-x64.exe"
     }
   }
 }
