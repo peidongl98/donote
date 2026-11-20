@@ -194,6 +194,24 @@ function onSurfaceScroll(): void {
 }
 
 /**
+ * 桌面端滚轮：鼠标在表格上就横滚表格，在表格外滚整页。
+ *
+ * 表格是 <table> 自己当滚动容器（见 editor.css 的 display: block），没有外层 wrapper，
+ * 所以从事件目标往上找最近的 table。只在表格真能横向滚、且这次是纵向滚轮时才接管，
+ * 其余情况一律放行 —— 否则短表格或已滚到头的表格会把页面滚动吞掉。
+ */
+function onSurfaceWheel(event: WheelEvent): void {
+  if (event.ctrlKey || event.metaKey) return;
+  const target = event.target as HTMLElement | null;
+  const table = target?.closest('table') as HTMLElement | null;
+  if (!table) return;
+  if (table.scrollWidth <= table.clientWidth + 1) return;
+  if (Math.abs(event.deltaY) <= Math.abs(event.deltaX)) return;
+  table.scrollLeft += event.deltaY;
+  event.preventDefault();
+}
+
+/**
  * 正文字号快捷键。
  *
  * 挂在正文容器上而不是 window：事件只在编辑器内部有焦点时才冒泡到这里，
@@ -266,6 +284,7 @@ defineExpose({
         class="donote-surface"
         :style="{ '--doc-font-size': `${docFontSize}px` }"
         @scroll="onSurfaceScroll"
+        @wheel="onSurfaceWheel"
         @keydown="onFontKey"
       />
     </div>

@@ -174,47 +174,73 @@ html[data-theme='dark'] .donote-surface .ProseMirror {
  * collapse 下浏览器不认 border-radius（外框圆角出不来），separate 才能让
  * 「圆角 8px + 溢出隐藏」真的生效，网格线也不会变成双线。
  */
+/*
+ * 表格自带横向滚动。
+ *
+ * Milkdown 7 的表格节点没有 prosemirror-tables 的 .tableWrapper —— 那是 TableView
+ * 独有的一层，本项目未启用，表格直接挂在 .ProseMirror 下。所以让 <table> 自己当滚动容器：
+ * display: block 之后浏览器会把 tbody 包成匿名 table，列宽照旧对齐，外层 block 可以
+ * overflow-x 滚动。之前写在 .tableWrapper 上的规则全部空转，这也是手机上「表格顶出
+ * 边框又拖不动」的原因。
+ */
 .donote-surface .ProseMirror table {
+  display: block;
+  box-sizing: border-box;
   border-collapse: separate;
   border-spacing: 0;
   margin: 0.9em 0;
   width: 100%;
+  max-width: 100%;
   table-layout: fixed;
   border: 1px solid var(--tbl-line);
   border-radius: 8px;
-  overflow: hidden;
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-x: contain;
+  scrollbar-width: thin;
+  scrollbar-color: var(--tbl-line) transparent;
+}
+
+.donote-surface .ProseMirror table::-webkit-scrollbar {
+  height: 6px;
+}
+
+.donote-surface .ProseMirror table::-webkit-scrollbar-thumb {
+  background: var(--tbl-line);
+  border-radius: 3px;
+}
+
+.donote-surface .ProseMirror table::-webkit-scrollbar-track {
+  background: transparent;
 }
 
 /*
- * 触屏（平板 / 手机）：表格不再把宽度平均切给每一列，改成「列按内容定宽、超出就左右滑」。
- *
- * 原来 100% + table-layout: fixed 在 720 CSS px 上、五列的表格每列只剩 140px 出头，
- * 中文被挤成一列一个字。滚动交给 prosemirror-tables 自带的那层 .tableWrapper ——
- * 给 <table> 自己写 overflow 是无效的，它不是块级滚动容器。
- * table-layout 改回 auto 之后列宽跟着内容走，min-width 兜住单列的最低可读宽度。
+ * 触屏（平板 / 手机）：列按内容定宽，不再把宽度平均切给每一列 ——
+ * 原来 fixed 布局下五列的表格每列只剩 140px 出头，中文被挤成一列一个字。
+ * 宽度必须留在 100%：写成 max-content 时 table 元素自己就宽到内容宽，反而没得滚。
  */
-html[data-touch='1'] .donote-surface .ProseMirror .tableWrapper {
-  overflow-x: auto;
-  overscroll-behavior-x: contain;
-  -webkit-overflow-scrolling: touch;
-  margin: 0.9em 0;
-  scrollbar-width: none;
-}
-
-html[data-touch='1'] .donote-surface .ProseMirror .tableWrapper::-webkit-scrollbar {
-  display: none;
-}
-
 html[data-touch='1'] .donote-surface .ProseMirror table {
-  width: max-content;
-  min-width: 100%;
   table-layout: auto;
-  margin: 0;
+  width: 100%;
 }
 
 html[data-touch='1'] .donote-surface .ProseMirror th,
 html[data-touch='1'] .donote-surface .ProseMirror td {
   min-width: 92px;
+}
+
+/*
+ * .donote-surface 是 flex column，子项默认 min-width: auto ——
+ * 宽表格会把整块正文撑到表格那么宽，横滚就落到正文区而不是表格上，
+ * 表现为「整页左右晃、表格本身拖不动」。把子项宽度钉回容器宽度。
+ */
+.donote-surface .ProseMirror {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.donote-surface {
+  overflow-x: hidden;
 }
 
 .donote-surface .ProseMirror th,

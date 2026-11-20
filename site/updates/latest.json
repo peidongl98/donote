@@ -1,11 +1,11 @@
 {
-  "version": "0.4.14",
-  "notes": "修复：窗口按钮（最小化 / 最大化 / 关闭）点击无反应\n\n上一版为兼容安卓，把权限文件里的 windows 声明去掉了。Tauri 运行时只放行\nwindows / webviews 里命中当前窗口的命令，不写等于一条都不放行，\n于是整个窗口操作（最小化、最大化、关闭、拖动标题栏）全部被拒。\n本次把 windows: [\"main\"] 加回来；安卓侧不受影响，因为它的窗口 label 同样是 main，\n真正会让安卓校验失败的在线更新权限，已经单独拆到 desktop-updater.json 并按平台限定。",
-  "pub_date": "2026-11-19T03:14:35Z",
+  "version": "0.4.15",
+  "notes": "表格横向滚动：过宽的表格不再撑破正文宽度，桌面端把鼠标放进表格滚动的是表格本身（横向），鼠标在表格外滚动的是整页；手机与控制条同样可以左右拖动。\n\n第二行工具栏改为常驻槽位：之前这行只在选中文本、光标进入列表或表格时才出现，一出现就把正文顶下去，选中过程中反复闪动。现在槽位固定 36px，按钮进出不再改变总高度。\n\n窗口右上角的最小化、最大化、关闭恢复可用（0.4.14 的权限配置漏了窗口声明，导致这三个按钮点击无响应）。\n\n移动端设备标记统一：安卓、鸿蒙与浏览器的手机形态走同一套判定，为后续移动端界面调整打底。",
+  "pub_date": "2026-11-20T18:02:56Z",
   "platforms": {
     "windows-x86_64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSWTRLN1pZbGY4NG5HU1ZHWlFjZXdoZWVaZ2w5SEN0c25hNnJBeFRxdHhhcjc1a2ZRdEJkMWVLK0RjSkFXWVdIRUwvQzZTdVk0VzJjZ2JvUURHUW5RNlFURURFK1pWaEFjPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzk1MDU4MDc0CWZpbGU6RG9Ob3RlXzAuNC4xNF94NjQtc2V0dXAuZXhlCXZlcnNpb246MC40LjE0ClE2MUZVWm82WTFMR1k5R09wS1dPNEFKd1d5cmJlTytGdEQ3dlJxenorUGtCbm1Ea3hYQmd0b2xlSzZ2RlhTUyt4dG9jTzZVbktSdlFLUTgxM04yOERRPT0K",
-      "url": "https://donote.pages.dev/downloads/DoNote-0.4.14-win-x64.exe"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSWTRLN1pZbGY4NHRTT04yZUlROFBvNlg3OVF5eThBdE1aQmx3M0dVZCsrblNWa0NFdEdHZVE4cWkwV3hndGEyKy9MUFMwK3YrdEpKUFJ3OWRONGQraUV6c1plYlBzdkFFPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzk1MTk3Nzc1CWZpbGU6RG9Ob3RlXzAuNC4xNV94NjQtc2V0dXAuZXhlCXZlcnNpb246MC40LjE1CmcvTlVxU0VMNmFTaHVzYmNkQVpUMS85Y245VXh4U09OYUs1K0JnYW42TlB6S1VQelBvaVBGVlE5MzFuZVEwaWc2K1VSaEpnai9DOXpyeWNCQk5lWkJnPT0K",
+      "url": "https://donote.pages.dev/downloads/DoNote-0.4.15-win-x64.exe"
     }
   }
 }

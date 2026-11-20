@@ -211,6 +211,15 @@ const noteLinkValue = ref('');
 /** 表格尺寸网格：点「表格」弹 8×8，悬停选尺寸，点了才插；初始高亮 3×3 */
 const GRID_MAX = 8;
 const tableOpen = computed(() => props.state.inTable);
+/**
+ * 二级工具条是否有内容。
+ *
+ * 这一行的高度必须恒定：它跟着光标进出列表 / 表格而出现消失，一旦参与高度计算，
+ * 下面整块正文就会上下跳，选文本时尤其明显。
+ */
+const contextVisible = computed(
+  () => !props.disabled && (props.state.listDepth > 0 || props.state.heading > 0 || props.state.inTable),
+);
 const gridOpen = ref(false);
 const gridSize = ref({ row: 3, col: 3 });
 const currentHeading = computed(() => props.state.heading);
@@ -483,9 +492,14 @@ function toMindmap(): void {
 
     <!--
       二级工具条：只在某种上下文里才出现的控件一律放这一行，不再往顶栏里塞分隔线。
-      现在两处用到：光标在大纲（列表 / 标题）里（本行）、光标在表格里（下一行）。
+      现在两处用到：光标在大纲（列表 / 标题）里、光标在表格里。
+
+      外层恒定占一行高度（min-height + nowrap），内容出现消失不改变工具栏总高度 ——
+      否则光标扫过列表或表格时，下面的正文会整块上下跳。两行用 display:contents
+      摊平到同一个横向滚动行里，同时命中（表格单元格里套列表）也不会顶高。
     -->
-    <div v-if="(state.listDepth > 0 || state.heading > 0) && !disabled" class="row is-context is-list">
+    <div class="context-dock" :class="{ 'is-idle': !contextVisible }">
+      <div v-if="(state.listDepth > 0 || state.heading > 0) && !disabled" class="row is-context is-list">
       <span class="row-label">{{ state.listDepth > 0 ? '列表' : '标题' }}</span>
       <template v-if="state.listDepth > 0">
         <button
@@ -543,10 +557,10 @@ function toMindmap(): void {
       >
         转成导图
       </button>
-    </div>
+      </div>
 
-    <!-- 光标在表格里时多出一行表格操作 -->
-    <div v-if="tableOpen && !disabled" class="row is-context is-table">
+      <!-- 光标在表格里时多出一行表格操作 -->
+      <div v-if="tableOpen && !disabled" class="row is-context is-table">
       <span class="row-label">表格</span>
       <button type="button" class="chip" @mousedown.prevent @click="addRowAfter(editor)">下方加行</button>
       <button type="button" class="chip" @mousedown.prevent @click="addColAfter(editor)">右侧加列</button>
@@ -571,6 +585,7 @@ function toMindmap(): void {
       <button type="button" class="chip" title="选中光标所在的整列" @mousedown.prevent @click="selectColAt(editor)">
         选中整列
       </button>
+      </div>
     </div>
 
     <!-- 表格尺寸网格：悬停预览行列数，点了插入（默认 3×3） -->
@@ -650,12 +665,47 @@ function toMindmap(): void {
   flex-wrap: wrap;
 }
 
-/* 二级工具条：只在某种上下文里才出现的控件都放这一行（列表 / 表格…），
-   与顶栏之间用一条细线隔开，视觉上是「这一层的工具」而不是顶栏的一部分 */
-.row.is-context {
+/*
+ * 二级工具条的容器。高度由这里兜住，不随内容增减变化 ——
+ * 光标进出列表 / 表格时工具栏总高恒定，下面整块正文不会被推着上下跳。
+ * 内容单行横排，超宽自己横滚；换行就会顶高，所以 nowrap。
+ */
+.context-dock {
+  display: flex;
+  align-items: center;
   gap: 6px;
+  min-height: 36px;
   padding-top: 6px;
   border-top: 1px solid var(--divider);
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+}
+
+.context-dock::-webkit-scrollbar {
+  display: none;
+}
+
+/* 横滚容器里按钮不能被压缩变形，超宽就让容器滚。
+   两行是 display:contents，所以这些是孙元素，不能用直接子选择器 */
+.context-dock .chip,
+.context-dock .row-label,
+.context-dock .level-badge,
+.context-dock .divider {
+  flex: none;
+}
+
+/* 没有上下文时只留高度，不留那条线 */
+.context-dock.is-idle {
+  border-top-color: transparent;
+}
+
+/* 二级工具条：只在某种上下文里才出现的控件都放这一行（列表 / 表格…），
+   与顶栏之间用一条细线隔开，视觉上是「这一层的工具」而不是顶栏的一部分。
+   摊平进 dock：两行同时出现（表格单元格里套列表）也不会各占一行把工具栏顶高 */
+.row.is-context {
+  display: contents;
 }
 
 .row-label {
