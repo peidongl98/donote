@@ -1,7 +1,18 @@
 import { fileURLToPath, URL } from 'node:url';
+import { readFileSync } from 'node:fs';
 import { defineConfig } from 'vite';
 import vue from '@vitejs/plugin-vue';
 import { VitePWA } from 'vite-plugin-pwa';
+
+/**
+ * 构建期版本号，取自 apps/web/package.json（发版脚本会和其他六处一起改）。
+ *
+ * 界面上的版本不再问外壳要：安卓壳的 `package_info` 是 Rust 编译时常量，
+ * 而交叉编译产物在本机被安全软件拦掉，安卓包只能复用上一版的 .so ——
+ * 那样「关于」里会一直停在上一个版本号。改成前端自己带版本，三端一致。
+ */
+const APP_VERSION = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8'))
+  .version as string;
 
 /**
  * 桌面构建时是否落地。
@@ -21,6 +32,9 @@ const isDesktop = !!process.env.TAURI_ENV_PLATFORM;
 const isHarmony = !!process.env.DONOTE_WEB_HARMONY;
 
 export default defineConfig({
+  define: {
+    __APP_VERSION__: JSON.stringify(APP_VERSION),
+  },
   /*
    * 鸿蒙那边是 ArkWeb 从 rawfile 里加载页面，页面 URL 形如 resource://rawfile/www/index.html。
    * 如果资源写成绝对路径 /assets/x.js，会被解析到 rawfile 根、丢掉 www 这一层，页面直接白屏。

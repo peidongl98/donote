@@ -71,12 +71,9 @@ export function portableZipUrl(version: string): string {
 /** 当前版本号；浏览器里回退到构建时注入的版本 */
 export async function appVersion(): Promise<string> {
   if (!isTauriRuntime()) return '0.0.0-web';
-  try {
-    const { getVersion } = await import('@tauri-apps/api/app');
-    return await getVersion();
-  } catch {
-    return 'unknown';
-  }
+  // 用构建期注入的版本，不再问外壳：安卓壳的 package_info 是 Rust 编译时常量，
+  // 而那一步在本机编不出来（安全软件拦交叉编译产物），壳会落后一个版本号。
+  return __APP_VERSION__;
 }
 
 export async function checkUpdate(): Promise<UpdateState> {

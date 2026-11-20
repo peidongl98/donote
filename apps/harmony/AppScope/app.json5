@@ -3,8 +3,8 @@
     // 必须与 AGC 上创建应用时填的包名逐字一致，改一个字就签不过
     "bundleName": "com.peidongl98.donote",
     "vendor": "DoNote",
-    "versionCode": 1000000,
-    "versionName": "0.1.0",
+    "versionCode": 1000015,
+    "versionName": "0.4.15",
     "icon": "$media:app_icon",
     "label": "$string:app_name"
   }
