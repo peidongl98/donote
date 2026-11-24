@@ -1,0 +1,8 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "desktop-updater",
+  "description": "只有桌面端存在的权限：应用内在线更新（移动端的包由安装器/商店负责，插件在 Android 上根本不注册，写了这条权限会让整份 capabilities 校验失败）",
+  "platforms": ["windows", "macOS", "linux"],
+  "windows": ["main"],
+  "permissions": ["updater:default"]
+}
