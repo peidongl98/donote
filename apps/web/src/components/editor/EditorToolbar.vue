@@ -8,7 +8,7 @@
  * 分两组：段落样式下拉（正文 / 标题 1–6），行内与块级操作按钮。
  * 光标在表格里时，下面多出一行表格操作。
  */
-import { computed, ref } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import type { Editor } from '@milkdown/kit/core';
 import { useUiStore } from '@/stores/ui';
 import {
@@ -220,6 +220,42 @@ const tableOpen = computed(() => props.state.inTable);
 const contextVisible = computed(
   () => !props.disabled && (props.state.listDepth > 0 || props.state.heading > 0 || props.state.inTable),
 );
+
+/*
+ * 第一行有没有被挤到换行。
+ *
+ * 没有上下文那一行时，第一行要在工具栏里垂直居中；但窗口窄到放不下时，
+ * 第一行会折成两行，这时再往下挪就会贴到底边 —— 所以只在单行时才居中。
+ *
+ * 判据不写死像素：单行高度随按钮尺寸变（桌面 30、触屏 40），写死阈值会在
+ * 触屏上误判。改成拿行高和「行内一个控件的高度」比 —— 折行了行高必然翻倍。
+ */
+const mainRow = ref<HTMLElement | null>(null);
+const wrapped = ref(false);
+let rowObserver: ResizeObserver | null = null;
+
+function readWrapped(): boolean {
+  const row = mainRow.value;
+  if (!row) return false;
+  const first = Array.from(row.children).find((c) => c.getBoundingClientRect().height > 0) as HTMLElement | undefined;
+  if (!first) return false;
+  return row.getBoundingClientRect().height > first.getBoundingClientRect().height + 4;
+}
+
+onMounted(() => {
+  if (!mainRow.value) return;
+  wrapped.value = readWrapped();
+  rowObserver = new ResizeObserver(() => {
+    wrapped.value = readWrapped();
+  });
+  rowObserver.observe(mainRow.value);
+});
+
+onBeforeUnmount(() => {
+  rowObserver?.disconnect();
+  rowObserver = null;
+});
+
 const gridOpen = ref(false);
 const gridSize = ref({ row: 3, col: 3 });
 const currentHeading = computed(() => props.state.heading);
@@ -367,8 +403,8 @@ function toMindmap(): void {
 </script>
 
 <template>
-  <div class="toolbar" :class="{ 'is-disabled': disabled }">
-    <div class="row">
+  <div class="toolbar" :class="{ 'is-disabled': disabled, 'is-idle': !contextVisible, 'is-wrapped': wrapped }">
+    <div ref="mainRow" class="row is-main">
       <!-- 正文字号：只改渲染（标题是 em 相对单位，会等比跟着变），不落盘 -->
       <button
         type="button"
@@ -658,6 +694,26 @@ function toMindmap(): void {
   box-shadow: var(--shadow-1);
 }
 
+/*
+ * 第一行在工具栏内的纵向位置。
+ *
+ * 🔴 这里只动 transform，不动高度、不动 margin —— 工具栏总高由下面那条恒定
+ * 36px 的二级槽位兜住，所以光标进出列表 / 表格时正文一个像素都不会移位。
+ * 没有上下文那一行时整块看起来是一行工具，让它在这 36px 里居中；有上下文时
+ * 回顶部，两者之间 180ms 过渡，视觉上是「栏内走位」而不是「整块重排」。
+ *
+ * 21px 是「槽位 36px ＋ 行间距 6px」的一半 —— 居中就是把这两块空白上下均分，
+ * 与按钮多高无关（触屏 40px 按钮一样是 21）。改槽位高度或行间距必须同步改这里。
+ */
+.row.is-main {
+  transform: translateY(var(--main-shift, 0));
+  transition: transform 180ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.toolbar.is-idle:not(.is-wrapped) .row.is-main {
+  --main-shift: 21px;
+}
+
 .row {
   display: flex;
   align-items: center;
@@ -699,6 +755,31 @@ function toMindmap(): void {
 /* 没有上下文时只留高度，不留那条线 */
 .context-dock.is-idle {
   border-top-color: transparent;
+}
+
+/*
+ * 上下文按钮淡入。给按钮本身挂动画而不是给 .row.is-context ——
+ * 那一层是 display: contents，不生成盒子，动画不会跑。
+ */
+@keyframes ctx-in {
+  from {
+    opacity: 0;
+    transform: translateY(-3px);
+  }
+}
+
+.context-dock .chip,
+.context-dock .row-label {
+  animation: ctx-in 160ms ease both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .row.is-main,
+  .context-dock .chip,
+  .context-dock .row-label {
+    transition: none;
+    animation: none;
+  }
 }
 
 /* 二级工具条：只在某种上下文里才出现的控件都放这一行（列表 / 表格…），

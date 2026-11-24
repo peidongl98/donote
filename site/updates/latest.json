@@ -1,11 +1,11 @@
 {
-  "version": "0.4.15",
-  "notes": "表格横向滚动：过宽的表格不再撑破正文宽度，桌面端把鼠标放进表格滚动的是表格本身（横向），鼠标在表格外滚动的是整页；手机与控制条同样可以左右拖动。\n\n第二行工具栏改为常驻槽位：之前这行只在选中文本、光标进入列表或表格时才出现，一出现就把正文顶下去，选中过程中反复闪动。现在槽位固定 36px，按钮进出不再改变总高度。\n\n窗口右上角的最小化、最大化、关闭恢复可用（0.4.14 的权限配置漏了窗口声明，导致这三个按钮点击无响应）。\n\n移动端设备标记统一：安卓、鸿蒙与浏览器的手机形态走同一套判定，为后续移动端界面调整打底。",
-  "pub_date": "2026-11-20T18:02:56Z",
+  "version": "0.4.16",
+  "notes": "工具栏第一行在没有列表、表格按钮时改为在栏内垂直居中，不再贴着上边、卡片下半截空一块；光标进入列表或表格时这一行滑回顶部，二级按钮在下方淡入。整块只移动 21px、过渡 180ms，工具栏总高与正文位置都没有变化。\n\n窗口窄到第一行折成两行时保持顶格排列，不做下移，避免贴到底边。\n\n安卓与鸿蒙同步更新到同一版本，三端界面一致。",
+  "pub_date": "2026-11-24T08:15:22Z",
   "platforms": {
     "windows-x86_64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSWTRLN1pZbGY4NHRTT04yZUlROFBvNlg3OVF5eThBdE1aQmx3M0dVZCsrblNWa0NFdEdHZVE4cWkwV3hndGEyKy9MUFMwK3YrdEpKUFJ3OWRONGQraUV6c1plYlBzdkFFPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzk1MTk3Nzc1CWZpbGU6RG9Ob3RlXzAuNC4xNV94NjQtc2V0dXAuZXhlCXZlcnNpb246MC40LjE1CmcvTlVxU0VMNmFTaHVzYmNkQVpUMS85Y245VXh4U09OYUs1K0JnYW42TlB6S1VQelBvaVBGVlE5MzFuZVEwaWc2K1VSaEpnai9DOXpyeWNCQk5lWkJnPT0K",
-      "url": "https://donote.pages.dev/downloads/DoNote-0.4.15-win-x64.exe"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSWTRLN1pZbGY4NGxrWEdCdEFESnNPUWo3bGw4b1VXczMvcVUyZlRuaTQrNlA2VmxaU21yc2RyQVRlTElra2JHczV3SlZiZExkR3pIKy9xZnlaWGZYaVRzaWY5Z2lBT1FrPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzk1NTA4MTIyCWZpbGU6RG9Ob3RlXzAuNC4xNl94NjQtc2V0dXAuZXhlCXZlcnNpb246MC40LjE2CkdaWE9UTDBpUGFmWVdzLy9xSW54YWU0aGRobVR1WlR5a1dnMHVBU1F1S2V5NlJpcDU1VVdRS3N1eGxqbjJpY1VEUDNSWXd2SHhzbzBZb252ZktvVkN3PT0K",
+      "url": "https://donote.pages.dev/downloads/DoNote-0.4.16-win-x64.exe"
     }
   }
 }
